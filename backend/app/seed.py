@@ -10,7 +10,7 @@ import sys
 import httpx
 
 API_URL = os.environ.get("SEED_API_URL", "http://localhost:8000")
-DEMO_EMAIL = "demo@meals.local"
+DEMO_EMAIL = "demo@example.com"  # .local/.test TLDs are rejected by email validation
 DEMO_PASSWORD = "demo-password-123"
 
 SPAG_BOL = {
