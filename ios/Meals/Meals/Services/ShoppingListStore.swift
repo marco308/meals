@@ -7,11 +7,13 @@ import Observation
 enum PendingOp: Codable, Equatable, Identifiable {
     case setChecked(id: UUID, itemID: UUID, value: Bool)
     case setExcluded(id: UUID, itemID: UUID, value: Bool)
+    case setStapleNeeded(id: UUID, itemID: UUID, value: Bool)
     case addAdhoc(id: UUID, name: String, quantity: Double?, unit: String?)
 
     var id: UUID {
         switch self {
-        case .setChecked(let id, _, _), .setExcluded(let id, _, _), .addAdhoc(let id, _, _, _): id
+        case .setChecked(let id, _, _), .setExcluded(let id, _, _), .setStapleNeeded(let id, _, _),
+             .addAdhoc(let id, _, _, _): id
         }
     }
 }
@@ -51,18 +53,37 @@ final class ShoppingListStore {
 
     // MARK: - Projection (server truth + pending ops, filtered for display)
 
-    /// Items as the user should see them right now, offline or not.
-    var displayItems: [ListItem] {
+    /// Server truth with pending ops applied — the base every view filters.
+    private var projectedItems: [ListItem] {
         var items = cache?.payload.items ?? []
         for op in pending {
             apply(op, to: &items)
         }
-        items = items.filter { item in
-            if item.isStaple && !includeStaples { return false }
+        return items
+    }
+
+    /// Items as the user should see them right now, offline or not. A staple
+    /// marked "I'm low" in the staples check stays visible in its aisle.
+    var displayItems: [ListItem] {
+        aisleSorted(projectedItems.filter { item in
+            if item.isStaple && !includeStaples && !item.isNeededStaple { return false }
             if item.excluded && !includeExcluded { return false }
             if item.checked && !includeChecked { return false }
             return true
-        }
+        })
+    }
+
+    /// The pre-shop staples check: every staple on the list (minus "already
+    /// have it" exclusions), walked in the same aisle order as the shop.
+    var stapleCheckItems: [ListItem] {
+        aisleSorted(projectedItems.filter { $0.isStaple && !$0.excluded })
+    }
+
+    var sections: [(aisle: String, label: String, items: [ListItem])] { grouped(displayItems) }
+
+    var stapleCheckSections: [(aisle: String, label: String, items: [ListItem])] { grouped(stapleCheckItems) }
+
+    private func aisleSorted(_ items: [ListItem]) -> [ListItem] {
         let order = aisleOrder
         return items.sorted {
             let left = order[$0.aisle] ?? order.count
@@ -71,15 +92,9 @@ final class ShoppingListStore {
         }
     }
 
-    var hiddenStaplesCount: Int {
-        var items = cache?.payload.items ?? []
-        for op in pending { apply(op, to: &items) }
-        return items.filter { $0.isStaple && !$0.excluded }.count
-    }
-
-    var sections: [(aisle: String, label: String, items: [ListItem])] {
+    private func grouped(_ items: [ListItem]) -> [(aisle: String, label: String, items: [ListItem])] {
         var result: [(String, String, [ListItem])] = []
-        for item in displayItems {
+        for item in items {
             if result.last?.0 == item.aisle {
                 result[result.count - 1].2.append(item)
             } else {
@@ -103,6 +118,10 @@ final class ShoppingListStore {
         case .setExcluded(_, let itemID, let value):
             if let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].excluded = value
+            }
+        case .setStapleNeeded(_, let itemID, let value):
+            if let index = items.firstIndex(where: { $0.id == itemID }) {
+                items[index].stapleNeeded = value
             }
         case .addAdhoc(let id, let name, let quantity, let unit):
             let canonical = name.lowercased().trimmingCharacters(in: .whitespaces)
@@ -164,11 +183,19 @@ final class ShoppingListStore {
         enqueue(.setExcluded(id: UUID(), itemID: item.id, value: false))
     }
 
+    /// Staples check: "I'm low" — put this staple on the main list.
+    func markStapleNeeded(_ item: ListItem) {
+        enqueue(.setStapleNeeded(id: UUID(), itemID: item.id, value: true))
+    }
+
+    /// "Have it after all" — the staple goes back to hidden.
+    func unmarkStapleNeeded(_ item: ListItem) {
+        enqueue(.setStapleNeeded(id: UUID(), itemID: item.id, value: false))
+    }
+
     /// Excluded items with pending ops applied — for the "already have" view.
     var excludedCount: Int {
-        var items = cache?.payload.items ?? []
-        for op in pending { apply(op, to: &items) }
-        return items.filter(\.excluded).count
+        projectedItems.filter(\.excluded).count
     }
 
     func addAdhoc(name: String, quantity: Double?, unit: String?) {
@@ -228,9 +255,11 @@ final class ShoppingListStore {
     private func replay(_ op: PendingOp, client: any ShoppingAPI, remap: inout [UUID: UUID]) async throws {
         switch op {
         case .setChecked(_, let itemID, let value):
-            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: value, excluded: nil)
+            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: value, excluded: nil, stapleNeeded: nil)
         case .setExcluded(_, let itemID, let value):
-            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: nil, excluded: value)
+            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: nil, excluded: value, stapleNeeded: nil)
+        case .setStapleNeeded(_, let itemID, let value):
+            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: nil, excluded: nil, stapleNeeded: value)
         case .addAdhoc(let id, let name, let quantity, let unit):
             let item = try await client.addItem(AdhocPayload(id: id, name: name, quantity: quantity, unit: unit))
             // The server may merge into an existing line with a different id;

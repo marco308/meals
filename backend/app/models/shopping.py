@@ -42,6 +42,10 @@ class ListItem(Base):
     unit: Mapped[str | None] = mapped_column(String(50), default=None)
     checked: Mapped[bool] = mapped_column(Boolean, default=False)
     excluded: Mapped[bool] = mapped_column(Boolean, default=False)  # "already have it"
+    # Staple marked "I'm low" during the pre-shop staples check: that one item
+    # joins the main list even though staples are hidden by default. Shop
+    # state, like checked — archiving the list retires it.
+    staple_needed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

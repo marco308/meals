@@ -97,6 +97,45 @@ class TestShoppingList:
         assert "no list item matching" in result
         assert "onion" in result
 
+    @respx.mock
+    async def test_need_staple_marks_and_unmarks(self):
+        oil = _item("olive oil", "🍝", "Dry goods & pasta", "500 ml", is_staple=True, staple_needed=False)
+        respx.get(f"{API}/shopping-list").mock(
+            return_value=httpx.Response(200, json={"items": [oil], "hidden_staples": 0})
+        )
+        patch = respx.patch(f"{API}/shopping-list/items/11111111-1111-1111-1111-111111111111").mock(
+            return_value=httpx.Response(200, json={**oil, "staple_needed": True})
+        )
+        result = await server.need_staple("olive oil")
+        assert "olive oil — 500 ml added to this shop's list" in result
+        import json
+
+        assert json.loads(patch.calls.last.request.content) == {"staple_needed": True}
+
+        undo = await server.need_staple("olive oil", needed=False)
+        assert "hidden again" in undo
+        assert json.loads(patch.calls.last.request.content) == {"staple_needed": False}
+
+    @respx.mock
+    async def test_need_staple_rejects_non_staples(self):
+        respx.get(f"{API}/shopping-list").mock(
+            return_value=httpx.Response(
+                200, json={"items": [_item("milk", "🥛", "Dairy & eggs", is_staple=False)], "hidden_staples": 0}
+            )
+        )
+        result = await server.need_staple("milk")
+        assert "isn't a staple" in result
+
+    @respx.mock
+    async def test_add_to_list_flags_hidden_staples(self):
+        respx.post(f"{API}/shopping-list/items").mock(
+            return_value=httpx.Response(
+                201, json=_item("olive oil", "🍝", "Dry goods & pasta", "500 ml", is_staple=True, staple_needed=False)
+            )
+        )
+        result = await server.add_to_list("olive oil", 500, "ml")
+        assert "need_staple" in result, "the reply must warn that the staple stays hidden"
+
 
 class TestRecipes:
     @respx.mock

@@ -18,7 +18,7 @@ drive it with their own AI assistant. POC implementation of the plan in
   item knows which meals need it), exact-unit merging, ad-hoc items, staples
   check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
 - **AI access layer** — the headline: a documented REST API, an MCP server
-  with 15 task-level tools, and a published skill/prompt pack. The app ships
+  with 16 task-level tools, and a published skill/prompt pack. The app ships
   **no built-in LLM** — bring your own.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
   one household, plus per-user API tokens (PATs) for AI clients.
