@@ -95,21 +95,25 @@ struct PlanMealRow: View {
     let planMeal: PlanMeal
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(planMeal.meal.name)
-                    .font(.body)
-                    .strikethrough(planMeal.cookedAt != nil, color: .secondary)
-                if planMeal.cookedAt != nil {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
+        NavigationLink {
+            MealDetailView(planMeal: planMeal)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(planMeal.meal.name)
+                        .font(.body)
+                        .strikethrough(planMeal.cookedAt != nil, color: .secondary)
+                    if planMeal.cookedAt != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
                 }
-            }
-            if let subtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .swipeActions(edge: .trailing) {
@@ -119,7 +123,9 @@ struct PlanMealRow: View {
                 Label("Remove", systemImage: "trash")
             }
         }
-        .swipeActions(edge: .leading) {
+        // allowsFullSwipe off: a stray horizontal drag while scrolling must
+        // not silently mark a meal cooked (there is no un-cook in v1).
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 Task { await store.markCooked(planMeal) }
             } label: {

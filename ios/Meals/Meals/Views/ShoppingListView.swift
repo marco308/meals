@@ -130,6 +130,7 @@ struct ShoppingListView: View {
 struct ShoppingItemRow: View {
     @Environment(ShoppingListStore.self) private var store
     let item: ListItem
+    @State private var showDetail = false
 
     var body: some View {
         Button {
@@ -152,6 +153,13 @@ struct ShoppingItemRow: View {
                 Text(item.display)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                Button {
+                    showDetail = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.tint)
+                }
+                .buttonStyle(.borderless)  // keep the row tap = check-off
             }
         }
         .buttonStyle(.plain)
@@ -162,6 +170,107 @@ struct ShoppingItemRow: View {
                 Label("Have it", systemImage: "house")
             }
             .tint(.indigo)
+        }
+        .sheet(isPresented: $showDetail) {
+            ItemDetailSheet(item: item)
+                .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+/// Why is this on the list? Every contribution with its amount, linking
+/// through to the recipes that need it (guiding principle 3).
+struct ItemDetailSheet: View {
+    @Environment(ShoppingListStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let item: ListItem
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        Text("\(item.aisle) \(item.aisleLabel)")
+                        Spacer()
+                        Text(item.display)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    if item.isStaple {
+                        Label("Staple — usually hidden from the list", systemImage: "cabinet")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Needed by") {
+                    ForEach(Array(item.sources.enumerated()), id: \.offset) { _, source in
+                        sourceRow(source)
+                    }
+                    if item.sources.isEmpty {
+                        Text("Nothing — added by hand.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Button {
+                        store.toggleChecked(item)
+                        dismiss()
+                    } label: {
+                        Label(item.checked ? "Un-check" : "Check off", systemImage: item.checked ? "circle" : "checkmark.circle")
+                    }
+                    Button {
+                        store.markAlreadyHave(item)
+                        dismiss()
+                    } label: {
+                        Label("Already have it", systemImage: "house")
+                    }
+                }
+            }
+            .navigationTitle(item.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sourceRow(_ source: ItemSource) -> some View {
+        let amount = ShoppingListStore.displayQuantity(source.quantity, item.unit)
+        if source.adHoc {
+            HStack {
+                Label("Added by hand", systemImage: "plus.circle")
+                Spacer()
+                Text(amount).foregroundStyle(.secondary).monospacedDigit()
+            }
+        } else if let recipeId = source.recipeId {
+            NavigationLink {
+                RecipeDetailView(recipeId: recipeId)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.recipeTitle ?? "Recipe")
+                        if let meal = source.mealName {
+                            Text("in \(meal)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Text(amount).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.mealName ?? "A meal")
+                    Text("on the side").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(amount).foregroundStyle(.secondary).monospacedDigit()
+            }
         }
     }
 }

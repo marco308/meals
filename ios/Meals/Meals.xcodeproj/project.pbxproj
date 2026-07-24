@@ -13,6 +13,7 @@
 		18515DECB99D80616BD89E12 /* ShoppingListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09E8F8020D86C897D5D6A949 /* ShoppingListView.swift */; };
 		2198B0DCA697C6E3926351B8 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC533C1E2125CD62146E5D8 /* Session.swift */; };
 		2B2B2DE9F4E5D835D6CDC6CA /* recipes.json in Resources */ = {isa = PBXBuildFile; fileRef = 183675812E67838C34714549 /* recipes.json */; };
+		37FB79A819C9AB18F7AF0AA1 /* MealDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC170AD6BFF1EFA5014D9508 /* MealDetailView.swift */; };
 		475C3F03F4D79C506CB60EDE /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA8B330DE18FE497BF81B3F /* APIClient.swift */; };
 		486A849FEF5FE5EE35669C33 /* recipe_detail.json in Resources */ = {isa = PBXBuildFile; fileRef = 3B384466720DBF0E3D96AB0F /* recipe_detail.json */; };
 		48A1C5E3B7FDEC1F529CC2D2 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BB60C811C4F4F94ACCBDAA /* KeychainStore.swift */; };
@@ -52,6 +53,7 @@
 		5D8F1FE1E9EF4AD5601168B5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7B63FF22663CBF6714FC7D1E /* PlanStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanStore.swift; sourceTree = "<group>"; };
 		9AA8B330DE18FE497BF81B3F /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		AC170AD6BFF1EFA5014D9508 /* MealDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealDetailView.swift; sourceTree = "<group>"; };
 		ADC533C1E2125CD62146E5D8 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		B66EA689CBC77E0A01B7ACB6 /* ShoppingListStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingListStore.swift; sourceTree = "<group>"; };
 		B6BB60C811C4F4F94ACCBDAA /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 			isa = PBXGroup;
 			children = (
 				FAE55DDAC07906AA53CD27FA /* LoginView.swift */,
+				AC170AD6BFF1EFA5014D9508 /* MealDetailView.swift */,
 				508A6AD1482A364B03642B52 /* PlanView.swift */,
 				BBB3E84858DE7AF4A674A1FA /* RecipesView.swift */,
 				09E8F8020D86C897D5D6A949 /* ShoppingListView.swift */,
@@ -277,6 +280,7 @@
 				475C3F03F4D79C506CB60EDE /* APIClient.swift in Sources */,
 				48A1C5E3B7FDEC1F529CC2D2 /* KeychainStore.swift in Sources */,
 				E6FAC2023D7C9105BBDEFE90 /* LoginView.swift in Sources */,
+				37FB79A819C9AB18F7AF0AA1 /* MealDetailView.swift in Sources */,
 				11A113337CF102BCB8E57C9C /* MealsApp.swift in Sources */,
 				93FDDD549722D21133EE0C6E /* Models.swift in Sources */,
 				0C00AD3AC7924C95AD19C6E8 /* PlanStore.swift in Sources */,

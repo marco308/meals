@@ -94,6 +94,9 @@ struct ItemSource: Codable, Equatable, Sendable {
     let mealName: String?
     let recipeTitle: String?
     let quantity: Double?
+    // Optional so caches written by older app versions still decode.
+    var mealId: UUID? = nil
+    var recipeId: UUID? = nil
 }
 
 struct ListItem: Codable, Identifiable, Equatable, Sendable {
