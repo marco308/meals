@@ -22,3 +22,8 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# iOS
+ios/Meals/build/
+*.xcuserdatad/
+xcuserdata/

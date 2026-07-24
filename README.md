@@ -46,13 +46,20 @@ make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 | Directory | Contents |
 |---|---|
 | [`backend/`](backend/) | FastAPI + async SQLAlchemy + Alembic. Postgres in Docker, SQLite for local/tests |
+| [`ios/`](ios/) | Native SwiftUI iPhone app: plan, recipe library + URL ingest, and an **offline-first shopping list** |
 | [`mcp/`](mcp/) | MCP server wrapping the API with task-level tools (`ingest_recipe`, `get_shopping_list`, `check_off`, …) |
 | [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) |
 | [`planning/`](planning/) | Product plan and decisions log this POC implements |
 
-An iOS app (`ios/`, SwiftUI, offline-first shopping list) is planned but not
-part of this backend POC; the API is already shaped for it (client-generated
-item ids, per-item `updated_at`, idempotent adds).
+### iOS app
+
+`make ios-build` / `make ios-test` (needs Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen)),
+or open `ios/Meals/Meals.xcodeproj` after running `xcodegen generate` there.
+Log in with the seed's demo account against `http://localhost:8000` (editable
+on the login screen). Check-offs and quick adds work with no signal — the hard
+requirement from decision Q11: interactions render instantly from a cached
+list, queue to disk, survive relaunch, and replay in order (with idempotent
+client ids and id-remapping for server-side merges) when connectivity returns.
 
 ## Trying the AI layer
 
@@ -88,7 +95,8 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test    # 200 backend tests (98% coverage) + 11 mcp tests, all on SQLite/respx — no Docker, no network
+make test      # 200 backend tests (98% coverage) + 11 mcp tests — no Docker, no network
+make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
 The suite covers the unit convention, JSON-LD extraction (incl. `@graph`,

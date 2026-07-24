@@ -80,6 +80,21 @@ fmt: ## Auto-format + fix lint issues
 	cd $(BACKEND_DIR) && $(UV) run ruff check --fix app tests && $(UV) run ruff format app tests
 	cd mcp && $(UV) run ruff check --fix . && $(UV) run ruff format .
 
+# ------------------------------------------------------------------ ios (needs Xcode + xcodegen)
+
+IOS_DIR := ios/Meals
+IOS_DEST := platform=iOS Simulator,name=iPhone 17
+
+.PHONY: ios-build
+ios-build: ## Build the iOS app for the simulator
+	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
+		-destination '$(IOS_DEST)' -derivedDataPath build build 2>&1 | grep -E "error:|warning:|BUILD" | tail -5
+
+.PHONY: ios-test
+ios-test: ## Run the iOS unit tests
+	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
+		-destination '$(IOS_DEST)' -derivedDataPath build test 2>&1 | grep -E "error:|Executed.*test|TEST " | tail -6
+
 # ------------------------------------------------------------------ database
 
 .PHONY: migrate
