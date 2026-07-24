@@ -109,6 +109,12 @@ migration: ## Create a new migration: make migration m="add foo"
 seed: ## Load demo data (into the Docker stack's API by default)
 	cd $(BACKEND_DIR) && $(UV) run python -m app.seed
 
+# ------------------------------------------------------------------ homelab
+
+.PHONY: deploy
+deploy: ## Deploy to the homelab swarm (the swarm manager behind Traefik)
+	./deploy/deploy.sh
+
 # ------------------------------------------------------------------ cleanup
 
 .PHONY: clean

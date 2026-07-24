@@ -64,8 +64,8 @@ explicitly so multi-tenancy stays cheap later).
 | FastAPI + async SQLAlchemy + Alembic, one container (Q9) | ✅ | `make dev` (Docker: Postgres+API), `make run` (SQLite, zero deps) |
 | Postgres (Q10) | ✅ | compose stack; full flows verified live on Postgres |
 | Native SwiftUI iOS, offline list hard requirement (Q11) | ✅ | queued ops, disk persistence, relaunch survival, ordered replay w/ id-remapping — proven with the API stopped |
-| Public exposure via Swarm+Traefik on `*.marcuslab.uk` (Q12) | 🔷 | hardening in place (auth everywhere, rate limits, `REGISTRATION_ENABLED=false` switch); the actual homelab deploy is the remaining step |
-| Remote MCP over HTTPS (Q15) | 🔷 | streamable-HTTP mode + per-user PATs work; public HTTPS endpoint lands with the Q12 deploy |
+| Public exposure via Swarm+Traefik on `*.marcuslab.uk` (Q12) | ✅ | **deployed 2026-07-24**: `https://meals.marcuslab.uk` (stack on the swarm manager, Postgres 17, Cloudflare-resolved TLS); `make deploy` redeploys. Registration stays open until the household registers |
+| Remote MCP over HTTPS (Q15) | ✅ | the public API is live, so MCP works remotely today with `MEALS_API_URL=https://meals.marcuslab.uk` + a PAT (stdio or streamable-HTTP per instance); a single hosted multi-user MCP endpoint stays on the backlog |
 | Open-source readiness | ✅ | permissive deps, env config, explicit household model, no filesystem coupling beyond the DB |
 
 ## Deferred by decision (unchanged)
@@ -74,9 +74,11 @@ Supermarket product URLs (F5, Q6 targets noted), multi-household tenancy,
 pantry/stock beyond staples, cooked-meal analytics (hook stored), notifications,
 sharing, imports.
 
-## The one open thread
+## Deployed (2026-07-24)
 
-Homelab deployment (Q12/Q15 🔷): build the Swarm/Traefik stack file, point
-`meals.marcuslab.uk` at it, set `REGISTRATION_ENABLED=false` after the
-household registers, and point the iOS app's server field at the domain.
-Everything else in the plan is built, tested, and verified.
+`https://meals.marcuslab.uk` — swarm stack on the swarm manager behind Traefik
+(`deploy/docker-stack.yml`, `make deploy`). Verified live: health, docs, auth
+guard, TLS. Post-deploy tail (see BACKLOG.md): register the household's
+accounts then set `REGISTRATION_ENABLED=false` in `~/meals-deploy/.env` on
+the swarm manager and redeploy; point the iOS app at the domain; add a pg_dump backup.
+The plan is now fully implemented and live.
