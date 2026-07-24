@@ -1,1 +1,115 @@
-# meals
+# Meals
+
+A meal **options** planner (not a rigid Mon–Sun grid) with a recipe library and
+an aisle-sorted shopping list, exposed through an AI-friendly API so anyone can
+drive it with their own AI assistant. POC implementation of the plan in
+[`planning/`](planning/).
+
+## What it does
+
+- **Recipes** — submit a URL once and it's parsed (free, from the page's
+  schema.org JSON-LD) and cached forever; pages without structured data are
+  handed to *your* AI to parse and submit back. Manual family recipes work too.
+- **Meals** — the unit of planning: recipes + loose ingredients ("cottage pie
+  *with peas and carrots*" needs no carrot recipe).
+- **Plans** — weekly-ish pools of meal options grouped by slot (dinners,
+  lunches). No days, no dates: an unexpected trip breaks nothing.
+- **Shopping list** — auto-populated from the plan with full provenance (every
+  item knows which meals need it), exact-unit merging, ad-hoc items, staples
+  check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
+- **AI access layer** — the headline: a documented REST API, an MCP server
+  with 15 task-level tools, and a published skill/prompt pack. The app ships
+  **no built-in LLM** — bring your own.
+- **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
+  one household, plus per-user API tokens (PATs) for AI clients.
+
+## Quickstart
+
+```bash
+make dev     # full stack in Docker: Postgres + API on http://localhost:8000
+make seed    # demo user, recipes, a plan, and a ready-made shopping list
+```
+
+Interactive API docs: <http://localhost:8000/docs>. The seed prints demo
+credentials and an API token you can immediately use with `curl` or the MCP
+server.
+
+No Docker? `make run` starts the API locally on SQLite (zero services), and
+`make test` runs the whole suite the same way.
+
+```
+make help    # everything else: logs, lint, migrate, fmt, down, nuke…
+```
+
+## Repo layout
+
+| Directory | Contents |
+|---|---|
+| [`backend/`](backend/) | FastAPI + async SQLAlchemy + Alembic. Postgres in Docker, SQLite for local/tests |
+| [`ios/`](ios/) | Native SwiftUI iPhone app: plan, recipe library + URL ingest, and an **offline-first shopping list** |
+| [`mcp/`](mcp/) | MCP server wrapping the API with task-level tools (`ingest_recipe`, `get_shopping_list`, `check_off`, …) |
+| [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) |
+| [`planning/`](planning/) | Product plan and decisions log this POC implements |
+
+### iOS app
+
+`make ios-build` / `make ios-test` (needs Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen)),
+or open `ios/Meals/Meals.xcodeproj` after running `xcodegen generate` there.
+Log in with the seed's demo account against `http://localhost:8000` (editable
+on the login screen). Check-offs and quick adds work with no signal — the hard
+requirement from decision Q11: interactions render instantly from a cached
+list, queue to disk, survive relaunch, and replay in order (with idempotent
+client ids and id-remapping for server-side merges) when connectivity returns.
+
+## Trying the AI layer
+
+Create a token (or use the seed's), then point an MCP client at the server:
+
+```json
+{
+  "mcpServers": {
+    "meals": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/meals/mcp", "python", "-m", "meals_mcp.server"],
+      "env": {
+        "MEALS_API_URL": "http://localhost:8000",
+        "MEALS_API_TOKEN": "meals_…"
+      }
+    }
+  }
+}
+```
+
+Set `MEALS_MCP_TRANSPORT=http` to serve MCP over streamable HTTP instead of
+stdio (the remote-MCP deployment mode). Non-MCP assistants: paste
+[`skill/prompt-pack.md`](skill/prompt-pack.md) into their instructions — the
+REST API alone is enough.
+
+### The quantity convention (decision Q2)
+
+Every quantity is **metric** (g/kg/ml/l) or a **count of a natural unit**
+("2 tins", "3 cloves"). No cups/oz/tbsp — clients convert first, and the API
+rejects violations with the exact conversion to apply. The backend merges
+exact-matching canonical units only.
+
+## Tests
+
+```bash
+make test      # 200 backend tests (98% coverage) + 11 mcp tests — no Docker, no network
+make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
+```
+
+The suite covers the unit convention, JSON-LD extraction (incl. `@graph`,
+HowToSections, malformed scripts), ingredient-line parsing, auth + PATs +
+rate limiting, recipe caching semantics, and the full shopping-list engine
+(merging, provenance, decrement-on-removal, ad-hoc survival, staples,
+check-off/uncheck, archive, resync on meal/recipe edits).
+
+## Deployment notes
+
+The stack is a single API container + Postgres, designed for the existing
+homelab pattern: Docker Swarm behind Traefik with Let's Encrypt on a
+`*.marcuslab.uk` subdomain (see `docker-compose.yml` for the shape). Being
+internet-facing, auth is mandatory everywhere except `/healthz`, auth
+endpoints are rate-limited, and registration can be closed with
+`REGISTRATION_ENABLED=false` once the household has its accounts.

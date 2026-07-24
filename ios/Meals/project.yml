@@ -1,0 +1,86 @@
+name: Meals
+options:
+  bundleIdPrefix: com.marcuslab
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  Meals:
+    type: application
+    platform: iOS
+    sources:
+      - Meals
+    resources:
+      - path: Meals/Resources
+        excludes:
+          - "**/.DS_Store"
+    info:
+      path: Meals/Info.plist
+      properties:
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcuslab.meals
+        PRODUCT_NAME: Meals
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        Debug:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          SWIFT_OPTIMIZATION_LEVEL: -Onone
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -Osize
+
+  MealsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - MealsTests
+    dependencies:
+      - target: Meals
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcuslab.meals.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Meals:
+    build:
+      targets:
+        Meals: all
+        MealsTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - MealsTests
+    profile:
+      config: Release
+    archive:
+      config: Release

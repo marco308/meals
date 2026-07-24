@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Data
+data/
+*.db
+*.sqlite3
+
+# Env
+.env
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# iOS
+ios/Meals/build/
+*.xcuserdatad/
+xcuserdata/
