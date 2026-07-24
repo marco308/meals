@@ -126,10 +126,22 @@ extension APIClient {
         try await send("GET", "/meals", as: [Meal].self)
     }
 
-    func createMeal(name: String, slot: String?, recipeIds: [UUID]) async throws -> Meal {
+    func createMeal(
+        name: String, slot: String?, recipeIds: [UUID], looseIngredients: [LooseLine] = []
+    ) async throws -> Meal {
         try await send(
             "POST", "/meals",
-            json: ["name": name, "slot": slot, "recipe_ids": recipeIds.map { $0.uuidString.lowercased() }],
+            json: [
+                "name": name,
+                "slot": slot,
+                "recipe_ids": recipeIds.map { $0.uuidString.lowercased() },
+                "loose_ingredients": looseIngredients.map { line in
+                    var entry: [String: Any] = ["name": line.name]
+                    if let quantity = line.quantity { entry["quantity"] = quantity }
+                    if let unit = line.unit { entry["unit"] = unit }
+                    return entry
+                },
+            ],
             as: Meal.self
         )
     }
@@ -138,8 +150,20 @@ extension APIClient {
         try await send("GET", "/plans/current", as: Plan.self)
     }
 
-    func createPlan(label: String) async throws -> Plan {
-        try await send("POST", "/plans", json: ["label": label], as: Plan.self)
+    func createPlan(label: String, copyFrom: UUID? = nil) async throws -> Plan {
+        try await send(
+            "POST", "/plans",
+            json: ["label": label, "copy_from_plan_id": copyFrom?.uuidString.lowercased()],
+            as: Plan.self
+        )
+    }
+
+    func plans() async throws -> [PlanSummary] {
+        try await send("GET", "/plans", as: [PlanSummary].self)
+    }
+
+    func archivePlan(id: UUID) async throws -> Plan {
+        try await send("POST", "/plans/\(id.uuidString.lowercased())/archive", as: Plan.self)
     }
 
     func addMeal(planId: UUID, mealId: UUID) async throws -> Plan {
@@ -180,6 +204,7 @@ protocol ShoppingAPI: Sendable {
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?) async throws -> ListItem
     func addItem(_ payload: AdhocPayload) async throws -> ListItem
     func archiveList() async throws
+    func setStaple(ingredientId: UUID, isStaple: Bool) async throws
 }
 
 extension APIClient: ShoppingAPI {
@@ -223,5 +248,11 @@ extension APIClient: ShoppingAPI {
 
     func archiveList() async throws {
         try await raw("POST", "/shopping-list/archive")
+    }
+
+    func setStaple(ingredientId: UUID, isStaple: Bool) async throws {
+        try await raw(
+            "PATCH", "/ingredients/\(ingredientId.uuidString.lowercased())", json: ["is_staple": isStaple]
+        )
     }
 }

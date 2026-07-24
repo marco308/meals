@@ -178,7 +178,14 @@ async def get_plan() -> str:
         meal = entry["meal"]
         cooked = " ✔ cooked" if entry["cooked_at"] else ""
         recipes = ", ".join(r["title"] for r in meal["recipes"])
-        detail = f" ({recipes})" if recipes else ""
+        # "what can I cook tonight?" needs cook times next to the options
+        minutes = [
+            (r.get("prep_minutes") or 0) + (r.get("cook_minutes") or 0)
+            for r in meal["recipes"]
+            if (r.get("prep_minutes") or 0) + (r.get("cook_minutes") or 0) > 0
+        ]
+        time_note = f", {max(minutes)} min" if minutes else ""
+        detail = f" ({recipes}{time_note})" if recipes else ""
         by_slot.setdefault(meal["slot"] or "other", []).append(f"{meal['name']}{detail}{cooked}")
     lines = [f"Plan: {plan['label']} [id: {plan['id']}]"]
     for slot, meals in by_slot.items():

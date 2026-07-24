@@ -89,6 +89,14 @@ struct Plan: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+struct PlanSummary: Codable, Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    let label: String
+    let startsOn: String?
+    let status: String
+    let mealCount: Int
+}
+
 struct ItemSource: Codable, Equatable, Sendable {
     let adHoc: Bool
     let mealName: String?
@@ -128,6 +136,20 @@ struct ShoppingListPayload: Codable, Equatable, Sendable {
 struct Aisle: Codable, Equatable, Sendable {
     let emoji: String
     let label: String
+}
+
+/// A loose ingredient being written (meal sides, decision F1/F2): name plus
+/// an optional quantity in the API's convention units.
+struct LooseLine: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    var name: String
+    var quantity: Double?
+    var unit: String?
+
+    var display: String {
+        let amount = ShoppingListStore.displayQuantity(quantity, unit)
+        return amount.isEmpty ? name : "\(name) — \(amount)"
+    }
 }
 
 // Fallback store-walking order used until /aisles has been fetched once.

@@ -164,7 +164,7 @@ class TestPlan:
                             "meal": {
                                 "name": "Spag bol",
                                 "slot": "dinner",
-                                "recipes": [{"title": "Spaghetti Bolognese"}],
+                                "recipes": [{"title": "Spaghetti Bolognese", "prep_minutes": 15, "cook_minutes": 45}],
                             },
                         },
                         {
@@ -179,7 +179,7 @@ class TestPlan:
         result = await server.get_plan()
         assert "Plan: w/c 20 July" in result
         assert "Dinner:" in result and "Lunch:" in result
-        assert "Spag bol (Spaghetti Bolognese)" in result
+        assert "Spag bol (Spaghetti Bolognese, 60 min)" in result  # options with cook times
         assert "Caesar wraps ✔ cooked" in result
 
     @respx.mock

@@ -25,6 +25,7 @@
 		A4A491836C1BDFDDD6A6B33B /* plan.json in Resources */ = {isa = PBXBuildFile; fileRef = B9B88F8FC063E246124D6EA3 /* plan.json */; };
 		A97F0D4927A1D18C0172B39F /* PlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 508A6AD1482A364B03642B52 /* PlanView.swift */; };
 		BA0A74697255173765923E51 /* aisles.json in Resources */ = {isa = PBXBuildFile; fileRef = BD2BEC69F167222907AD234D /* aisles.json */; };
+		CF57C60353F0389D6450EAFB /* NewMealView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA23C9A26AF05C8A57B8615B /* NewMealView.swift */; };
 		D82B874EB11358B390E3F987 /* ShoppingListStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B66EA689CBC77E0A01B7ACB6 /* ShoppingListStore.swift */; };
 		DA2A1D52B4C5AF32BE923C1F /* meals.json in Resources */ = {isa = PBXBuildFile; fileRef = 31E8792E0A6BA351F3630D01 /* meals.json */; };
 		E6FAC2023D7C9105BBDEFE90 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE55DDAC07906AA53CD27FA /* LoginView.swift */; };
@@ -58,6 +59,7 @@
 		B66EA689CBC77E0A01B7ACB6 /* ShoppingListStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingListStore.swift; sourceTree = "<group>"; };
 		B6BB60C811C4F4F94ACCBDAA /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		B9B88F8FC063E246124D6EA3 /* plan.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = plan.json; sourceTree = "<group>"; };
+		BA23C9A26AF05C8A57B8615B /* NewMealView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewMealView.swift; sourceTree = "<group>"; };
 		BBB3E84858DE7AF4A674A1FA /* RecipesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipesView.swift; sourceTree = "<group>"; };
 		BBEC2BCBC049A8CD347A089C /* ModelDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDecodingTests.swift; sourceTree = "<group>"; };
 		BD2BEC69F167222907AD234D /* aisles.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = aisles.json; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 			children = (
 				FAE55DDAC07906AA53CD27FA /* LoginView.swift */,
 				AC170AD6BFF1EFA5014D9508 /* MealDetailView.swift */,
+				BA23C9A26AF05C8A57B8615B /* NewMealView.swift */,
 				508A6AD1482A364B03642B52 /* PlanView.swift */,
 				BBB3E84858DE7AF4A674A1FA /* RecipesView.swift */,
 				09E8F8020D86C897D5D6A949 /* ShoppingListView.swift */,
@@ -283,6 +286,7 @@
 				37FB79A819C9AB18F7AF0AA1 /* MealDetailView.swift in Sources */,
 				11A113337CF102BCB8E57C9C /* MealsApp.swift in Sources */,
 				93FDDD549722D21133EE0C6E /* Models.swift in Sources */,
+				CF57C60353F0389D6450EAFB /* NewMealView.swift in Sources */,
 				0C00AD3AC7924C95AD19C6E8 /* PlanStore.swift in Sources */,
 				A97F0D4927A1D18C0172B39F /* PlanView.swift in Sources */,
 				9570A6AF9CB96D7AB7894058 /* RecipesView.swift in Sources */,

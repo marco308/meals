@@ -64,6 +64,7 @@ struct ShoppingListView: View {
                     Menu {
                         Toggle("Show staples", isOn: $store.includeStaples)
                         Toggle("Show checked-off", isOn: $store.includeChecked)
+                        Toggle("Show 'already have' (\(store.excludedCount))", isOn: $store.includeExcluded)
                         Button("Finish shop", systemImage: "checkmark.seal") {
                             showFinishConfirm = true
                         }
@@ -140,9 +141,16 @@ struct ShoppingItemRow: View {
                 Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(item.checked ? .green : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.name)
-                        .strikethrough(item.checked, color: .secondary)
-                        .foregroundStyle(item.checked ? .secondary : .primary)
+                    HStack(spacing: 4) {
+                        Text(item.name)
+                            .strikethrough(item.checked, color: .secondary)
+                            .foregroundStyle(item.checked || item.excluded ? .secondary : .primary)
+                        if item.excluded {
+                            Image(systemName: "house.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.indigo)
+                        }
+                    }
                     if !item.neededBy.isEmpty {
                         Text("for \(item.neededBy.joined(separator: ", "))")
                             .font(.caption2)
@@ -184,6 +192,12 @@ struct ItemDetailSheet: View {
     @Environment(ShoppingListStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let item: ListItem
+    @State private var isStaple: Bool
+
+    init(item: ListItem) {
+        self.item = item
+        _isStaple = State(initialValue: item.isStaple)
+    }
 
     var body: some View {
         NavigationStack {
@@ -196,11 +210,14 @@ struct ItemDetailSheet: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
-                    if item.isStaple {
-                        Label("Staple — usually hidden from the list", systemImage: "cabinet")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                    Toggle(isOn: $isStaple) {
+                        Label("Staple", systemImage: "cabinet")
                     }
+                    .onChange(of: isStaple) { _, value in
+                        Task { await store.setStaple(item, isStaple: value) }
+                    }
+                } footer: {
+                    Text("Staples stay off the list until a staples check before shopping.")
                 }
 
                 Section("Needed by") {
@@ -220,11 +237,20 @@ struct ItemDetailSheet: View {
                     } label: {
                         Label(item.checked ? "Un-check" : "Check off", systemImage: item.checked ? "circle" : "checkmark.circle")
                     }
-                    Button {
-                        store.markAlreadyHave(item)
-                        dismiss()
-                    } label: {
-                        Label("Already have it", systemImage: "house")
+                    if item.excluded {
+                        Button {
+                            store.putBack(item)
+                            dismiss()
+                        } label: {
+                            Label("Put back on the list", systemImage: "arrow.uturn.backward")
+                        }
+                    } else {
+                        Button {
+                            store.markAlreadyHave(item)
+                            dismiss()
+                        } label: {
+                            Label("Already have it", systemImage: "house")
+                        }
                     }
                 }
             }
