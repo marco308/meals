@@ -79,6 +79,7 @@ struct RecipeDetailView: View {
     @State private var recipe: Recipe?
     @State private var errorMessage: String?
     @State private var addedMealName: String?
+    @State private var reloadKey = 0
 
     var body: some View {
         Group {
@@ -90,7 +91,7 @@ struct RecipeDetailView: View {
                 ProgressView()
             }
         }
-        .task {
+        .task(id: reloadKey) {
             do {
                 recipe = try await store.detail(id: recipeId)
             } catch {
@@ -118,17 +119,25 @@ struct RecipeDetailView: View {
                 }
             }
 
-            Section("Ingredients") {
+            Section {
                 ForEach(recipe.ingredients) { line in
-                    HStack {
-                        Text(line.aisle)
-                        Text(line.name)
-                        Spacer()
-                        Text(line.display)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+                    NavigationLink {
+                        IngredientEditorView(ingredientId: line.ingredientId) { reloadKey += 1 }
+                    } label: {
+                        HStack {
+                            Text(line.aisle)
+                            Text(line.name)
+                            Spacer()
+                            Text(line.display)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
                     }
                 }
+            } header: {
+                Text("Ingredients")
+            } footer: {
+                Text("Tap an ingredient to set its aisle or staple flag.")
             }
 
             if let instructions = recipe.instructions, !instructions.isEmpty {

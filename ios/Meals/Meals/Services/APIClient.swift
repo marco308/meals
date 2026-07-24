@@ -108,6 +108,19 @@ extension APIClient {
         try await send("GET", "/auth/me", as: UserProfile.self)
     }
 
+    func ingredient(id: UUID) async throws -> IngredientInfo {
+        try await send("GET", "/ingredients/\(id.uuidString.lowercased())", as: IngredientInfo.self)
+    }
+
+    func updateIngredient(id: UUID, aisle: String? = nil, isStaple: Bool? = nil) async throws -> IngredientInfo {
+        var payload: [String: Any?] = [:]
+        if let aisle { payload["aisle"] = aisle }
+        if let isStaple { payload["is_staple"] = isStaple }
+        return try await send(
+            "PATCH", "/ingredients/\(id.uuidString.lowercased())", json: payload, as: IngredientInfo.self
+        )
+    }
+
     func recipes(search: String?) async throws -> [RecipeSummary] {
         var query: [URLQueryItem] = []
         if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
@@ -204,7 +217,6 @@ protocol ShoppingAPI: Sendable {
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?) async throws -> ListItem
     func addItem(_ payload: AdhocPayload) async throws -> ListItem
     func archiveList() async throws
-    func setStaple(ingredientId: UUID, isStaple: Bool) async throws
 }
 
 extension APIClient: ShoppingAPI {
@@ -248,11 +260,5 @@ extension APIClient: ShoppingAPI {
 
     func archiveList() async throws {
         try await raw("POST", "/shopping-list/archive")
-    }
-
-    func setStaple(ingredientId: UUID, isStaple: Bool) async throws {
-        try await raw(
-            "PATCH", "/ingredients/\(ingredientId.uuidString.lowercased())", json: ["is_staple": isStaple]
-        )
     }
 }

@@ -75,6 +75,14 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(cottage.recipes.count, 1)
     }
 
+    func testDecodesIngredientInfo() throws {
+        let info = try APIClient.decoder().decode(IngredientInfo.self, from: fixture("ingredient"))
+        XCTAssertEqual(info.name, "tartare sauce")
+        XCTAssertEqual(info.aisle, "❓")
+        XCTAssertEqual(info.aisleLabel, "Unknown")
+        XCTAssertFalse(info.isStaple)
+    }
+
     func testDecodesAisles() throws {
         let aisles = try APIClient.decoder().decode([Aisle].self, from: fixture("aisles"))
         XCTAssertEqual(aisles.first?.emoji, "🥬")

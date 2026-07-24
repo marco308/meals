@@ -133,9 +133,19 @@ struct ShoppingListPayload: Codable, Equatable, Sendable {
     let hiddenStaples: Int
 }
 
-struct Aisle: Codable, Equatable, Sendable {
+struct Aisle: Codable, Equatable, Hashable, Sendable {
     let emoji: String
     let label: String
+}
+
+/// Ingredient-level metadata (canonical name, aisle, staple flag) — shared
+/// by every recipe line and list item that references the ingredient.
+struct IngredientInfo: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    var aisle: String
+    var aisleLabel: String
+    var isStaple: Bool
 }
 
 /// A loose ingredient being written (meal sides, decision F1/F2): name plus

@@ -10,6 +10,7 @@ struct MealDetailView: View {
 
     let planMeal: PlanMeal
     @State private var recipeDetails: [UUID: Recipe] = [:]
+    @State private var reloadKey = 0
 
     private var meal: Meal { planMeal.meal }
 
@@ -86,22 +87,26 @@ struct MealDetailView: View {
         }
         .navigationTitle(meal.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            for recipe in meal.recipes where recipeDetails[recipe.id] == nil {
+        .task(id: reloadKey) {
+            for recipe in meal.recipes where reloadKey > 0 || recipeDetails[recipe.id] == nil {
                 recipeDetails[recipe.id] = try? await recipeStore.detail(id: recipe.id)
             }
         }
     }
 
     private func ingredientRow(_ line: RecipeLine) -> some View {
-        HStack {
-            Text(line.aisle)
-            Text(line.name)
-            Spacer()
-            Text(line.display)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+        NavigationLink {
+            IngredientEditorView(ingredientId: line.ingredientId) { reloadKey += 1 }
+        } label: {
+            HStack {
+                Text(line.aisle)
+                Text(line.name)
+                Spacer()
+                Text(line.display)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .font(.callout)
         }
-        .font(.callout)
     }
 }

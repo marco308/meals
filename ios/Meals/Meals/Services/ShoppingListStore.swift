@@ -244,19 +244,6 @@ final class ShoppingListStore {
         await sync()
     }
 
-    /// Flag/unflag a staple (decision Q5). Ingredient-level and online-only —
-    /// unlike check-offs, this is list housekeeping, not in-the-aisle action.
-    func setStaple(_ item: ListItem, isStaple: Bool) async {
-        do {
-            try await api().setStaple(ingredientId: item.ingredientId, isStaple: isStaple)
-            await sync()
-        } catch let error as APIError where error == .offline {
-            errorMessage = "Staple changes need a connection — try again when you're back online."
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     // MARK: - Persistence
 
     private func load() {

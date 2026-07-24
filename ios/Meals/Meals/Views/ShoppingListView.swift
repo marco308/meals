@@ -192,12 +192,6 @@ struct ItemDetailSheet: View {
     @Environment(ShoppingListStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let item: ListItem
-    @State private var isStaple: Bool
-
-    init(item: ListItem) {
-        self.item = item
-        _isStaple = State(initialValue: item.isStaple)
-    }
 
     var body: some View {
         NavigationStack {
@@ -210,14 +204,17 @@ struct ItemDetailSheet: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
-                    Toggle(isOn: $isStaple) {
-                        Label("Staple", systemImage: "cabinet")
+                    NavigationLink {
+                        IngredientEditorView(ingredientId: item.ingredientId)
+                    } label: {
+                        HStack {
+                            Label("Edit aisle & staple", systemImage: "tag")
+                            if item.isStaple {
+                                Spacer()
+                                Text("staple").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .onChange(of: isStaple) { _, value in
-                        Task { await store.setStaple(item, isStaple: value) }
-                    }
-                } footer: {
-                    Text("Staples stay off the list until a staples check before shopping.")
                 }
 
                 Section("Needed by") {

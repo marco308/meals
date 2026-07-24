@@ -50,18 +50,6 @@ final class FakeShoppingAPI: ShoppingAPI {
     func archiveList() async throws {
         if let failWith { throw failWith }
     }
-
-    private(set) var stapleChanges: [(UUID, Bool)] = []
-
-    func setStaple(ingredientId: UUID, isStaple: Bool) async throws {
-        if let failWith { throw failWith }
-        stapleChanges.append((ingredientId, isStaple))
-        list.items = list.items.map { item in
-            var copy = item
-            if copy.ingredientId == ingredientId { copy.isStaple = isStaple }
-            return copy
-        }
-    }
 }
 
 enum TestData {
@@ -299,30 +287,6 @@ final class ShoppingListStoreTests: XCTestCase {
         XCTAssertEqual(store.excludedCount, 0)
     }
 
-    func testSetStaplePatchesIngredientAndResyncs() async {
-        let oil = TestData.item(name: "olive oil")
-        let api = FakeShoppingAPI(list: TestData.payload([oil]))
-        let store = makeStore(api)
-        await store.sync()
-
-        await store.setStaple(oil, isStaple: true)
-        XCTAssertEqual(api.stapleChanges.first?.0, oil.ingredientId)
-        XCTAssertEqual(api.stapleChanges.first?.1, true)
-        XCTAssertEqual(store.hiddenStaplesCount, 1, "refetched list reflects the new staple")
-
-    }
-
-    func testSetStapleOfflineExplains() async {
-        let oil = TestData.item(name: "olive oil")
-        let api = FakeShoppingAPI(list: TestData.payload([oil]))
-        let store = makeStore(api)
-        await store.sync()
-
-        api.failWith = .offline
-        await store.setStaple(oil, isStaple: true)
-        XCTAssertNotNil(store.errorMessage)
-        XCTAssertTrue(store.errorMessage!.contains("online"), "staple edits are online-only, unlike check-offs")
-    }
 
     func testSectionsFollowStoreWalkingOrder() async {
         let beef = TestData.item(name: "minced beef", aisle: "🥩")
