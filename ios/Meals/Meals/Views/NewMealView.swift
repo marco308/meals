@@ -22,10 +22,24 @@ struct NewMealView: View {
 
     private let slots = ["dinner", "lunch", "breakfast", "other"]
 
+    /// What the meal will be named on save: the typed name, or the selected
+    /// recipes' titles when the field is left empty (#3 — a recipe-only meal
+    /// shouldn't force re-typing a name the recipe already has).
+    private var resolvedName: String {
+        Self.resolvedName(typed: name, selectedRecipes: selectedRecipes, library: recipeStore.recipes)
+    }
+
+    /// The recipe-derived fallback name, surfaced as the name field's
+    /// placeholder so the default is visible before saving.
+    private var namePlaceholder: String {
+        let fallback = Self.resolvedName(typed: "", selectedRecipes: selectedRecipes, library: recipeStore.recipes)
+        return fallback.isEmpty ? "Meal name (e.g. Cottage pie with peas)" : fallback
+    }
+
     var body: some View {
         Form {
             Section {
-                TextField("Meal name (e.g. Cottage pie with peas)", text: $name)
+                TextField(namePlaceholder, text: $name)
                 Picker("Slot", selection: $slot) {
                     ForEach(slots, id: \.self) { Text($0.capitalized) }
                 }
@@ -92,7 +106,7 @@ struct NewMealView: View {
                             .fontWeight(.semibold)
                     }
                 }
-                .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(isSaving || resolvedName.isEmpty)
             }
         }
         .navigationTitle("New meal")
@@ -109,13 +123,30 @@ struct NewMealView: View {
         sideFieldFocused = true  // keep typing the next side without re-tapping
     }
 
+    /// The name a meal is created with. The typed name wins; when it's blank
+    /// the selected recipes' titles fill in (joined in library order, clamped
+    /// to the API's 300-char name limit), so the strict API contract —
+    /// `MealCreate.name` min_length=1 — is met without a backend change.
+    /// Empty, i.e. creation blocked, only with no name and no recipes.
+    static func resolvedName(
+        typed: String, selectedRecipes: Set<UUID>, library: [RecipeSummary]
+    ) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { return trimmed }
+        let joined = library
+            .filter { selectedRecipes.contains($0.id) }
+            .map(\.title)
+            .joined(separator: " + ")
+        return String(joined.prefix(300))
+    }
+
     private func save() {
         isSaving = true
         errorMessage = nil
         Task {
             defer { isSaving = false }
             if let meal = await planStore.createMeal(
-                name: name.trimmingCharacters(in: .whitespaces),
+                name: resolvedName,
                 slot: slot,
                 recipeIds: Array(selectedRecipes),
                 looseIngredients: looseLines
