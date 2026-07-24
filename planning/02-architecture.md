@@ -1,5 +1,7 @@
 # 02 — High-Level Architecture
 
+> ✅ **BUILT (2026-07-24).** Everything below is implemented and verified except the homelab deployment itself (Q12/Q15 — mechanism ready, deploy pending). Traceability: [05-status.md](05-status.md).
+
 ## Shape of the system
 
 ```

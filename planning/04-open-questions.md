@@ -1,6 +1,6 @@
 # 04 — Decisions Log
 
-All original open questions have been answered (2026-07-23). This is now the decision record; the feature/architecture docs have been updated to match.
+All questions answered. This is the decision record; every decision below is implemented — see [05-status.md](05-status.md) for traceability (Q12/Q15 public exposure: mechanism built, homelab deploy pending).
 
 ## Product shape
 
@@ -22,7 +22,7 @@ No cups, oz, sticks, etc. — the AI (or human) converts before writing. The bac
 **Q6 — Supermarkets (for later F5): Sainsbury's, Ocado, M&S.**
 
 **Q7 — Separate identities from day one.** Real per-user accounts and auth are **in v1** (not the static-API-key shortcut). Working assumption: multiple user accounts sharing one household's data (one recipe library, one plan, one list).
-> ❓ **INPUT NEEDED (Q16):** Confirm the household assumption — in v1, do all users see/edit the same shared plan and list (one household), with multi-household tenancy deferred to the freemium future? (Assuming **yes** unless you say otherwise.)
+> ✅ **RESOLVED (Q16, 2026-07-24):** Implemented as assumed — all v1 users share one household (one library, plan, list). The household is modelled explicitly (own table, FKs everywhere) so multi-household tenancy stays a cheap future change.
 
 **Q8 — MVP cut: approved**, amended by Q7 (auth/user accounts promoted into v1).
 
@@ -46,4 +46,4 @@ No cups, oz, sticks, etc. — the AI (or human) converts before writing. The bac
 
 ## Newly raised
 
-- **Q16** (above, under Q7): confirm single-household assumption for v1.
+- **Q16** (above, under Q7): ✅ resolved — implemented as assumed.
