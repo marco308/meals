@@ -89,11 +89,22 @@ struct Plan: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+struct PlanSummary: Codable, Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    let label: String
+    let startsOn: String?
+    let status: String
+    let mealCount: Int
+}
+
 struct ItemSource: Codable, Equatable, Sendable {
     let adHoc: Bool
     let mealName: String?
     let recipeTitle: String?
     let quantity: Double?
+    // Optional so caches written by older app versions still decode.
+    var mealId: UUID? = nil
+    var recipeId: UUID? = nil
 }
 
 struct ListItem: Codable, Identifiable, Equatable, Sendable {
@@ -122,9 +133,33 @@ struct ShoppingListPayload: Codable, Equatable, Sendable {
     let hiddenStaples: Int
 }
 
-struct Aisle: Codable, Equatable, Sendable {
+struct Aisle: Codable, Equatable, Hashable, Sendable {
     let emoji: String
     let label: String
+}
+
+/// Ingredient-level metadata (canonical name, aisle, staple flag) — shared
+/// by every recipe line and list item that references the ingredient.
+struct IngredientInfo: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    var aisle: String
+    var aisleLabel: String
+    var isStaple: Bool
+}
+
+/// A loose ingredient being written (meal sides, decision F1/F2): name plus
+/// an optional quantity in the API's convention units.
+struct LooseLine: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    var name: String
+    var quantity: Double?
+    var unit: String?
+
+    var display: String {
+        let amount = ShoppingListStore.displayQuantity(quantity, unit)
+        return amount.isEmpty ? name : "\(name) — \(amount)"
+    }
 }
 
 // Fallback store-walking order used until /aisles has been fetched once.

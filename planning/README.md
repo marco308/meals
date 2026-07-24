@@ -1,6 +1,11 @@
 # Meal Planning & Shopping List App — Planning
 
-Planning docs for the app described in `../init.md`. High-level only — no code, no schemas-in-stone yet.
+Planning docs for the app described in `../init.md`.
+
+> ✅ **BUILT & DEPLOYED (2026-07-24).** The MVP cut is implemented, tested,
+> verified, and live at `https://meals.marcuslab.uk` (swarm stack on the swarm manager
+> behind Traefik). Item-by-item traceability in [05-status.md](05-status.md);
+> remaining tail in [../BACKLOG.md](../BACKLOG.md).
 
 ## Documents
 
@@ -9,7 +14,8 @@ Planning docs for the app described in `../init.md`. High-level only — no code
 | [01-features.md](01-features.md) | Feature breakdown: core concepts, MVP vs later, user workflows |
 | [02-architecture.md](02-architecture.md) | High-level architecture: backend, API, data model concepts, hosting, frontend |
 | [03-ai-integration.md](03-ai-integration.md) | The BYO-AI strategy: MCP vs skill vs plain API, recipe parsing ownership |
-| [04-open-questions.md](04-open-questions.md) | **Decisions log** — all original questions answered 2026-07-23; one new question (Q16) open |
+| [04-open-questions.md](04-open-questions.md) | **Decisions log** — all questions answered; Q16 implemented as assumed |
+| [05-status.md](05-status.md) | **Build status** — plan→implementation traceability with evidence |
 
 ## Product one-liner
 
@@ -35,6 +41,7 @@ A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and 
 
 ## Next steps
 
-1. Marcus confirms **Q16** (single shared household in v1) in [04-open-questions.md](04-open-questions.md).
-2. Design doc: data model + API spec (entities, relationships, offline-sync contract for the list).
-3. Repo scaffolding (`backend/`, `ios/`, `mcp/`, `skill/`) and build.
+1. ✅ ~~Marcus confirms **Q16**~~ — implemented as assumed (single shared household; household modelled explicitly so multi-tenancy stays cheap).
+2. ✅ ~~Design doc: data model + API spec~~ — superseded by the implementation; the OpenAPI spec at `/openapi.json` is the API contract, and the offline-sync contract (client ids, LWW, idempotent adds) is implemented and tested.
+3. ✅ ~~Repo scaffolding (`backend/`, `ios/`, `mcp/`, `skill/`) and build~~ — all four built and verified; see [05-status.md](05-status.md).
+4. ✅ ~~Deploy to the homelab~~ — live at `https://meals.marcuslab.uk` (`make deploy`). Remaining: register the household, then flip `REGISTRATION_ENABLED=false`.

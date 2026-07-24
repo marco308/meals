@@ -39,9 +39,32 @@ final class PlanStore {
         }
     }
 
-    func createPlan(label: String) async {
+    func createPlan(label: String, copyFrom: UUID? = nil) async {
         do {
-            plan = try await api().createPlan(label: label)
+            plan = try await api().createPlan(label: label, copyFrom: copyFrom)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private(set) var history: [PlanSummary] = []
+
+    func loadHistory() async {
+        do {
+            history = try await api().plans()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Archive the current plan (Q4). Its meals' contributions come off the
+    /// active shopping list server-side.
+    func archiveCurrentPlan() async {
+        guard let plan else { return }
+        do {
+            _ = try await api().archivePlan(id: plan.id)
+            self.plan = nil
+            await refresh()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -74,9 +97,13 @@ final class PlanStore {
         }
     }
 
-    func createMeal(name: String, slot: String?, recipeIds: [UUID]) async -> Meal? {
+    func createMeal(
+        name: String, slot: String?, recipeIds: [UUID], looseIngredients: [LooseLine] = []
+    ) async -> Meal? {
         do {
-            let meal = try await api().createMeal(name: name, slot: slot, recipeIds: recipeIds)
+            let meal = try await api().createMeal(
+                name: name, slot: slot, recipeIds: recipeIds, looseIngredients: looseIngredients
+            )
             mealLibrary.append(meal)
             return meal
         } catch {

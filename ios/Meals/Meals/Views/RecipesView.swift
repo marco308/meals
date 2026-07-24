@@ -75,10 +75,15 @@ struct RecipeRow: View {
 struct RecipeDetailView: View {
     @Environment(RecipeStore.self) private var store
     @Environment(PlanStore.self) private var planStore
+    @Environment(\.dismiss) private var dismiss
     let recipeId: UUID
+    /// Set when reached from the plan: the recipe IS the meal (single-recipe
+    /// meals skip the redundant meal screen), so plan actions live here.
+    var planContext: PlanMeal? = nil
     @State private var recipe: Recipe?
     @State private var errorMessage: String?
     @State private var addedMealName: String?
+    @State private var reloadKey = 0
 
     var body: some View {
         Group {
@@ -90,7 +95,7 @@ struct RecipeDetailView: View {
                 ProgressView()
             }
         }
-        .task {
+        .task(id: reloadKey) {
             do {
                 recipe = try await store.detail(id: recipeId)
             } catch {
@@ -101,6 +106,13 @@ struct RecipeDetailView: View {
 
     private func detail(_ recipe: Recipe) -> some View {
         List {
+            if planContext?.cookedAt != nil {
+                Section {
+                    Label("Cooked", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+
             Section {
                 if let servings = recipe.servings {
                     LabeledContent("Serves", value: "\(servings)")
@@ -118,17 +130,25 @@ struct RecipeDetailView: View {
                 }
             }
 
-            Section("Ingredients") {
+            Section {
                 ForEach(recipe.ingredients) { line in
-                    HStack {
-                        Text(line.aisle)
-                        Text(line.name)
-                        Spacer()
-                        Text(line.display)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+                    NavigationLink {
+                        IngredientEditorView(ingredientId: line.ingredientId) { reloadKey += 1 }
+                    } label: {
+                        HStack {
+                            Text(line.aisle)
+                            Text(line.name)
+                            Spacer()
+                            Text(line.display)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
                     }
                 }
+            } header: {
+                Text("Ingredients")
+            } footer: {
+                Text("Tap an ingredient to set its aisle or staple flag.")
             }
 
             if let instructions = recipe.instructions, !instructions.isEmpty {
@@ -138,17 +158,42 @@ struct RecipeDetailView: View {
                 }
             }
 
-            Section {
-                Button {
-                    Task {
-                        if let meal = await planStore.createMeal(name: recipe.title, slot: "dinner", recipeIds: [recipe.id]) {
-                            await planStore.addMeal(meal)
-                            addedMealName = meal.name
+            if let planMeal = planContext {
+                Section {
+                    if planMeal.cookedAt == nil {
+                        Button {
+                            Task {
+                                await planStore.markCooked(planMeal)
+                                dismiss()
+                            }
+                        } label: {
+                            Label("Mark as cooked", systemImage: "checkmark")
                         }
                     }
-                } label: {
-                    Label("Add to this week's plan", systemImage: "plus.circle.fill")
-                        .fontWeight(.medium)
+                    Button(role: .destructive) {
+                        Task {
+                            await planStore.removeMeal(planMeal)
+                            dismiss()
+                        }
+                    } label: {
+                        Label("Remove from plan", systemImage: "trash")
+                    }
+                } footer: {
+                    Text("Removing a meal takes its ingredients off the shopping list; anything you added by hand stays.")
+                }
+            } else {
+                Section {
+                    Button {
+                        Task {
+                            if let meal = await planStore.createMeal(name: recipe.title, slot: "dinner", recipeIds: [recipe.id]) {
+                                await planStore.addMeal(meal)
+                                addedMealName = meal.name
+                            }
+                        }
+                    } label: {
+                        Label("Add to this week's plan", systemImage: "plus.circle.fill")
+                            .fontWeight(.medium)
+                    }
                 }
             }
         }

@@ -32,6 +32,7 @@ final class ShoppingListStore {
 
     var includeStaples = false
     var includeChecked = true
+    var includeExcluded = false
 
     private let api: () -> any ShoppingAPI
     private let directory: URL
@@ -58,7 +59,7 @@ final class ShoppingListStore {
         }
         items = items.filter { item in
             if item.isStaple && !includeStaples { return false }
-            if item.excluded { return false }
+            if item.excluded && !includeExcluded { return false }
             if item.checked && !includeChecked { return false }
             return true
         }
@@ -142,8 +143,9 @@ final class ShoppingListStore {
         case "g" where quantity >= 1000: return "\(trim(quantity / 1000)) kg"
         case "ml" where quantity >= 1000: return "\(trim(quantity / 1000)) l"
         case "g", "ml": return "\(trim(quantity)) \(unit)"
-        case "item": return "×\(trim(quantity))"
-        default: return "\(trim(quantity)) \(unit)\(quantity == 1 ? "" : "s")"
+        case "item", "items": return "×\(trim(quantity))"
+        // don't double-pluralise units the user already typed as plural
+        default: return "\(trim(quantity)) \(unit)\(quantity == 1 || unit.hasSuffix("s") ? "" : "s")"
         }
     }
 
@@ -155,6 +157,18 @@ final class ShoppingListStore {
 
     func markAlreadyHave(_ item: ListItem) {
         enqueue(.setExcluded(id: UUID(), itemID: item.id, value: true))
+    }
+
+    /// Undo "already have it" — the item returns to this shop.
+    func putBack(_ item: ListItem) {
+        enqueue(.setExcluded(id: UUID(), itemID: item.id, value: false))
+    }
+
+    /// Excluded items with pending ops applied — for the "already have" view.
+    var excludedCount: Int {
+        var items = cache?.payload.items ?? []
+        for op in pending { apply(op, to: &items) }
+        return items.filter(\.excluded).count
     }
 
     func addAdhoc(name: String, quantity: Double?, unit: String?) {

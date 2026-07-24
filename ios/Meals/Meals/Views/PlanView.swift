@@ -6,8 +6,9 @@ struct PlanView: View {
     @Environment(PlanStore.self) private var store
     @Environment(Session.self) private var session
     @State private var showAddMeal = false
-    @State private var newPlanLabel = ""
     @State private var showNewPlan = false
+    @State private var showHistory = false
+    @State private var showArchiveConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -31,12 +32,36 @@ struct PlanView: View {
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Log out") { session.logOut() }
-                        .font(.caption)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("New plan…", systemImage: "calendar.badge.plus") { showNewPlan = true }
+                        Button("Past plans", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                        if store.plan != nil {
+                            Button("Archive this plan", systemImage: "archivebox", role: .destructive) {
+                                showArchiveConfirm = true
+                            }
+                        }
+                        Divider()
+                        Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
+                            session.logOut()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                 }
             }
             .sheet(isPresented: $showAddMeal) { AddMealSheet() }
+            .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
+            .sheet(isPresented: $showHistory) { PastPlansSheet() }
+            .confirmationDialog(
+                "Archive '\(store.plan?.label ?? "")'? Its meals come off the shopping list; anything added by hand stays.",
+                isPresented: $showArchiveConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Archive plan", role: .destructive) {
+                    Task { await store.archiveCurrentPlan() }
+                }
+            }
             .task { await store.refresh() }
             .refreshable { await store.refresh() }
             .alert("Something went wrong", isPresented: errorBinding) {
@@ -79,13 +104,114 @@ struct PlanView: View {
             Button("Start a plan") { showNewPlan = true }
                 .buttonStyle(.borderedProminent)
         }
-        .alert("New plan", isPresented: $showNewPlan) {
-            TextField("Label (e.g. w/c 27 July)", text: $newPlanLabel)
-            Button("Create") {
-                let label = newPlanLabel.isEmpty ? "This week's options" : newPlanLabel
-                Task { await store.createPlan(label: label) }
+    }
+}
+
+/// Start a weekly-ish plan (Q4) — optionally copying a previous week's
+/// options ("same as two weeks ago").
+struct NewPlanSheet: View {
+    @Environment(PlanStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var label = ""
+    @State private var copyFrom: PlanSummary?
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Label (e.g. w/c 27 July)", text: $label)
+                }
+                Section {
+                    Picker("Start from", selection: $copyFrom) {
+                        Text("Empty plan").tag(PlanSummary?.none)
+                        ForEach(store.history) { plan in
+                            Text("\(plan.label) (\(plan.mealCount) meals)").tag(Optional(plan))
+                        }
+                    }
+                } footer: {
+                    Text("Copying brings the meals in; their ingredients land on the shopping list straight away.")
+                }
+                Section {
+                    Button(action: save) {
+                        if isSaving {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Create plan").frame(maxWidth: .infinity).fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(isSaving)
+                }
             }
-            Button("Cancel", role: .cancel) {}
+            .navigationTitle("New plan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .task { await store.loadHistory() }
+        }
+    }
+
+    private func save() {
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            let cleaned = label.trimmingCharacters(in: .whitespaces)
+            await store.createPlan(
+                label: cleaned.isEmpty ? "This week's options" : cleaned,
+                copyFrom: copyFrom?.id
+            )
+            dismiss()
+        }
+    }
+}
+
+/// Q4's history: past (and other active) plans, and one-tap "again".
+struct PastPlansSheet: View {
+    @Environment(PlanStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(store.history) { plan in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(plan.label)
+                            Text("\(plan.status == "archived" ? "archived · " : "active · ")\(plan.mealCount) meal\(plan.mealCount == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if plan.status == "archived" && plan.mealCount > 0 {
+                            Button("Again") {
+                                Task {
+                                    await store.createPlan(label: "\(plan.label) (again)", copyFrom: plan.id)
+                                    dismiss()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.callout)
+                        }
+                    }
+                }
+                if store.history.isEmpty {
+                    ContentUnavailableView(
+                        "No plans yet", systemImage: "clock.arrow.circlepath",
+                        description: Text("Archived weeks show up here — start one again anytime.")
+                    )
+                }
+            }
+            .navigationTitle("Past plans")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task { await store.loadHistory() }
         }
     }
 }
@@ -95,21 +221,25 @@ struct PlanMealRow: View {
     let planMeal: PlanMeal
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(planMeal.meal.name)
-                    .font(.body)
-                    .strikethrough(planMeal.cookedAt != nil, color: .secondary)
-                if planMeal.cookedAt != nil {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
+        NavigationLink {
+            destination
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(planMeal.meal.name)
+                        .font(.body)
+                        .strikethrough(planMeal.cookedAt != nil, color: .secondary)
+                    if planMeal.cookedAt != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
                 }
-            }
-            if let subtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .swipeActions(edge: .trailing) {
@@ -119,13 +249,28 @@ struct PlanMealRow: View {
                 Label("Remove", systemImage: "trash")
             }
         }
-        .swipeActions(edge: .leading) {
+        // allowsFullSwipe off: a stray horizontal drag while scrolling must
+        // not silently mark a meal cooked (there is no un-cook in v1).
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 Task { await store.markCooked(planMeal) }
             } label: {
                 Label("Cooked", systemImage: "checkmark")
             }
             .tint(.green)
+        }
+    }
+
+    /// A meal that is exactly one recipe goes straight to the full recipe
+    /// (with plan actions on board) — an intermediate meal screen would just
+    /// repeat the ingredient list. Composite meals get the meal overview.
+    @ViewBuilder
+    private var destination: some View {
+        let meal = planMeal.meal
+        if meal.recipes.count == 1 && meal.looseIngredients.isEmpty {
+            RecipeDetailView(recipeId: meal.recipes[0].id, planContext: planMeal)
+        } else {
+            MealDetailView(planMeal: planMeal)
         }
     }
 
@@ -150,24 +295,38 @@ struct AddMealSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if availableMeals.isEmpty {
-                    ContentUnavailableView(
-                        "Library is empty",
-                        systemImage: "book",
-                        description: Text("Ingest a recipe in the Recipes tab, then create a meal from it.")
-                    )
-                }
-                ForEach(availableMeals) { meal in
-                    Button {
-                        Task {
-                            await store.addMeal(meal)
-                            dismiss()
+                Section {
+                    NavigationLink {
+                        NewMealView { meal in
+                            Task {
+                                await store.addMeal(meal)
+                                dismiss()
+                            }
                         }
                     } label: {
-                        VStack(alignment: .leading) {
-                            Text(meal.name).foregroundStyle(.primary)
-                            if let slot = meal.slot {
-                                Text(slot.capitalized).font(.caption).foregroundStyle(.secondary)
+                        Label("Create a new meal", systemImage: "plus.circle.fill")
+                            .fontWeight(.medium)
+                    }
+                }
+
+                Section("From the library") {
+                    if availableMeals.isEmpty {
+                        Text("Every meal in the library is already on the plan.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(availableMeals) { meal in
+                        Button {
+                            Task {
+                                await store.addMeal(meal)
+                                dismiss()
+                            }
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(meal.name).foregroundStyle(.primary)
+                                if let slot = meal.slot {
+                                    Text(slot.capitalized).font(.caption).foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

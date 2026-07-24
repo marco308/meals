@@ -113,7 +113,9 @@ def list_item_out(item: ListItem) -> ListItemOut:
     sources = [
         SourceOut(
             ad_hoc=source.plan_meal_id is None,
+            meal_id=source.plan_meal.meal_id if source.plan_meal is not None else None,
             meal_name=source.plan_meal.meal.name if source.plan_meal is not None else None,
+            recipe_id=source.recipe.id if source.recipe is not None else None,
             recipe_title=source.recipe.title if source.recipe is not None else None,
             quantity=source.quantity,
         )

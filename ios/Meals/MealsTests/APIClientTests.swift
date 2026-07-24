@@ -19,6 +19,25 @@ final class ErrorDetailTests: XCTestCase {
 
 // MARK: - URLProtocol-backed tests
 
+extension URLRequest {
+    /// URLSession hands URLProtocol the body as a stream, not httpBody.
+    func streamedBody() -> Data? {
+        guard let stream = httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+}
+
 final class StubProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: (@Sendable (URLRequest) -> (Int, Data))?
 
@@ -91,6 +110,28 @@ final class APIClientTests: XCTestCase {
         } catch {
             XCTFail("unexpected error type: \(error)")
         }
+    }
+
+    func testUpdateIngredientPatchesOnlyGivenFields() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertTrue(request.url!.path.hasPrefix("/ingredients/"))
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["aisle"] as? String, "🥫")
+            XCTAssertNil(sent?["is_staple"], "unset fields are not sent")
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "tartare sauce", "aisle": "🥫", "aisle_label": "Tins & jars", "is_staple": false}"#
+                    .utf8
+                )
+            )
+        }
+        let updated = try await client(protocolClass: StubProtocol.self)
+            .updateIngredient(id: UUID(), aisle: "🥫")
+        XCTAssertEqual(updated.aisle, "🥫")
+        XCTAssertEqual(updated.aisleLabel, "Tins & jars")
     }
 
     func testTransportErrorMapsToOffline() async {

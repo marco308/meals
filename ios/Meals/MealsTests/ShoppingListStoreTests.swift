@@ -266,6 +266,28 @@ final class ShoppingListStoreTests: XCTestCase {
         XCTAssertEqual(store.pending.count, 1)
     }
 
+    func testShowAlreadyHaveRevealsAndPutBackRestores() async {
+        let onion = TestData.item(name: "onion", excluded: true)
+        let api = FakeShoppingAPI(list: TestData.payload([onion]))
+        let store = makeStore(api)
+        await store.sync()
+
+        XCTAssertEqual(store.excludedCount, 1)
+        XCTAssertTrue(store.displayItems.isEmpty)
+
+        store.includeExcluded = true
+        XCTAssertTrue(store.displayItems.first!.excluded, "reveal shows the excluded line")
+
+        api.failWith = .offline
+        store.putBack(onion)
+        store.includeExcluded = false
+        let restored = store.displayItems.first { $0.name == "onion" }
+        XCTAssertNotNil(restored, "put-back returns the item to this shop, even offline")
+        XCTAssertFalse(restored!.excluded)
+        XCTAssertEqual(store.excludedCount, 0)
+    }
+
+
     func testSectionsFollowStoreWalkingOrder() async {
         let beef = TestData.item(name: "minced beef", aisle: "🥩")
         let onion = TestData.item(name: "onion", aisle: "🥬")

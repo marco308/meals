@@ -95,6 +95,24 @@ ios-test: ## Run the iOS unit tests
 	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
 		-destination '$(IOS_DEST)' -derivedDataPath build test 2>&1 | grep -E "error:|Executed.*test|TEST " | tail -6
 
+ASC_KEY_ID := YOUR_ASC_KEY_ID
+ASC_ISSUER := YOUR_ASC_ISSUER_ID
+ASC_KEY_PATH := $(HOME)/.appstoreconnect/private_keys/AuthKey_$(ASC_KEY_ID).p8
+
+.PHONY: ios-testflight
+ios-testflight: ## Archive, export, and upload the iOS app to TestFlight
+	cd $(IOS_DIR) && xcodegen generate && \
+	xcodebuild archive -project Meals.xcodeproj -scheme Meals \
+		-archivePath ./build/Meals.xcarchive -destination 'generic/platform=iOS' \
+		-allowProvisioningUpdates -authenticationKeyPath $(ASC_KEY_PATH) \
+		-authenticationKeyID $(ASC_KEY_ID) -authenticationKeyIssuerID $(ASC_ISSUER) 2>&1 | grep -E "error:|ARCHIVE" && \
+	xcodebuild -exportArchive -archivePath ./build/Meals.xcarchive -exportPath ./build/export \
+		-exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates \
+		-authenticationKeyPath $(ASC_KEY_PATH) -authenticationKeyID $(ASC_KEY_ID) \
+		-authenticationKeyIssuerID $(ASC_ISSUER) 2>&1 | grep -E "error|EXPORT" && \
+	xcrun altool --upload-app -f ./build/export/Meals.ipa -t ios \
+		--apiKey $(ASC_KEY_ID) --apiIssuer $(ASC_ISSUER)
+
 # ------------------------------------------------------------------ database
 
 .PHONY: migrate
@@ -108,6 +126,12 @@ migration: ## Create a new migration: make migration m="add foo"
 .PHONY: seed
 seed: ## Load demo data (into the Docker stack's API by default)
 	cd $(BACKEND_DIR) && $(UV) run python -m app.seed
+
+# ------------------------------------------------------------------ homelab
+
+.PHONY: deploy
+deploy: ## Deploy to the homelab swarm (the swarm manager behind Traefik)
+	./deploy/deploy.sh
 
 # ------------------------------------------------------------------ cleanup
 

@@ -38,7 +38,7 @@ The unit of planning. A meal is a named thing you'd actually eat, composed of:
 
 ## Feature areas
 
-### F1 — Recipe ingestion & library
+### F1 — Recipe ingestion & library ✅ BUILT
 - Submit a recipe URL → structured recipe stored (LLM-parsed)
 - Cache: resubmitting a known URL returns the stored recipe instantly
 - Browse/search the library (by title, tag, cook time…)
@@ -47,7 +47,7 @@ The unit of planning. A meal is a named thing you'd actually eat, composed of:
 
 > ✅ **DECIDED (Q3):** Manual/no-URL recipes are in v1 (title + ingredients minimum; steps optional).
 
-### F2 — Meal options plan (the anti-calendar)
+### F2 — Meal options plan (the anti-calendar) ✅ BUILT
 - The plan is a flat, glanceable list grouped by slot: **Dinners:** spag bol, cottage pie · **Lunches:** Caesar wraps, burgers
 - No days, no dates on individual meals. A plan might have a loose horizon ("this week's options") but nothing breaks when life changes
 - Tap a meal → its recipe URL(s) (deep link out to the original site) + full ingredient list for that meal
@@ -56,7 +56,7 @@ The unit of planning. A meal is a named thing you'd actually eat, composed of:
 
 > ✅ **DECIDED (Q4):** Plans are **weekly-ish entities**: a loose label/date-range ("w/c 20 July"), archivable, and a new plan can be started by copying an old one. Still no per-day scheduling inside a plan — just grouped options.
 
-### F3 — Shopping list
+### F3 — Shopping list ✅ BUILT
 - Auto-populated when a meal is added to the plan (all its recipe ingredients + loose ingredients land on the list, merged into existing items where possible)
 - Removing a meal from the plan removes/decrements its contributions — but never touches ad-hoc items
 - Add ad-hoc items directly (this should be *fast* — it's the milk-is-out use case)
@@ -65,19 +65,19 @@ The unit of planning. A meal is a named thing you'd actually eat, composed of:
 
 > ✅ **DECIDED (Q5):** Per-ingredient **staples flag** in v1. Staples are hidden from the shopping list by default, with a toggle to reveal them for a **"staples check"** before shopping. No real stock tracking.
 
-### F4 — AI access layer
+### F4 — AI access layer ✅ BUILT
 The headline differentiator. Covered fully in [03-ai-integration.md](03-ai-integration.md). Summary:
 - Clean REST API for everything above
 - Probably an MCP server + a published skill so BYO-AI users get a great out-of-box experience
 
-### F5 — (Later) Supermarket integration
+### F5 — (Later) Supermarket integration ⬜ DEFERRED (as planned)
 - Per-ingredient product URLs per supermarket
 - Enables an AI to do the online shop near-deterministically: walk the list, open each product URL, add to basket; only fall back to searching when a link is dead
 - Explicitly **not** v1, but the ingredient model should leave room for it (an ingredient can carry a set of `(supermarket, url)` pairs)
 
 > ✅ **DECIDED (Q6):** Target supermarkets: **Sainsbury's, Ocado, M&S**.
 
-### F6 — Users & auth (promoted into v1)
+### F6 — Users & auth (promoted into v1) ✅ BUILT
 - **Separate identities from day one**: real per-user accounts and auth are in v1
 - Working assumption: multiple users share one **household** — one recipe library, one plan, one shopping list (multi-household tenancy stays deferred to the freemium future)
 
@@ -86,7 +86,9 @@ The headline differentiator. Covered fully in [03-ai-integration.md](03-ai-integ
 
 ---
 
-## MVP cut (approved)
+## MVP cut (approved) ✅ SHIPPED
+
+> All in-v1 items below are built, tested, and verified — see [05-status.md](05-status.md).
 
 **In v1:** F1 (URL ingestion + cache + edit, plus manual recipes), F2 (weekly-ish plans), F3 (incl. staples check), F4 (API + remote MCP), **per-user auth within a single household**.
 **Out of v1:** supermarket URLs (F5), multi-household tenancy, pantry tracking beyond the staples flag, cooked-meal analytics, native notifications.

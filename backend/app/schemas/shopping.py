@@ -16,7 +16,9 @@ class AdhocItemIn(IngredientLineIn):
 
 class SourceOut(BaseModel):
     ad_hoc: bool
+    meal_id: uuid.UUID | None
     meal_name: str | None
+    recipe_id: uuid.UUID | None
     recipe_title: str | None
     quantity: float | None
 

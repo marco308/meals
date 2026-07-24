@@ -34,6 +34,13 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertTrue(milk.sources.contains { $0.adHoc })
     }
 
+    func testRecipeSourcesCarryIdsForNavigation() throws {
+        let payload = try APIClient.decoder().decode(ShoppingListPayload.self, from: fixture("shopping_list"))
+        let beef = try XCTUnwrap(payload.items.first { $0.name == "minced beef" })
+        XCTAssertEqual(beef.sources.compactMap(\.recipeId).count, 2, "recipe sources link back to their recipes")
+        XCTAssertEqual(beef.sources.compactMap(\.mealId).count, 2)
+    }
+
     func testDecodesPlan() throws {
         let plan = try APIClient.decoder().decode(Plan.self, from: fixture("plan"))
         XCTAssertEqual(plan.label, "This week's options")
@@ -66,6 +73,14 @@ final class ModelDecodingTests: XCTestCase {
         let cottage = try XCTUnwrap(meals.first { $0.name.contains("Cottage") })
         XCTAssertFalse(cottage.looseIngredients.isEmpty)
         XCTAssertEqual(cottage.recipes.count, 1)
+    }
+
+    func testDecodesIngredientInfo() throws {
+        let info = try APIClient.decoder().decode(IngredientInfo.self, from: fixture("ingredient"))
+        XCTAssertEqual(info.name, "tartare sauce")
+        XCTAssertEqual(info.aisle, "❓")
+        XCTAssertEqual(info.aisleLabel, "Unknown")
+        XCTAssertFalse(info.isStaple)
     }
 
     func testDecodesAisles() throws {

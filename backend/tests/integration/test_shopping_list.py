@@ -74,8 +74,17 @@ class TestPopulation:
         assert peas["quantity"] == 200
         source = peas["sources"][0]
         assert source["meal_name"] == "Cottage pie with peas"
+        assert source["meal_id"] == planned_week["cottage_meal"]["id"]
         assert source["recipe_title"] is None  # loose ingredient, no recipe
+        assert source["recipe_id"] is None
         assert source["ad_hoc"] is False
+
+    async def test_recipe_sources_carry_recipe_ids(self, auth_client, planned_week):
+        """Clients link from a list item back to the recipes that need it."""
+        shopping = await get_list(auth_client)
+        beef = item_by_name(shopping, "minced beef")
+        recipe_ids = {s["recipe_id"] for s in beef["sources"]}
+        assert recipe_ids == {planned_week["spag_recipe"]["id"], planned_week["cottage_recipe"]["id"]}
 
     async def test_removing_a_meal_decrements_and_drops(self, auth_client, planned_week):
         """'Scratch the burgers, we're out Friday' — decrement shared lines,

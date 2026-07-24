@@ -1,5 +1,7 @@
 # 03 — AI Integration (BYO-AI Strategy)
 
+> ✅ **BUILT (2026-07-24).** All three layers shipped; acceptance use cases 1–5 run live (6 is F5, deferred). Remote-MCP public endpoint lands with the Q12 deploy. Traceability: [05-status.md](05-status.md).
+
 The product bet: the app has **no built-in AI**. Users bring their own (OpenClaw, Claude, ChatGPT, local models…). Our job is to make the app the easiest possible tool for *any* AI to drive. init.md asks: *"Do we publish a skill? Write an MCP?"* — answer below: **both, layered on one API.**
 
 ## The three layers
