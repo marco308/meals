@@ -28,5 +28,16 @@ services:
       db:
         condition: service_healthy
 
+  # Remote MCP (streamable HTTP): connect an MCP client to
+  # http://localhost:8100/mcp with an Authorization: Bearer <token> header.
+  mcp:
+    build: ./mcp
+    environment:
+      MEALS_API_URL: http://api:8000
+    ports:
+      - "8100:8000"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
