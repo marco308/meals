@@ -5,6 +5,7 @@ import SwiftUI
 struct ShoppingListView: View {
     @Environment(ShoppingListStore.self) private var store
     @State private var quickAddText = ""
+    @State private var showStaplesCheck = false
     @State private var showFinishConfirm = false
     @State private var finishError: String?
 
@@ -47,12 +48,12 @@ struct ShoppingListView: View {
                     )
                 }
 
-                if store.hiddenStaplesCount > 0 && !store.includeStaples {
+                if !store.stapleCheckItems.isEmpty && !store.includeStaples {
                     Section {
                         Button {
-                            store.includeStaples = true
+                            showStaplesCheck = true
                         } label: {
-                            Label("Staples check (\(store.hiddenStaplesCount) hidden)", systemImage: "eye")
+                            Label("Check staples (\(store.stapleCheckItems.count))", systemImage: "cabinet")
                                 .font(.callout)
                         }
                     }
@@ -75,6 +76,9 @@ struct ShoppingListView: View {
             }
             .task { await store.sync() }
             .refreshable { await store.sync() }
+            .sheet(isPresented: $showStaplesCheck) {
+                StaplesCheckView()
+            }
             .confirmationDialog(
                 "Archive this list and start fresh?",
                 isPresented: $showFinishConfirm,
@@ -186,6 +190,88 @@ struct ShoppingItemRow: View {
     }
 }
 
+/// The pre-shop staples check: just the staples, nothing else. Walk the
+/// kitchen ticking through them — one tap puts a staple you're low on onto
+/// the main list in its aisle; the rest stay hidden as usual.
+struct StaplesCheckView: View {
+    @Environment(ShoppingListStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if !store.stapleCheckItems.isEmpty {
+                    Section {
+                        Text("Anything you're low on, tap to add to this shop. The rest stay off the list.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                ForEach(store.stapleCheckSections, id: \.aisle) { section in
+                    Section("\(section.aisle) \(section.label)") {
+                        ForEach(section.items) { item in
+                            StapleCheckRow(item: item)
+                        }
+                    }
+                }
+
+                if store.stapleCheckItems.isEmpty {
+                    ContentUnavailableView(
+                        "No staples to check",
+                        systemImage: "cabinet",
+                        description: Text("Mark ingredients as staples and they'll wait here instead of cluttering the list.")
+                    )
+                }
+            }
+            .navigationTitle("Staples check")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+struct StapleCheckRow: View {
+    @Environment(ShoppingListStore.self) private var store
+    let item: ListItem
+
+    var body: some View {
+        Button {
+            if item.isNeededStaple {
+                store.unmarkStapleNeeded(item)
+            } else {
+                store.markStapleNeeded(item)
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                    if item.isNeededStaple {
+                        Text("on the list — tap if you have it after all")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else if !item.neededBy.isEmpty {
+                        Text("for \(item.neededBy.joined(separator: ", "))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Text(item.display)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Image(systemName: item.isNeededStaple ? "checkmark.circle.fill" : "cart.badge.plus")
+                    .foregroundStyle(item.isNeededStaple ? AnyShapeStyle(.green) : AnyShapeStyle(.tint))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// Why is this on the list? Every contribution with its amount, linking
 /// through to the recipes that need it (guiding principle 3).
 struct ItemDetailSheet: View {
@@ -247,6 +333,14 @@ struct ItemDetailSheet: View {
                             dismiss()
                         } label: {
                             Label("Already have it", systemImage: "house")
+                        }
+                    }
+                    if item.isNeededStaple {
+                        Button {
+                            store.unmarkStapleNeeded(item)
+                            dismiss()
+                        } label: {
+                            Label("Have it after all — hide staple", systemImage: "cabinet")
                         }
                     }
                 }

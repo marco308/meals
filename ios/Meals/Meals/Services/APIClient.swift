@@ -214,7 +214,7 @@ struct AdhocPayload: Codable, Equatable, Sendable {
 protocol ShoppingAPI: Sendable {
     func fetchList() async throws -> ShoppingListPayload
     func fetchAisles() async throws -> [Aisle]
-    func patchItem(id: UUID, checked: Bool?, excluded: Bool?) async throws -> ListItem
+    func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem
     func addItem(_ payload: AdhocPayload) async throws -> ListItem
     func archiveList() async throws
 }
@@ -237,10 +237,10 @@ extension APIClient: ShoppingAPI {
         try await send("GET", "/aisles", as: [Aisle].self)
     }
 
-    func patchItem(id: UUID, checked: Bool?, excluded: Bool?) async throws -> ListItem {
+    func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem {
         try await send(
             "PATCH", "/shopping-list/items/\(id.uuidString.lowercased())",
-            json: ["checked": checked, "excluded": excluded],
+            json: ["checked": checked, "excluded": excluded, "staple_needed": stapleNeeded],
             as: ListItem.self
         )
     }

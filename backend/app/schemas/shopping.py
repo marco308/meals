@@ -35,6 +35,7 @@ class ListItemOut(BaseModel):
     display: str
     checked: bool
     excluded: bool
+    staple_needed: bool  # staple marked "I'm low" — shown on the main list this shop
     sources: list[SourceOut]
     updated_at: datetime
 
@@ -42,6 +43,7 @@ class ListItemOut(BaseModel):
 class ListItemUpdate(BaseModel):
     checked: bool | None = None
     excluded: bool | None = None
+    staple_needed: bool | None = None
 
 
 class ShoppingListOut(BaseModel):
@@ -50,7 +52,7 @@ class ShoppingListOut(BaseModel):
     created_at: datetime
     archived_at: datetime | None
     items: list[ListItemOut]  # sorted in store-walking order (aisle, then name)
-    hidden_staples: int  # staple items not shown — reveal with ?include_staples=true for a staples check
+    hidden_staples: int  # staples not shown — list them with ?include_staples=true, surface one via staple_needed
 
 
 class ArchiveOut(BaseModel):

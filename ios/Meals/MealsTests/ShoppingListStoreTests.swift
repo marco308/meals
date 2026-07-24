@@ -11,7 +11,7 @@ final class FakeShoppingAPI: ShoppingAPI {
     var addItemResult: ((AdhocPayload) -> ListItem)?
     var patchFailures: [UUID: APIError] = [:]
 
-    private(set) var patches: [(id: UUID, checked: Bool?, excluded: Bool?)] = []
+    private(set) var patches: [(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?)] = []
     private(set) var added: [AdhocPayload] = []
     private(set) var fetchCount = 0
 
@@ -30,13 +30,14 @@ final class FakeShoppingAPI: ShoppingAPI {
         return aisles
     }
 
-    func patchItem(id: UUID, checked: Bool?, excluded: Bool?) async throws -> ListItem {
+    func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem {
         if let failWith { throw failWith }
         if let failure = patchFailures[id] { throw failure }
-        patches.append((id, checked, excluded))
+        patches.append((id, checked, excluded, stapleNeeded))
         var item = list.items.first { $0.id == id } ?? TestData.item(id: id, name: "unknown")
         if let checked { item.checked = checked }
         if let excluded { item.excluded = excluded }
+        if let stapleNeeded { item.stapleNeeded = stapleNeeded }
         return item
     }
 
@@ -62,12 +63,13 @@ enum TestData {
         unit: String? = "item",
         checked: Bool = false,
         excluded: Bool = false,
+        stapleNeeded: Bool? = nil,
         sources: [ItemSource] = []
     ) -> ListItem {
         ListItem(
             id: id, ingredientId: id, name: name, aisle: aisle, aisleLabel: "Aisle", isStaple: isStaple,
             quantity: quantity, unit: unit, display: ShoppingListStore.displayQuantity(quantity, unit),
-            checked: checked, excluded: excluded, sources: sources
+            checked: checked, excluded: excluded, stapleNeeded: stapleNeeded, sources: sources
         )
     }
 
@@ -248,10 +250,65 @@ final class ShoppingListStoreTests: XCTestCase {
         await store.sync()
 
         XCTAssertFalse(store.displayItems.contains { $0.isStaple })
-        XCTAssertEqual(store.hiddenStaplesCount, 1)
+        XCTAssertEqual(store.stapleCheckItems.map(\.name), ["olive oil"])
 
         store.includeStaples = true
         XCTAssertTrue(store.displayItems.contains { $0.name == "olive oil" })
+    }
+
+    func testStapleCheckListsOnlyStaplesMinusExclusions() async {
+        let oil = TestData.item(name: "olive oil", aisle: "🥩", isStaple: true)
+        let salt = TestData.item(name: "salt", aisle: "🥬", isStaple: true)
+        let cupboardSalt = TestData.item(name: "sea salt", isStaple: true, excluded: true)
+        let milk = TestData.item(name: "milk")
+        let api = FakeShoppingAPI(list: TestData.payload([oil, salt, cupboardSalt, milk]))
+        let store = makeStore(api)
+        await store.sync()
+
+        XCTAssertEqual(
+            store.stapleCheckItems.map(\.name), ["salt", "olive oil"],
+            "staples only, aisle-ordered, minus already-have exclusions"
+        )
+    }
+
+    func testMarkStapleNeededSurfacesJustThatStapleOffline() async {
+        let oil = TestData.item(name: "olive oil", aisle: "🥩", isStaple: true)
+        let salt = TestData.item(name: "salt", isStaple: true)
+        let api = FakeShoppingAPI(list: TestData.payload([oil, salt]))
+        let store = makeStore(api)
+        await store.sync()
+        XCTAssertTrue(store.displayItems.isEmpty)
+
+        api.failWith = .offline
+        store.markStapleNeeded(oil)
+
+        XCTAssertEqual(store.displayItems.map(\.name), ["olive oil"], "the marked staple joins the list, even offline")
+        XCTAssertFalse(store.displayItems.contains { $0.name == "salt" }, "unmarked staples stay hidden")
+
+        let surfaced = store.stapleCheckItems.first { $0.name == "olive oil" }!
+        XCTAssertTrue(surfaced.isNeededStaple, "the check view shows the marked state")
+        store.unmarkStapleNeeded(surfaced)
+        XCTAssertTrue(store.displayItems.isEmpty, "have-it-after-all hides the staple again")
+    }
+
+    func testStapleNeededReplaysToServer() async {
+        let oil = TestData.item(name: "olive oil", isStaple: true)
+        let api = FakeShoppingAPI(list: TestData.payload([oil]))
+        let store = makeStore(api)
+        await store.sync()
+
+        api.failWith = .offline
+        store.markStapleNeeded(oil)
+        await store.sync()
+        XCTAssertEqual(store.pending.count, 1)
+
+        api.failWith = nil
+        await store.sync()
+        XCTAssertTrue(store.pending.isEmpty)
+        XCTAssertEqual(api.patches.count, 1)
+        XCTAssertEqual(api.patches.first?.stapleNeeded, true)
+        XCTAssertNil(api.patches.first?.checked)
+        XCTAssertNil(api.patches.first?.excluded)
     }
 
     func testExcludedItemsHiddenButProjectionKeepsThem() async {

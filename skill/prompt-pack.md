@@ -24,9 +24,9 @@ Key endpoints:
 - `POST /recipes/ingest {url}` — try this first for any recipe link; cached URLs return instantly. A 422 means the page has no structured data: read the page yourself and `POST /recipes` with `{title, servings, prep_minutes, cook_minutes, instructions, tags, source_url, parse_source: "ai", ingredients: [{name, quantity, unit}]}` (names lowercase, prep notes stripped; omit quantity+unit for "to taste").
 - `POST /meals {name, slot, recipe_ids, loose_ingredients}` · `GET /meals`
 - `GET /plans/current` · `POST /plans {label}` · `POST /plans/{id}/meals {meal_id}` · `DELETE /plans/{id}/meals/{plan_meal_id}`
-- `GET /shopping-list` (add `?include_staples=true` for a pre-shop staples check) — items come sorted in store-walking aisle order: 🥬 fruit & veg, 🍞 bakery, 🥩 meat & fish, 🥛 dairy & eggs, 🥫 tins & jars, 🍝 dry goods, 🌶️ herbs & spices, 🥤 drinks, 🍫 snacks, 🧊 frozen, 🧴 household, ❓ unknown
+- `GET /shopping-list` (add `?include_staples=true` for a pre-shop staples check; mark any the household is low on with `{"staple_needed": true}` — just that staple joins the main list) — items come sorted in store-walking aisle order: 🥬 fruit & veg, 🍞 bakery, 🥩 meat & fish, 🥛 dairy & eggs, 🥫 tins & jars, 🍝 dry goods, 🌶️ herbs & spices, 🥤 drinks, 🍫 snacks, 🧊 frozen, 🧴 household, ❓ unknown
 - `POST /shopping-list/items {name, quantity, unit, id}` — ad-hoc adds ("out of milk"); send a fresh UUID as `id` so retries are safe
-- `PATCH /shopping-list/items/{id}` with `{"checked": true}` (shopping) or `{"excluded": true}` ("already have it" — never delete provenance)
+- `PATCH /shopping-list/items/{id}` with `{"checked": true}` (shopping), `{"excluded": true}` ("already have it" — never delete provenance), or `{"staple_needed": true}` (staples check: "I'm low" — surfaces that staple; `false` hides it again)
 - `POST /shopping-list/archive` after the shop · `PATCH /ingredients/{id}` to fix ❓ aisles or flag staples
 
 Habits: read lists back grouped by aisle; mention which meal needs an item

@@ -266,6 +266,46 @@ class TestStaples:
         assert item_by_name(default_view, "chopped tomatoes") is None
         assert default_view["hidden_staples"] == 1
 
+    async def test_staple_needed_surfaces_that_item_only(self, auth_client, planned_week):
+        """The staples check: 'I'm low on tomatoes' puts that staple on the
+        main list in its aisle with the plan's merged quantity; the other
+        staples stay hidden. 'Have it after all' hides it again."""
+        shopping = await get_list(auth_client)
+        tomatoes = item_by_name(shopping, "chopped tomatoes")
+        spaghetti = item_by_name(shopping, "spaghetti")
+        for staple in (tomatoes, spaghetti):
+            await auth_client.patch(f"/ingredients/{staple['ingredient_id']}", json={"is_staple": True})
+
+        marked = await auth_client.patch(f"/shopping-list/items/{tomatoes['id']}", json={"staple_needed": True})
+        assert marked.json()["staple_needed"] is True
+
+        default_view = await get_list(auth_client)
+        surfaced = item_by_name(default_view, "chopped tomatoes")
+        assert surfaced["quantity"] == 2  # the plan's merged line, not a bare entry
+        assert item_by_name(default_view, "spaghetti") is None  # unmarked staple stays hidden
+        assert default_view["hidden_staples"] == 1
+
+        # store-walking order is preserved: the staple slots into its aisle
+        aisles = [item["aisle"] for item in default_view["items"]]
+        assert aisles == sorted(aisles, key=lambda a: ["🥬", "🥩", "🥫", "🧊"].index(a))
+
+        await auth_client.patch(f"/shopping-list/items/{tomatoes['id']}", json={"staple_needed": False})
+        default_view = await get_list(auth_client)
+        assert item_by_name(default_view, "chopped tomatoes") is None
+        assert default_view["hidden_staples"] == 2
+
+    async def test_staples_check_view_reports_needed_state(self, auth_client, planned_week):
+        """The staples-check UI is the include_staples=true list filtered to
+        staples — staple_needed tells it which rows are already marked."""
+        shopping = await get_list(auth_client)
+        tomatoes = item_by_name(shopping, "chopped tomatoes")
+        await auth_client.patch(f"/ingredients/{tomatoes['ingredient_id']}", json={"is_staple": True})
+        await auth_client.patch(f"/shopping-list/items/{tomatoes['id']}", json={"staple_needed": True})
+
+        revealed = await get_list(auth_client, include_staples="true")
+        assert item_by_name(revealed, "chopped tomatoes")["staple_needed"] is True
+        assert item_by_name(revealed, "onion")["staple_needed"] is False
+
 
 class TestArchive:
     async def test_archive_starts_fresh_and_preserves_history(self, auth_client, planned_week):
@@ -294,6 +334,25 @@ class TestArchive:
 
         history = await auth_client.get("/shopping-list/archived")
         assert history.json()[0]["item_count"] == len(before["items"])
+
+    async def test_archive_resets_staple_needed_with_the_shop(self, auth_client, planned_week):
+        """'Finish shop' retires the staples check with the rest of the shop
+        state: on the next list the staple starts hidden again."""
+        shopping = await get_list(auth_client)
+        tomatoes = item_by_name(shopping, "chopped tomatoes")
+        await auth_client.patch(f"/ingredients/{tomatoes['ingredient_id']}", json={"is_staple": True})
+        await auth_client.patch(f"/shopping-list/items/{tomatoes['id']}", json={"staple_needed": True})
+        await auth_client.post("/shopping-list/archive")
+
+        extra = await create_meal(
+            auth_client,
+            name="Pizza night",
+            loose_ingredients=[{"name": "chopped tomatoes", "quantity": 1, "unit": "tin"}],
+        )
+        await auth_client.post(f"/plans/{planned_week['plan']['id']}/meals", json={"meal_id": extra["id"]})
+        fresh = await get_list(auth_client)
+        assert item_by_name(fresh, "chopped tomatoes") is None
+        assert fresh["hidden_staples"] == 1
 
     async def test_meals_added_after_archive_populate_new_list(self, auth_client, planned_week):
         await auth_client.post("/shopping-list/archive")

@@ -57,7 +57,9 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   create a meal for them.
 - "Already have onions" → `mark_already_have("onion")`, don't delete the line.
 - Staples (olive oil, salt…) are hidden by default. Before a shop, offer a
-  staples check: `get_shopping_list(include_staples=true)`.
+  staples check: `get_shopping_list(include_staples=true)`, then
+  `need_staple(name)` for anything the user is low on — just that staple
+  joins the main list; the rest stay hidden. Undo with `needed=false`.
 - After the shop: `finish_shop()` archives the list and starts fresh.
 
 ## When to ask vs act

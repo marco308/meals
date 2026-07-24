@@ -23,7 +23,8 @@ async def get_shopping_list(
 ) -> ShoppingListOut:
     """The live shopping list, sorted in store-walking order (aisle emoji,
     then name). Staples and 'already have it' items are hidden by default;
-    hidden_staples says how many are waiting for a staples check."""
+    hidden_staples says how many are waiting for a staples check. A staple
+    marked staple_needed ("I'm low") stays on the list in its aisle."""
     active = await get_active_list(db, user.household_id)
     await db.commit()  # persist the list if it was just created
     full = await get_list_full(db, active.id)
@@ -47,13 +48,17 @@ async def add_item(payload: AdhocItemIn, user: CurrentUser, db: DbSession, respo
 
 @router.patch("/items/{item_id}", response_model=ListItemOut)
 async def update_item(item_id: uuid.UUID, payload: ListItemUpdate, user: CurrentUser, db: DbSession) -> ListItemOut:
-    """Check items off while shopping, or mark 'already have it' (excluded —
-    hidden from this shop without losing why it was needed)."""
+    """Check items off while shopping, mark 'already have it' (excluded —
+    hidden from this shop without losing why it was needed), or mark a staple
+    as needed during a staples check (staple_needed — that one staple joins
+    the main list; false hides it again)."""
     item = await _get_item(db, user.household_id, item_id)
     if payload.checked is not None:
         item.checked = payload.checked
     if payload.excluded is not None:
         item.excluded = payload.excluded
+    if payload.staple_needed is not None:
+        item.staple_needed = payload.staple_needed
     await db.commit()
     result = await db.execute(select(ListItem).where(ListItem.id == item.id).execution_options(populate_existing=True))
     return list_item_out(result.scalar_one())

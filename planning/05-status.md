@@ -37,7 +37,7 @@ with the API container stopped).
 | Fast ad-hoc adds | ✅ | iOS quick-add, MCP `add_to_list`, idempotent client ids |
 | Shopping mode: aisle-emoji sort + check-off | ✅ | store-walking order, offline-capable check-offs (Q11 hard requirement, proven end-to-end) |
 | "Already have it" without deleting provenance | ✅ | exclude + reveal toggle + put-back (offline-capable) |
-| Staples flag + staples check (Q5) | ✅ | hidden by default, reveal toggle, editable per ingredient |
+| Staples flag + staples check (Q5) | ✅ | hidden by default, editable per ingredient; staples-only check view with per-item "I'm low" surfacing (`staple_needed`, #4) |
 | One live list, archived on completion (Q1) | ✅ | finish-shop archive; history endpoint |
 
 ## F4 — AI access layer ✅
@@ -45,7 +45,7 @@ with the API container stopped).
 | Plan item | Status | Where |
 |---|---|---|
 | Layer 1: OpenAPI REST, AI-ergonomic | ✅ | rich actionable errors, idempotent writes, bulk recipe submit, unit-convention 422s with conversions |
-| Layer 2: MCP server, task-level tools | ✅ | 15 tools; stdio + streamable HTTP modes |
+| Layer 2: MCP server, task-level tools | ✅ | 16 tools; stdio + streamable HTTP modes |
 | Layer 3: skill + portable prompt pack (Q14) | ✅ | `skill/SKILL.md`, `skill/prompt-pack.md` |
 | Acceptance scenarios (03 §use cases 1–5) | ✅ | all run live (multi-URL ingest, loose-ingredient meal, cook-tonight w/ times, aisle list, scratch-a-meal decrement) |
 | Use case 6 (Ocado shop) | ⬜ | F5, deferred by decision |

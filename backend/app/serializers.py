@@ -133,6 +133,7 @@ def list_item_out(item: ListItem) -> ListItemOut:
         display=format_quantity(item.quantity, item.unit),
         checked=item.checked,
         excluded=item.excluded,
+        staple_needed=item.staple_needed,
         sources=sources,
         updated_at=item.updated_at,
     )
@@ -142,7 +143,7 @@ def shopping_list_out(shopping_list: ShoppingList, include_staples: bool, includ
     visible: list[ListItem] = []
     hidden_staples = 0
     for item in shopping_list.items:
-        if item.ingredient.is_staple and not include_staples:
+        if item.ingredient.is_staple and not include_staples and not item.staple_needed:
             hidden_staples += 1
             continue
         if item.excluded and not include_excluded:

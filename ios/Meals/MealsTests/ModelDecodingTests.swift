@@ -20,6 +20,7 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(beef.display, "1 kg")
         XCTAssertEqual(beef.aisle, "🥩")
         XCTAssertFalse(beef.checked)
+        XCTAssertEqual(beef.stapleNeeded, false)
         XCTAssertEqual(beef.sources.count, 2)
         XCTAssertEqual(
             beef.neededBy.sorted(),

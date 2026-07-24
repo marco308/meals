@@ -261,7 +261,8 @@ async def mark_meal_cooked(meal_name: str) -> str:
 async def get_shopping_list(include_staples: bool = False) -> str:
     """The live shopping list in store-walking order, grouped by aisle.
     Checked-off items show ✔. Set include_staples=true for a pre-shop staples
-    check (staples are hidden by default)."""
+    check (staples are hidden by default); mark any the household is low on
+    with need_staple."""
     try:
         data = await _call("GET", "/shopping-list", params={"include_staples": include_staples})
     except ApiError as exc:
@@ -280,7 +281,10 @@ async def get_shopping_list(include_staples: bool = False) -> str:
         why = f"  (for: {', '.join(sorted(needed_by))})" if needed_by else ""
         lines.append(f"  {tick}{item['name']}{_fmt_qty(item)}{why}")
     if data["hidden_staples"]:
-        lines.append(f"\n({data['hidden_staples']} staples hidden — call with include_staples=true to check them)")
+        lines.append(
+            f"\n({data['hidden_staples']} staples hidden — call with include_staples=true to check them, "
+            "then need_staple(name) for any that are running low)"
+        )
     return "\n".join(lines).strip()
 
 
@@ -296,7 +300,10 @@ async def add_to_list(name: str, quantity: float | None = None, unit: str | None
         item = await _call("POST", "/shopping-list/items", json=payload)
     except ApiError as exc:
         return str(exc)
-    return f"On the list: {item['name']}{_fmt_qty(item)} ({item['aisle']} {item['aisle_label']})"
+    note = ""
+    if item.get("is_staple") and not item.get("staple_needed"):
+        note = f" NB: it's a staple, hidden from the main list — need_staple('{item['name']}') surfaces it."
+    return f"On the list: {item['name']}{_fmt_qty(item)} ({item['aisle']} {item['aisle_label']}){note}"
 
 
 async def _find_item(name: str) -> dict:
@@ -336,6 +343,23 @@ async def mark_already_have(item_name: str) -> str:
     except ApiError as exc:
         return str(exc)
     return f"Marked {item['name']} as already-have — hidden from this shop."
+
+
+@mcp.tool()
+async def need_staple(item_name: str, needed: bool = True) -> str:
+    """Staples check: mark a staple the household is low on as needed this
+    shop — just that item joins the main list in its aisle; the other staples
+    stay hidden. Undo with needed=false ('have it after all')."""
+    try:
+        item = await _find_item(item_name)
+        if not item.get("is_staple"):
+            return f"{item['name']} isn't a staple — it's on the main list already."
+        await _call("PATCH", f"/shopping-list/items/{item['id']}", json={"staple_needed": needed})
+    except ApiError as exc:
+        return str(exc)
+    if needed:
+        return f"{item['name']}{_fmt_qty(item)} added to this shop's list ({item['aisle']} {item['aisle_label']})."
+    return f"{item['name']} hidden again — it'll wait for the next staples check."
 
 
 @mcp.tool()

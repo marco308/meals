@@ -119,11 +119,16 @@ struct ListItem: Codable, Identifiable, Equatable, Sendable {
     var display: String
     var checked: Bool
     var excluded: Bool
+    // Staple marked "I'm low" in the staples check — shown on the main list.
+    // Optional so caches written by older app versions still decode.
+    var stapleNeeded: Bool? = nil
     var sources: [ItemSource]
 
     var neededBy: [String] {
         Array(Set(sources.compactMap(\.mealName))).sorted()
     }
+
+    var isNeededStaple: Bool { stapleNeeded ?? false }
 }
 
 struct ShoppingListPayload: Codable, Equatable, Sendable {
