@@ -19,7 +19,8 @@ tail plus engineering debt worth naming.
 - [ ] **Archived shopping lists in iOS** — API has `GET /shopping-list/archived`; no screen for "what did we buy last week"
 - [ ] **Re-parse endpoint** — refresh a cached recipe from its URL on demand (edits win; needs an explicit force flag)
 - [ ] **iOS offline breadth** — plan and recipe library are online-only by design (Q11); cache read-only copies so the whole app opens signal-less
-- [ ] **Remote MCP multi-user auth** — today each user runs the MCP server with their own PAT (env var); proper per-request auth passthrough would let one hosted MCP endpoint serve the household
+- [x] ~~**Remote MCP multi-user auth**~~ — ✅ shipped (issue #6): the stack serves streamable HTTP at `https://meals.marcuslab.uk/mcp` and forwards each caller's own bearer PAT per request; stdio stays for local dev
+- [ ] **MCP OAuth** — claude.ai custom connectors authenticate via OAuth, not custom headers; the remote MCP is bearer-header-only today (Claude Code and header-capable clients work)
 
 ## Later (explicitly deferred in the plan)
 

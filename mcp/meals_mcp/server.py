@@ -2,10 +2,21 @@
 the BYO-AI strategy). Any MCP-capable assistant gets the meal-planning
 workflow out of the box; the REST API remains the universal floor.
 
+Two modes (decision Q15 / issue #6):
+    stdio (default)  each user runs their own process; MEALS_API_TOKEN in the
+                     env authenticates every call
+    http             the shared remote endpoint (streamable HTTP, deployed
+                     behind Traefik at /mcp); the server holds no token —
+                     each request must carry the caller's own
+                     "Authorization: Bearer <token>" header, forwarded to the
+                     API untouched, so every client acts as themselves
+
 Config (env):
-    MEALS_API_URL    base URL of the backend (default http://localhost:8000)
-    MEALS_API_TOKEN  a personal API token from POST /auth/tokens
-    MEALS_MCP_TRANSPORT  stdio (default) or streamable-http for remote use
+    MEALS_API_URL        base URL of the backend (default http://localhost:8000;
+                         the deployed stack points at the api container)
+    MEALS_API_TOKEN      stdio mode only: a personal API token from POST /auth/tokens
+    MEALS_MCP_TRANSPORT  stdio (default) or http
+    MEALS_MCP_HOST/PORT  http mode bind address (default 0.0.0.0:8000)
 """
 
 import os
@@ -14,6 +25,8 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
 
 mcp = FastMCP(
     "meals",
@@ -30,11 +43,29 @@ class ApiError(Exception):
     """Raised with the backend's rich error text so the assistant can act on it."""
 
 
+def _http_request() -> Request | None:
+    """The live HTTP request when serving streamable HTTP; None over stdio
+    (and in direct tool-function calls), where env-token auth applies."""
+    try:
+        return mcp.get_context().request_context.request
+    except ValueError:
+        return None
+
+
 def _client() -> httpx.AsyncClient:
-    token = os.environ.get("MEALS_API_TOKEN", "")
+    request = _http_request()
+    if request is not None:
+        # Remote mode: act as the connecting user. Forward their bearer header
+        # verbatim and never fall back to a server-side token — a baked-in
+        # token would make every client act as that token's owner.
+        auth = request.headers.get("authorization")
+        headers = {"Authorization": auth} if auth else {}
+    else:
+        token = os.environ.get("MEALS_API_TOKEN", "")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
     return httpx.AsyncClient(
         base_url=os.environ.get("MEALS_API_URL", "http://localhost:8000"),
-        headers={"Authorization": f"Bearer {token}"} if token else {},
+        headers=headers,
         timeout=30,
     )
 
@@ -43,6 +74,12 @@ async def _call(method: str, path: str, **kwargs: Any) -> Any:
     async with _client() as client:
         response = await client.request(method, path, **kwargs)
     if response.status_code == 401:
+        if _http_request() is not None:
+            raise ApiError(
+                "authentication failed: connect to this MCP server with an "
+                "'Authorization: Bearer <token>' header — create a personal API "
+                "token with POST /auth/tokens after logging in"
+            )
         raise ApiError(
             "authentication failed: set MEALS_API_TOKEN to a personal API token "
             "(create one with POST /auth/tokens after logging in)"
@@ -370,9 +407,26 @@ async def set_ingredient_aisle(ingredient_name: str, aisle_emoji: str, is_staple
     return f"{updated['name']} → {updated['aisle']} {updated['aisle_label']}{staple}"
 
 
+@mcp.custom_route("/healthz", methods=["GET"])
+async def healthz(request: Request) -> Response:
+    """Liveness for the container healthcheck and the Traefik load balancer."""
+    return PlainTextResponse("ok")
+
+
+def _configure_http_mode() -> None:
+    """Remote-mode settings. Bind beyond loopback (Traefik fronts us), drop the
+    SDK's localhost-only DNS-rebinding allowlist (the Host header is the public
+    domain), and go stateless so restarts and replicas never strand a session."""
+    mcp.settings.host = os.environ.get("MEALS_MCP_HOST", "0.0.0.0")
+    mcp.settings.port = int(os.environ.get("MEALS_MCP_PORT", "8000"))
+    mcp.settings.stateless_http = True
+    mcp.settings.transport_security = None
+
+
 def main() -> None:
     transport = os.environ.get("MEALS_MCP_TRANSPORT", "stdio")
     if transport == "http":
+        _configure_http_mode()
         mcp.run(transport="streamable-http")
     else:
         mcp.run()

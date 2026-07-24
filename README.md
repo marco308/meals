@@ -63,7 +63,22 @@ client ids and id-remapping for server-side merges) when connectivity returns.
 
 ## Trying the AI layer
 
-Create a token (or use the seed's), then point an MCP client at the server:
+The MCP server ships with the deployment — any MCP-capable assistant connects
+by URL, no local Python or repo checkout. Create a personal API token
+(`POST /auth/tokens`, or use the seed's) and send it as a bearer header:
+
+```bash
+claude mcp add --transport http meals https://meals.marcuslab.uk/mcp \
+  --header "Authorization: Bearer meals_…"
+```
+
+The remote server holds no credentials of its own: each request's bearer
+token is forwarded to the API, so every connecting client acts as themselves.
+Any MCP client that can send a custom header works the same way against
+`https://meals.marcuslab.uk/mcp` (claude.ai custom connectors need OAuth,
+which the server doesn't speak yet — see [BACKLOG.md](BACKLOG.md)).
+
+**Local fallback (stdio)** — no deployment needed, runs from the repo:
 
 ```json
 {
@@ -80,8 +95,9 @@ Create a token (or use the seed's), then point an MCP client at the server:
 }
 ```
 
-Set `MEALS_MCP_TRANSPORT=http` to serve MCP over streamable HTTP instead of
-stdio (the remote-MCP deployment mode). Non-MCP assistants: paste
+Self-hosting the remote mode: `MEALS_MCP_TRANSPORT=http` serves streamable
+HTTP at `/mcp` on `0.0.0.0:8000` (`make dev` exposes it on
+`http://localhost:8100/mcp`). Non-MCP assistants: paste
 [`skill/prompt-pack.md`](skill/prompt-pack.md) into their instructions — the
 REST API alone is enough.
 
@@ -95,7 +111,7 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 200 backend tests (98% coverage) + 11 mcp tests — no Docker, no network
+make test      # 201 backend tests (98% coverage) + 16 mcp tests — no Docker, no network
 make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
@@ -107,9 +123,12 @@ check-off/uncheck, archive, resync on meal/recipe edits).
 
 ## Deployment notes
 
-The stack is a single API container + Postgres, designed for the existing
-homelab pattern: Docker Swarm behind Traefik with Let's Encrypt on a
-`*.marcuslab.uk` subdomain (see `docker-compose.yml` for the shape). Being
-internet-facing, auth is mandatory everywhere except `/healthz`, auth
-endpoints are rate-limited, and registration can be closed with
-`REGISTRATION_ENABLED=false` once the household has its accounts.
+The stack is an API container + a remote-MCP container + Postgres, designed
+for the existing homelab pattern: Docker Swarm behind Traefik with Let's
+Encrypt on a `*.marcuslab.uk` subdomain (see `docker-compose.yml` for the
+shape). The MCP container is routed at `/mcp` on the same host and
+authenticates nothing itself — it forwards each caller's bearer token to the
+API, which stays the single auth gate. Being internet-facing, auth is
+mandatory everywhere except `/healthz`, auth endpoints are rate-limited, and
+registration can be closed with `REGISTRATION_ENABLED=false` once the
+household has its accounts.
