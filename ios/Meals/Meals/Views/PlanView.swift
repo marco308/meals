@@ -222,7 +222,7 @@ struct PlanMealRow: View {
 
     var body: some View {
         NavigationLink {
-            MealDetailView(planMeal: planMeal)
+            destination
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -258,6 +258,19 @@ struct PlanMealRow: View {
                 Label("Cooked", systemImage: "checkmark")
             }
             .tint(.green)
+        }
+    }
+
+    /// A meal that is exactly one recipe goes straight to the full recipe
+    /// (with plan actions on board) — an intermediate meal screen would just
+    /// repeat the ingredient list. Composite meals get the meal overview.
+    @ViewBuilder
+    private var destination: some View {
+        let meal = planMeal.meal
+        if meal.recipes.count == 1 && meal.looseIngredients.isEmpty {
+            RecipeDetailView(recipeId: meal.recipes[0].id, planContext: planMeal)
+        } else {
+            MealDetailView(planMeal: planMeal)
         }
     }
 
