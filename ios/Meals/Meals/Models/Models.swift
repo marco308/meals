@@ -15,6 +15,16 @@ struct AuthResponse: Codable, Sendable {
     let user: UserProfile
 }
 
+/// What the server expects of native clients (GET /client-config). Builds below
+/// `minIosBuild` are refused with 426 on everything except the offline-queue
+/// endpoints; builds below `currentIosBuild` just get a nudge.
+struct ClientConfig: Codable, Equatable, Sendable {
+    let apiVersion: String
+    let minIosBuild: Int
+    let currentIosBuild: Int
+    let upgradeUrl: String?
+}
+
 struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let title: String

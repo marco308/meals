@@ -153,7 +153,7 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 233 backend tests (99% coverage) + 28 mcp tests — no Docker, no network
+make test      # 254 backend tests (99% coverage) + 28 mcp tests — no Docker, no network
 make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
