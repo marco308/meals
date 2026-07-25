@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 4
+PLAYBOOK_VERSION = 5
 
 mcp = FastMCP(
     "meals",
@@ -600,7 +600,8 @@ async def set_ingredient_aisle(ingredient_name: str, aisle_emoji: str, is_staple
     """Tag an ingredient's supermarket aisle (❓ items need this) and
     optionally flag it as a staple. Valid aisles: 🥬 fruit & veg, 🍞 bakery,
     🥩 meat & fish, 🥛 dairy & eggs, 🥫 tins & jars, 🍝 dry goods, 🌶️ herbs &
-    spices, 🥤 drinks, 🍫 snacks, 🧊 frozen, 🧴 household."""
+    spices, 🥤 drinks, 🍫 snacks, 🧊 frozen, 🧼 toiletries (shower gel, razor
+    blades…), 🧴 household."""
     try:
         ingredient = await _find_ingredient(ingredient_name)
         patch: dict[str, Any] = {"aisle": aisle_emoji}

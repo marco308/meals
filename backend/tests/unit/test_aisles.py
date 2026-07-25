@@ -16,6 +16,11 @@ class TestGuessAisle:
             ("coconut milk", "🥫"),  # longest keyword wins over 'milk'
             ("frozen peas", "🧊"),
             ("bin bags", "🧴"),
+            ("razor blades", "🧼"),
+            ("shower gel", "🧼"),
+            ("shampoo", "🧼"),
+            ("sun cream", "🧼"),  # longest keyword wins over 'cream'
+            ("toilet roll", "🧴"),  # paper goods stay household
             ("smoked paprika", "🌶️"),
             ("self-raising flour", "🍝"),
             ("sourdough", "🍞"),
@@ -38,6 +43,9 @@ class TestVocabulary:
     def test_produce_first_household_late(self):
         assert AISLE_ORDER["🥬"] == 0
         assert AISLE_ORDER["🧴"] > AISLE_ORDER["🧊"]
+
+    def test_toiletries_walk_between_frozen_and_household(self):
+        assert AISLE_ORDER["🧊"] < AISLE_ORDER["🧼"] < AISLE_ORDER["🧴"]
 
     def test_is_valid_aisle(self):
         assert is_valid_aisle("🥫")

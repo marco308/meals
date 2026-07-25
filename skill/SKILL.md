@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 4 -->
+<!-- playbook-version: 5 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v4, and this file is a snapshot** — once installed it never
+**This is playbook v5, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -59,8 +59,8 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
 
 - Aisle vocabulary (store-walking order): 🥬 fruit & veg · 🍞 bakery ·
   🥩 meat & fish · 🥛 dairy & eggs · 🥫 tins & jars · 🍝 dry goods & pasta ·
-  🌶️ herbs & spices · 🥤 drinks · 🍫 snacks · 🧊 frozen · 🧴 household ·
-  ❓ unknown. Tag ❓ ingredients with `set_ingredient_aisle` when you can.
+  🌶️ herbs & spices · 🥤 drinks · 🍫 snacks · 🧊 frozen · 🧼 toiletries ·
+  🧴 household · ❓ unknown. Tag ❓ ingredients with `set_ingredient_aisle` when you can.
 - Ad-hoc items ("we're out of milk") go straight on with `add_to_list` — never
   create a meal for them.
 - "Already have onions" → `mark_already_have("onion")`, don't delete the line.

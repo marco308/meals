@@ -274,5 +274,5 @@ struct LooseLine: Identifiable, Equatable, Sendable {
 
 // Fallback store-walking order used until /aisles has been fetched once.
 enum AisleOrder {
-    static let fallback = ["🥬", "🍞", "🥩", "🥛", "🥫", "🍝", "🌶️", "🥤", "🍫", "🧊", "🧴", "❓"]
+    static let fallback = ["🥬", "🍞", "🥩", "🥛", "🥫", "🍝", "🌶️", "🥤", "🍫", "🧊", "🧼", "🧴", "❓"]
 }
