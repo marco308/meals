@@ -1,0 +1,33 @@
+version: 2
+
+# Grouped and weekly on purpose: a household meal planner does not need a PR
+# per patch bump. Security updates still arrive on their own, ungrouped.
+updates:
+  - package-ecosystem: uv
+    directories:
+      - /backend
+      - /mcp
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /mcp
+    schedule:
+      interval: weekly
+      day: monday

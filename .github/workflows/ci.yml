@@ -1,0 +1,151 @@
+name: CI
+
+# What runs here is what `make lint` / `make test` run locally — the Makefile
+# stays the single source of truth — plus the two things a laptop can't check
+# cheaply: migrations against real Postgres, and the images actually booting.
+#
+# There is deliberately no iOS job: macOS runners are expensive and
+# `make ios-build` / `make ios-test` stay local until the repo is open source.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # A stale uv.lock fails the job instead of silently resolving around it.
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - run: make lint
+
+  test:
+    name: tests (backend + mcp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      # SQLite, no services, no network (respx stubs external HTTP) — same as local.
+      - run: make test
+
+  migrations:
+    name: migrations on postgres
+    runs-on: ubuntu-latest
+    # The test suite builds its schema with `Base.metadata.create_all`, so a
+    # migration that is missing, unrunnable, or SQLite-only is invisible to it.
+    # The container runs `alembic upgrade head` on boot, so that class of bug
+    # is a crashlooping API, not a test failure. Catch it here, on the engine
+    # production actually uses.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: meals
+          POSTGRES_PASSWORD: meals
+          POSTGRES_DB: meals
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U meals -d meals"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql+asyncpg://meals:meals@localhost:5432/meals
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - run: uv sync
+      - name: alembic upgrade head
+        run: uv run alembic upgrade head
+      - name: No drift between the models and the migrations
+        # `alembic check` autogenerates against the migrated database and fails
+        # if anything would be emitted — i.e. a model change shipped without
+        # `make migration`.
+        run: uv run alembic check
+
+  stack:
+    name: docker stack smoke
+    runs-on: ubuntu-latest
+    # Everything the deploy verifies (deploy/deploy.sh), run against the same
+    # images before they reach the swarm: the API boots and migrates, the skill
+    # actually shipped inside the image (the build context is the repo root for
+    # exactly that reason), and the remote MCP answers an initialize handshake.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up --build -d
+
+      - name: Wait for the API
+        run: |
+          for _ in $(seq 1 60); do
+            curl -fsS --max-time 5 http://localhost:8000/healthz && exit 0
+            sleep 2
+          done
+          echo "::error::the API never answered /healthz — it failed to boot or migrate"
+          exit 1
+
+      - name: Verify the published endpoints
+        # NB: keep every check a bare command. `curl … && echo` is exempt from
+        # set -e (bash skips -e for all but the last command of a && list), and
+        # that pattern let a failed check pass once already in deploy.sh.
+        run: |
+          curl -fsS --max-time 10 http://localhost:8000/client-config
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/skill
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/prompt-pack
+          # The skill is served with {{API_URL}} substituted from the request's
+          # host headers; an unsubstituted placeholder ships a broken manual.
+          curl -fsS --max-time 10 http://localhost:8000/skill > skill.md
+          grep -q 'http://localhost:8000' skill.md
+          ! grep -q '{{API_URL}}' skill.md
+
+      - name: Verify the remote MCP initialize handshake
+        run: |
+          curl -fsS --max-time 20 -X POST http://localhost:8100/mcp \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | tee mcp.txt
+          grep -q '"serverInfo"' mcp.txt
+
+      - name: Seed demo data through the public API
+        # `app.seed` drives register → recipes → meals → plan → shopping list
+        # over HTTP, so this is the end-to-end smoke test: run it inside the
+        # container so the job needs no Python of its own. It prints a demo PAT
+        # into the log — that is for a throwaway database deleted at teardown.
+        run: docker compose exec -T api .venv/bin/python -m app.seed
+
+      - name: Stack logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

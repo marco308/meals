@@ -325,9 +325,7 @@ class TestRecipeUsage:
 
     @respx.mock
     async def test_delete_recipe_resolves_by_title(self):
-        respx.get(f"{API}/recipes").mock(
-            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
-        )
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")]))
         route = respx.delete(f"{API}/recipes/r1").mock(return_value=httpx.Response(204))
         result = await server.delete_recipe("garlic bread")
         assert "Deleted 'Garlic bread'" in result
@@ -335,9 +333,7 @@ class TestRecipeUsage:
 
     @respx.mock
     async def test_delete_recipe_in_use_passes_the_409_back(self):
-        respx.get(f"{API}/recipes").mock(
-            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
-        )
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")]))
         respx.delete(f"{API}/recipes/r1").mock(
             return_value=httpx.Response(409, json={"detail": "recipe is used by one or more meals; remove it first"})
         )
@@ -346,9 +342,7 @@ class TestRecipeUsage:
 
     @respx.mock
     async def test_delete_recipe_unknown_lists_the_library(self):
-        respx.get(f"{API}/recipes").mock(
-            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
-        )
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")]))
         result = await server.delete_recipe("tiramisu")
         assert "No recipe matching 'tiramisu'" in result
         assert "Garlic bread" in result

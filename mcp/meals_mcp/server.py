@@ -116,6 +116,7 @@ def _fmt_cooked(entity: dict) -> str:
     last = (entity.get("last_cooked_at") or "")[:10]
     return f", cooked {count}×" + (f" (last {last})" if last else "")
 
+
 def _fmt_value(item: dict) -> str:
     """Premium/budget buying advice, rendered where the choice is made."""
     tier = item.get("value_tier") or "any"
