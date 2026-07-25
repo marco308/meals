@@ -101,7 +101,12 @@ def plan_out(plan: Plan) -> PlanOut:
         status=plan.status,
         created_at=plan.created_at,
         archived_at=plan.archived_at,
-        meals=[plan_meal_out(link) for link in plan.meal_links],
+        # Skip links whose meal is gone. Deleting a meal now clears its plan
+        # links explicitly, but a database that predates that (or one restored
+        # from a SQLite dev file, where the FK cascade never fired) can still
+        # hold an orphan — and a whole plan screen failing over one dead row is
+        # a much worse outcome than the row quietly not being listed.
+        meals=[plan_meal_out(link) for link in plan.meal_links if link.meal is not None],
     )
 
 

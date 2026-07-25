@@ -21,8 +21,10 @@ struct IngredientLineRow: View {
                 Text(line.aisle)
                 Text(line.name)
                 if line.isStaple {
+                    // Scales with the row's text rather than pinning a size:
+                    // at .caption the cupboard is too small to read as one.
                     Image(systemName: "cabinet")
-                        .font(.caption)
+                        .imageScale(.small)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Staple — kept in the cupboard, not on the shopping list")
                 }
