@@ -124,19 +124,29 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
 
 @router.delete("/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_meal(meal_id: uuid.UUID, user: CurrentUser, db: DbSession) -> None:
-    """Deleting a meal removes it from any active plan and decrements its
-    shopping-list contributions first."""
+    """Deleting a meal takes it off every plan and decrements its
+    shopping-list contributions first. The cooked history survives (issue
+    #13): `cooked_events` keeps its own copy of the name."""
     meal = await get_meal(db, user.household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=404, detail="meal not found; list meals via GET /meals")
     active_list = await get_active_list(db, user.household_id)
+    # Status comes back with the row: touching plan_meal.plan here would be a
+    # lazy load in async context.
     plan_meals = await db.execute(
-        select(PlanMeal)
+        select(PlanMeal, Plan.status)
         .join(Plan, PlanMeal.plan_id == Plan.id)
-        .where(PlanMeal.meal_id == meal.id, Plan.status == "active", Plan.household_id == user.household_id)
+        .where(PlanMeal.meal_id == meal.id, Plan.household_id == user.household_id)
     )
-    for plan_meal in plan_meals.scalars().all():
-        await remove_meal_contributions(db, active_list, plan_meal.id)
+    # Delete the plan links here rather than leaning on the FK's ON DELETE
+    # CASCADE: SQLite doesn't enforce foreign keys by default, so on a local or
+    # test database the rows would survive as plan entries pointing at nothing
+    # and the plan screen would 500 on the next read.
+    for plan_meal, plan_status in plan_meals.all():
+        if plan_status == "active":
+            await remove_meal_contributions(db, active_list, plan_meal.id)
+        await db.delete(plan_meal)
+    await db.flush()
     await db.delete(meal)
     await db.commit()
 

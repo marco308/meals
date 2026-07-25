@@ -58,6 +58,8 @@ def recipe_out(recipe: Recipe) -> RecipeOut:
         edited=recipe.edited,
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
+        times_cooked=recipe.times_cooked,
+        last_cooked_at=recipe.last_cooked_at,
         ingredients=[
             _line_out(link.ingredient, link.quantity, link.unit, link.raw_text) for link in recipe.ingredient_links
         ],
@@ -73,6 +75,8 @@ def recipe_summary(recipe: Recipe) -> RecipeSummary:
         prep_minutes=recipe.prep_minutes,
         cook_minutes=recipe.cook_minutes,
         tags=list(recipe.tags or []),
+        times_cooked=recipe.times_cooked,
+        last_cooked_at=recipe.last_cooked_at,
     )
 
 
@@ -86,6 +90,8 @@ def meal_out(meal: Meal) -> MealOut:
             _line_out(link.ingredient, link.quantity, link.unit, None) for link in meal.ingredient_links
         ],
         created_at=meal.created_at,
+        times_cooked=meal.times_cooked,
+        last_cooked_at=meal.last_cooked_at,
     )
 
 
@@ -101,7 +107,12 @@ def plan_out(plan: Plan) -> PlanOut:
         status=plan.status,
         created_at=plan.created_at,
         archived_at=plan.archived_at,
-        meals=[plan_meal_out(link) for link in plan.meal_links],
+        # Skip links whose meal is gone. Deleting a meal now clears its plan
+        # links explicitly, but a database that predates that (or one restored
+        # from a SQLite dev file, where the FK cascade never fired) can still
+        # hold an orphan — and a whole plan screen failing over one dead row is
+        # a much worse outcome than the row quietly not being listed.
+        meals=[plan_meal_out(link) for link in plan.meal_links if link.meal is not None],
     )
 
 

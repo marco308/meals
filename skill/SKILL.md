@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 2 -->
+<!-- playbook-version: 3 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v2, and this file is a snapshot** — once installed it never
+**This is playbook v3, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -77,12 +77,42 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   reads the tagged set back.
 - After the shop: `finish_shop()` archives the list and starts fresh.
 
+## Editing meals and the library
+
+- **Changing a meal** — `update_meal(meal_name, add_recipes=[...],
+  remove_recipes=[...], add_loose_ingredients=[...],
+  remove_loose_ingredients=[...], new_name=..., slot=...)`. Recipes can be
+  named, not just id'd. If the meal is on the active plan the shopping list
+  re-syncs itself: added ingredients appear, removed ones come off. Prefer
+  this over delete-and-recreate — recreating loses the meal's place on the
+  plan and churns the list.
+- **Deleting a meal** — `delete_meal(name)`; it comes off the plan and the
+  list first.
+- **Deleting a recipe** — `delete_recipe(title)`. Refused while a meal still
+  uses it: detach it with `update_meal(remove_recipes=[…])` first, then
+  delete. Never delete a recipe the user didn't ask you to.
+
+## Cooked history ("what do we actually eat")
+
+`mark_meal_cooked` records the cooking permanently, per recipe as well as per
+meal, and the count outlives the plan. `list_recipes` shows "cooked 3× (last
+2026-07-19)" and takes `sort`:
+
+- `most_cooked` → the household's regulars ("what do we always make?")
+- `least_recently_cooked` → what's been neglected; never-cooked recipes first
+  ("we ingested this and never tried it")
+
+The composition is captured at cook time, so editing a meal later never
+rewrites what was eaten. There is no un-cook yet — confirm before marking
+something cooked that the user only mentioned in passing.
+
 ## When to ask vs act
 
 - Act without asking: ingesting shared links, adding requested meals,
   check-offs, ad-hoc adds the user stated.
 - Ask first: removing meals you weren't told to remove, archiving anything,
-  changing servings/scaling, replacing a whole plan.
+  deleting recipes or meals, marking cooked (it can't be undone), changing
+  servings/scaling, replacing a whole plan.
 - Premium/budget tags are the household's taste and budget, not yours. Record
   what they tell you ("never skimp on parmesan" → premium, with their reason).
   You can *suggest* a tier when asked "is the expensive one worth it?" — say
@@ -102,6 +132,13 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   grouped by aisle, offer to check things off as they shop.
 - *"Scratch the burgers, we're out Friday"* → `remove_meal_from_plan("burgers")`
   — the list decrements itself; ad-hoc items survive.
+- *"Add garlic bread to the cottage pie"* → `update_meal("cottage pie",
+  add_recipes=["garlic bread"])`, then mention the bread's ingredients are now
+  on the list.
+- *"Nobody eats the peas"* → `update_meal("cottage pie",
+  remove_loose_ingredients=["frozen peas"])`.
+- *"What do we make most?"* → `list_recipes(sort="most_cooked")`, read back
+  with the counts.
 - *"Blind tasting says supermarket own-brand tinned tomatoes are fine"* →
   `set_ingredient_value("chopped tomatoes", "budget", "own-brand cook down
   the same")`. Next shop the line reads "chopped tomatoes 💷 own-brand is

@@ -1,7 +1,8 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import nullsfirst, select
 
 from app.deps import CurrentUser, DbSession
 from app.models import MealRecipe, Recipe
@@ -18,6 +19,17 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 async def _find_by_url(db: DbSession, household_id: uuid.UUID, url: str) -> Recipe | None:
     result = await db.execute(select(Recipe).where(Recipe.household_id == household_id, Recipe.source_url == url))
     return result.scalar_one_or_none()
+
+
+def _sort_order(sort: str) -> tuple:
+    """Title is always the tiebreak so ordering is stable across requests."""
+    if sort == "most_cooked":
+        return (Recipe.times_cooked.desc(), Recipe.title)
+    if sort == "least_recently_cooked":
+        # Never cooked sorts first: "we've not had this in ages" includes
+        # "we've never had this".
+        return (nullsfirst(Recipe.last_cooked_at.asc()), Recipe.title)
+    return (Recipe.title,)
 
 
 @router.post("/ingest", response_model=IngestOut)
@@ -78,8 +90,15 @@ async def list_recipes(
     search: str | None = Query(default=None, max_length=300),
     tag: str | None = Query(default=None, max_length=50),
     max_total_minutes: int | None = Query(default=None, ge=1),
+    sort: Literal["title", "most_cooked", "least_recently_cooked"] = Query(
+        default="title",
+        description=(
+            "title (default), most_cooked ('our regulars'), or least_recently_cooked "
+            "('what haven't we had in ages' — never-cooked recipes come first)"
+        ),
+    ),
 ) -> list[RecipeSummary]:
-    query = select(Recipe).where(Recipe.household_id == user.household_id).order_by(Recipe.title)
+    query = select(Recipe).where(Recipe.household_id == user.household_id).order_by(*_sort_order(sort))
     if search:
         query = query.where(Recipe.title.ilike(f"%{search}%"))
     result = await db.execute(query)

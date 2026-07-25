@@ -2,7 +2,8 @@ import SwiftUI
 
 /// F2's "tap a meal" view: every ingredient the meal puts on the list —
 /// grouped by recipe, plus the loose ones — with links through to full
-/// recipe details and out to the original pages.
+/// recipe details and out to the original pages. Also where the meal gets
+/// edited or deleted (issue #16).
 struct MealDetailView: View {
     @Environment(PlanStore.self) private var planStore
     @Environment(RecipeStore.self) private var recipeStore
@@ -11,8 +12,14 @@ struct MealDetailView: View {
     let planMeal: PlanMeal
     @State private var recipeDetails: [UUID: Recipe] = [:]
     @State private var reloadKey = 0
+    @State private var showEditor = false
+    @State private var showDeleteConfirm = false
 
-    private var meal: Meal { planMeal.meal }
+    /// The plan is refetched after an edit, so read the meal back from the
+    /// store where possible — the passed-in copy is a snapshot.
+    private var meal: Meal {
+        planStore.plan?.meals.first { $0.id == planMeal.id }?.meal ?? planMeal.meal
+    }
 
     var body: some View {
         List {
@@ -20,6 +27,14 @@ struct MealDetailView: View {
                 Section {
                     Label("Cooked", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
+                }
+            }
+
+            if let cooked = meal.cookedSummary {
+                Section {
+                    Label(cooked, systemImage: "flame")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -44,7 +59,7 @@ struct MealDetailView: View {
                     }
                     if let lines = recipeDetails[recipe.id]?.ingredients {
                         ForEach(lines) { line in
-                            ingredientRow(line)
+                            IngredientLineRow(line: line) { reloadKey += 1 }
                         }
                     } else {
                         ProgressView().frame(maxWidth: .infinity)
@@ -57,7 +72,7 @@ struct MealDetailView: View {
             if !meal.looseIngredients.isEmpty {
                 Section("On the side") {
                     ForEach(meal.looseIngredients) { line in
-                        ingredientRow(line)
+                        IngredientLineRow(line: line) { reloadKey += 1 }
                     }
                 }
             }
@@ -87,26 +102,46 @@ struct MealDetailView: View {
         }
         .navigationTitle(meal.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Edit meal", systemImage: "pencil") { showEditor = true }
+                    Button("Delete meal", systemImage: "trash", role: .destructive) {
+                        showDeleteConfirm = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showEditor) {
+            NavigationStack {
+                MealEditorView(mode: .edit(meal)) { _ in
+                    showEditor = false
+                    reloadKey += 1  // recipe ingredient lists may have changed
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showEditor = false }
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete '\(meal.name)'? It comes off the plan and its ingredients come off the shopping list. This can't be undone.",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete meal", role: .destructive) {
+                Task {
+                    if await planStore.deleteMeal(meal) { dismiss() }
+                }
+            }
+        }
         .task(id: reloadKey) {
             for recipe in meal.recipes where reloadKey > 0 || recipeDetails[recipe.id] == nil {
                 recipeDetails[recipe.id] = try? await recipeStore.detail(id: recipe.id)
             }
-        }
-    }
-
-    private func ingredientRow(_ line: RecipeLine) -> some View {
-        NavigationLink {
-            IngredientEditorView(ingredientId: line.ingredientId) { reloadKey += 1 }
-        } label: {
-            HStack {
-                Text(line.aisle)
-                Text(line.name)
-                Spacer()
-                Text(line.display)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            .font(.callout)
         }
     }
 }

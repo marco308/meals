@@ -9,16 +9,23 @@ drive it with their own AI assistant. POC implementation of the plan in
 
 - **Recipes** — submit a URL once and it's parsed (free, from the page's
   schema.org JSON-LD) and cached forever; pages without structured data are
-  handed to *your* AI to parse and submit back. Manual family recipes work too.
+  handed to *your* AI to parse and submit back. Manual family recipes work too,
+  and anything can be deleted from the app.
 - **Meals** — the unit of planning: recipes + loose ingredients ("cottage pie
-  *with peas and carrots*" needs no carrot recipe).
+  *with peas and carrots*" needs no carrot recipe). Editable in place — add a
+  recipe, drop a side — and the shopping list follows the change without
+  un-ticking what's already in the trolley.
+- **Cooked history** — marking a meal cooked is recorded permanently, per
+  recipe as well as per meal, and survives deleting the plan or the meal. The
+  library shows "cooked 12× · last May 2026" and sorts by *most cooked* or
+  *not had in a while*.
 - **Plans** — weekly-ish pools of meal options grouped by slot (dinners,
   lunches). No days, no dates: an unexpected trip breaks nothing.
 - **Shopping list** — auto-populated from the plan with full provenance (every
   item knows which meals need it), exact-unit merging, ad-hoc items, staples
   check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
 - **AI access layer** — the headline: a documented REST API, an MCP server
-  with 16 task-level tools, and a skill/prompt pack the server publishes
+  with 21 task-level tools, and a skill/prompt pack the server publishes
   itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
   bring your own.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
@@ -153,8 +160,8 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 254 backend tests (99% coverage) + 28 mcp tests — no Docker, no network
-make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
+make test      # 268 backend tests (99% coverage) + 38 mcp tests — no Docker, no network
+make ios-test  # 71 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
 The suite covers the unit convention, JSON-LD extraction (incl. `@graph`,

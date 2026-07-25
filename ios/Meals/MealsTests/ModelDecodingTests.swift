@@ -76,6 +76,30 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(cottage.recipes.count, 1)
     }
 
+    /// The fixtures predate the cooked-history fields, which is exactly the
+    /// case that matters: a TestFlight build can reach a backend that hasn't
+    /// been deployed yet, and it must still decode.
+    func testCookedHistoryFieldsAreOptional() throws {
+        let recipes = try APIClient.decoder().decode([RecipeSummary].self, from: fixture("recipes"))
+        XCTAssertNil(recipes.first?.timesCooked)
+        XCTAssertNil(recipes.first?.cookedSummary)
+        let meals = try APIClient.decoder().decode([Meal].self, from: fixture("meals"))
+        XCTAssertNil(meals.first?.timesCooked)
+    }
+
+    func testDecodesCookedHistoryWhenPresent() throws {
+        let json = Data(
+            #"""
+            [{"id": "4f45efcd-6475-46aa-9668-34ec9c40103e", "title": "Spaghetti Bolognese",
+              "source_url": null, "servings": 4, "prep_minutes": 15, "cook_minutes": 45,
+              "tags": [], "times_cooked": 7, "last_cooked_at": "2026-06-14T18:20:00Z"}]
+            """#.utf8
+        )
+        let recipes = try APIClient.decoder().decode([RecipeSummary].self, from: json)
+        XCTAssertEqual(recipes.first?.timesCooked, 7)
+        XCTAssertEqual(recipes.first?.cookedSummary, "cooked 7× · last Jun 2026")
+    }
+
     func testDecodesIngredientInfo() throws {
         let info = try APIClient.decoder().decode(IngredientInfo.self, from: fixture("ingredient"))
         XCTAssertEqual(info.name, "tartare sauce")

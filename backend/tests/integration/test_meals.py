@@ -1,4 +1,4 @@
-from tests.conftest import create_meal, create_recipe
+from tests.conftest import create_meal, create_plan, create_recipe
 
 
 class TestCreateMeal:
@@ -97,3 +97,19 @@ class TestUpdateMeal:
         meal = await create_meal(auth_client)
         assert (await auth_client.delete(f"/meals/{meal['id']}")).status_code == 204
         assert (await auth_client.get(f"/meals/{meal['id']}")).status_code == 404
+
+    async def test_deleting_a_planned_meal_leaves_the_plan_readable(self, auth_client):
+        """The plan link has to go with the meal. SQLite doesn't enforce the FK
+        cascade, so an orphaned plan_meals row used to 500 the next plan read —
+        which is the whole plan screen in the app."""
+        meal = await create_meal(auth_client, name="Fish finger sandwiches")
+        keeper = await create_meal(auth_client, name="Spag bol")
+        plan = await create_plan(auth_client)
+        for entry in (meal, keeper):
+            await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": entry["id"]})
+
+        assert (await auth_client.delete(f"/meals/{meal['id']}")).status_code == 204
+
+        current = await auth_client.get("/plans/current")
+        assert current.status_code == 200, current.text
+        assert [m["meal"]["name"] for m in current.json()["meals"]] == ["Spag bol"]
