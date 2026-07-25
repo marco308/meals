@@ -1,5 +1,7 @@
 # Meals
 
+[![CI](https://github.com/marco308/meals/actions/workflows/ci.yml/badge.svg)](https://github.com/marco308/meals/actions/workflows/ci.yml)
+
 A meal **options** planner (not a rigid Mon–Sun grid) with a recipe library and
 an aisle-sorted shopping list, exposed through an AI-friendly API so anyone can
 drive it with their own AI assistant. POC implementation of the plan in
@@ -160,7 +162,7 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 268 backend tests (99% coverage) + 38 mcp tests — no Docker, no network
+make test      # 272 backend tests (99% coverage) + 38 mcp tests — no Docker, no network
 make ios-test  # 71 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
@@ -170,6 +172,20 @@ rate limiting, password change + session revocation, recipe caching semantics,
 and the full shopping-list engine
 (merging, provenance, decrement-on-removal, ad-hoc survival, staples,
 check-off/uncheck, archive, resync on meal/recipe edits).
+
+### CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`main` and every PR: `make lint`, `make test`, then the two things the local
+suite can't see — `alembic upgrade head` + `alembic check` against real
+Postgres (the suite builds its schema from metadata, so a missing or
+SQLite-only migration is invisible to it), and a full `docker compose` smoke
+that boots both images and re-runs the deploy's own checks (`/healthz`,
+`/client-config`, `/skill` with `{{API_URL}}` substituted, `/prompt-pack`, an
+MCP initialize handshake) before seeding demo data through the public API.
+
+There is no iOS job — macOS runners are billed per minute even on public
+repos, so `make ios-build` / `make ios-test` stay local for now.
 
 ## Deployment notes
 

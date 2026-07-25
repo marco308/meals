@@ -155,6 +155,16 @@ External HTTP is stubbed with `respx` — tests never hit the network.
 Model changes need an Alembic revision (`make migration m="..."`); tests
 create tables from metadata and won't catch a missing migration.
 
+`.github/workflows/ci.yml` runs `make lint` and `make test` on every push and
+PR, plus the two things the local suite can't see: `alembic upgrade head` +
+`alembic check` against real Postgres (the missing-migration and
+Postgres-vs-SQLite gap above), and a `docker compose` smoke that boots both
+images and repeats the deploy's checks — `/healthz`, `/client-config`,
+`/skill` (asserting `{{API_URL}}` was substituted and the skill shipped in the
+image), `/prompt-pack`, an MCP initialize handshake, then `app.seed` end to
+end. There is no iOS job: macOS runners are billed per minute, so
+`make ios-build` / `make ios-test` stay local.
+
 ## Deployment
 
 Docker Swarm behind Traefik on `meals.marcuslab.uk` (api + mcp + Postgres).

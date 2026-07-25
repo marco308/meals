@@ -33,7 +33,9 @@ tail plus engineering debt worth naming.
 
 ## Engineering debt
 
-- [ ] **CI** — no pipeline; `make test` / `make ios-test` / mcp tests run locally only
+- [x] ~~**CI**~~ — ✅ GitHub Actions (`.github/workflows/ci.yml`): lint, tests, migrations against real Postgres, and a `docker compose` boot + endpoint smoke on every PR
+- [ ] **CI for iOS** — deliberately skipped: macOS runners are billed per minute even on public repos, so `make ios-build` / `make ios-test` stay local. Revisit when the repo is open sourced
+- [ ] **CD** — deploys are still `make deploy` from a laptop. GitHub-hosted runners can't reach the swarm manager, so this needs either a self-hosted runner on the swarm or a Tailscale OAuth step in the workflow
 - [ ] **Image pipeline** — images are built on the swarm node by hand; a registry (or at least a pinned tag scheme) would make rollbacks sane
 - [ ] **Rate limiting is per-process in-memory** — fine for one replica; revisit if the API ever scales out
 - [ ] **Ingredient-line parser tail** — "1 garlic clove crushed" style lines parse with the container word in the name; the AI-cleanup path covers it, but the regex could learn the `<n> <food> <unit>` shape
