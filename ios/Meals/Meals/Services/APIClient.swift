@@ -3,6 +3,7 @@ import Foundation
 enum APIError: LocalizedError, Equatable {
     case server(status: Int, detail: String)
     case unauthorized(detail: String)
+    case upgradeRequired(detail: String)
     case offline
     case invalidURL
 
@@ -10,10 +11,41 @@ enum APIError: LocalizedError, Equatable {
         switch self {
         case .server(_, let detail): detail
         case .unauthorized(let detail): detail
+        case .upgradeRequired(let detail): detail
         case .offline: "You're offline. Changes are saved and will sync when you're back."
         case .invalidURL: "Invalid server URL."
         }
     }
+}
+
+/// How this build introduces itself to the API: `X-Meals-Client: ios/0.1 (2)`.
+/// The server compares the build number against the oldest one it still speaks
+/// to and answers 426 below that — see backend `app/client_gate.py`.
+enum ClientIdentity {
+    static let headerName = "X-Meals-Client"
+
+    static func headerValue(version: String, build: String) -> String {
+        "ios/\(version) (\(build))"
+    }
+
+    static let current = headerValue(version: shortVersion, build: buildString)
+
+    static var buildNumber: Int { Int(buildString) ?? 0 }
+
+    private static var shortVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    }
+
+    private static var buildString: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+    }
+}
+
+extension Notification.Name {
+    /// Posted when the server refuses this build (426). Session listens, so a
+    /// mid-session deploy that raises the floor is caught wherever it lands,
+    /// not just at launch.
+    static let mealsUpgradeRequired = Notification.Name("MealsUpgradeRequired")
 }
 
 /// Thin async client for the Meals API. The backend's errors are written to
@@ -36,6 +68,7 @@ struct APIClient: Sendable {
         request.httpMethod = method
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(ClientIdentity.current, forHTTPHeaderField: ClientIdentity.headerName)
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -71,7 +104,19 @@ struct APIClient: Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status < 400 else {
             let detail = Self.errorDetail(from: data) ?? "Request failed (\(status))"
-            throw status == 401 ? APIError.unauthorized(detail: detail) : APIError.server(status: status, detail: detail)
+            switch status {
+            case 401:
+                throw APIError.unauthorized(detail: detail)
+            case 426:
+                NotificationCenter.default.post(
+                    name: .mealsUpgradeRequired,
+                    object: nil,
+                    userInfo: ["detail": detail, "upgradeUrl": Self.upgradeURL(from: data) as Any]
+                )
+                throw APIError.upgradeRequired(detail: detail)
+            default:
+                throw APIError.server(status: status, detail: detail)
+            }
         }
         return data
     }
@@ -87,11 +132,24 @@ struct APIClient: Sendable {
         }
         return nil
     }
+
+    /// The 426 body carries where to get the new build, when the deployment
+    /// knows. Absent on a homelab server that isn't shipping through the store.
+    static func upgradeURL(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object["upgrade_url"] as? String
+    }
 }
 
 // MARK: - Endpoint helpers
 
 extension APIClient {
+    /// Unauthenticated, and never gated by the server's own client check —
+    /// safe to call before login and from a blocked build.
+    func clientConfig() async throws -> ClientConfig {
+        try await send("GET", "/client-config", as: ClientConfig.self)
+    }
+
     func login(email: String, password: String) async throws -> AuthResponse {
         try await send("POST", "/auth/login", json: ["email": email, "password": password], as: AuthResponse.self)
     }
