@@ -95,12 +95,43 @@ ios-test: ## Run the iOS unit tests
 	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
 		-destination '$(IOS_DEST)' -derivedDataPath build test 2>&1 | grep -E "error:|Executed.*test|TEST " | tail -6
 
-ASC_KEY_ID := YOUR_ASC_KEY_ID
-ASC_ISSUER := YOUR_ASC_ISSUER_ID
+# Apple account identifiers. Not credentials, but they identify *an* Apple
+# account, so they live in an untracked ios/.env rather than in the repo — put
+# your own there:
+#
+#   MEALS_DEVELOPMENT_TEAM=ABCDE12345          # needed to archive for a device
+#   ASC_KEY_ID=ABCD123456                      # the two below are for TestFlight
+#   ASC_ISSUER=00000000-0000-0000-0000-000000000000
+#
+# MEALS_DEVELOPMENT_TEAM is exported because xcodegen expands it while generating
+# the project. The App Store Connect private key (AuthKey_<id>.p8) is a real
+# credential and never leaves ~/.appstoreconnect.
+-include ios/.env
+export MEALS_DEVELOPMENT_TEAM
 ASC_KEY_PATH := $(HOME)/.appstoreconnect/private_keys/AuthKey_$(ASC_KEY_ID).p8
 
+.PHONY: ios-export-options
+ios-export-options:
+	@test -n "$(MEALS_DEVELOPMENT_TEAM)" || \
+		{ echo "MEALS_DEVELOPMENT_TEAM must be set — see the comment above ios-testflight in the Makefile"; exit 1; }
+	@printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'    <key>method</key>' \
+		'    <string>app-store-connect</string>' \
+		'    <key>signingStyle</key>' \
+		'    <string>automatic</string>' \
+		'    <key>teamID</key>' \
+		'    <string>$(MEALS_DEVELOPMENT_TEAM)</string>' \
+		'</dict>' \
+		'</plist>' > $(IOS_DIR)/ExportOptions.plist
+
 .PHONY: ios-testflight
-ios-testflight: ## Archive, export, and upload the iOS app to TestFlight
+ios-testflight: ios-export-options ## Archive, export, and upload the iOS app to TestFlight (needs ios/.env)
+	@test -n "$(ASC_KEY_ID)" -a -n "$(ASC_ISSUER)" || \
+		{ echo "ASC_KEY_ID and ASC_ISSUER must be set — see the comment above ios-testflight in the Makefile"; exit 1; }
 	cd $(IOS_DIR) && xcodegen generate && \
 	xcodebuild archive -project Meals.xcodeproj -scheme Meals \
 		-archivePath ./build/Meals.xcarchive -destination 'generic/platform=iOS' \
@@ -127,10 +158,15 @@ migration: ## Create a new migration: make migration m="add foo"
 seed: ## Load demo data (into the Docker stack's API by default)
 	cd $(BACKEND_DIR) && $(UV) run python -m app.seed
 
-# ------------------------------------------------------------------ homelab
+# ------------------------------------------------------------------ deployment
 
+# deploy/ is gitignored: a swarm stack file describes one specific set of
+# machines, which isn't much use to anyone else and tells the internet more about
+# them than it needs to know. docker-compose.yml is the reference deployment.
 .PHONY: deploy
-deploy: ## Deploy to the homelab swarm (the swarm manager behind Traefik)
+deploy: ## Deploy to your swarm (needs an untracked deploy/deploy.sh)
+	@test -x ./deploy/deploy.sh || \
+		{ echo "no deploy/deploy.sh — it's gitignored and environment-specific; see 'Deployment notes' in README.md"; exit 1; }
 	./deploy/deploy.sh
 
 # ------------------------------------------------------------------ cleanup

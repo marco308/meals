@@ -173,10 +173,23 @@ extension APIClient {
         try await send("POST", "/auth/login", json: ["email": email, "password": password], as: AuthResponse.self)
     }
 
-    func register(email: String, password: String, displayName: String) async throws -> AuthResponse {
+    /// `inviteCode` nil (or empty) creates a household of your own; supplying one
+    /// joins the household that issued it. `raw` strips nil values, so an
+    /// omitted code never reaches the wire.
+    func register(
+        email: String,
+        password: String,
+        displayName: String,
+        inviteCode: String? = nil
+    ) async throws -> AuthResponse {
         try await send(
             "POST", "/auth/register",
-            json: ["email": email, "password": password, "display_name": displayName],
+            json: [
+                "email": email,
+                "password": password,
+                "display_name": displayName,
+                "invite_code": inviteCode?.isEmpty == false ? inviteCode : nil,
+            ],
             as: AuthResponse.self
         )
     }

@@ -30,8 +30,14 @@ drive it with their own AI assistant. POC implementation of the plan in
   with 21 task-level tools, and a skill/prompt pack the server publishes
   itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
   bring your own.
-- **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
-  one household, plus per-user API tokens (PATs) for AI clients. Users can
+- **Households** — a household is one recipe library, plan and shopping list,
+  and it's the whole authorisation boundary. **Registering creates a household
+  of your own**; the people you cook with join it with a single-use invite code
+  (`XXXX-XXXX-XXXX`, short enough to read off one phone and type into another).
+  Everyone in a household can do everything in it — being invited *is* the
+  permission model.
+- **Auth** — real per-user accounts (bcrypt + opaque bearer tokens), plus
+  per-user API tokens (PATs) for AI clients. Users can
   change their own password (`POST /auth/password`, or from the app's menu):
   it revokes every session token and issues a fresh one, so the device doing
   the change stays logged in and the others don't.
@@ -189,20 +195,52 @@ repos, so `make ios-build` / `make ios-test` stay local for now.
 
 ## Deployment notes
 
-The stack is an API container + a remote-MCP container + Postgres, designed
-for the existing homelab pattern: Docker Swarm behind Traefik with Let's
-Encrypt on a `*.marcuslab.uk` subdomain (see `docker-compose.yml` for the
-shape). The MCP container is routed at `/mcp` on the same host and
+The stack is an API container + a remote-MCP container + Postgres, deployed here
+on Docker Swarm behind Traefik with Let's Encrypt (see
+[`docker-compose.yml`](docker-compose.yml) for the shape). The MCP container is
+routed at `/mcp` on the same host and
 authenticates nothing itself — it forwards each caller's bearer token to the
 API, which stays the single auth gate. Being internet-facing, auth is
-mandatory everywhere except `/healthz`, auth endpoints are rate-limited, and
-registration can be closed with `REGISTRATION_ENABLED=false` once the
-household has its accounts.
+mandatory everywhere except `/healthz`, and auth endpoints are rate-limited.
+Registering creates a *new* household, so an open server never exposes an
+existing one; `REGISTRATION_ENABLED=false` additionally stops new households
+being created while still honouring invite codes, so closing a server doesn't
+lock out your own family.
 
-All three services are pinned to the worker node `the app node` rather than the
-swarm manager, which carries the rest of the homelab. `make deploy` still goes
-through the manager — it holds the secrets and is the only node that can run
-`docker stack deploy` — but it forwards the sources to `the app node` and builds
-there, because locally built `:latest` images have no registry to pull from
-and a task only starts where its image exists. Traefik keeps running on the
-manager and reaches the tasks over the `traefik-public` overlay.
+`make deploy` runs `deploy/deploy.sh`, which is **not in this repo** — a swarm
+stack file is a description of somebody's specific hardware (node names, ingress
+labels, host aliases, which box has the free disk), so it's kept out and
+gitignored. [`docker-compose.yml`](docker-compose.yml) is the honest reference
+for the shape of the deployment, and it's what CI boots and smoke-tests.
+
+If you're deploying this yourself, the two things worth knowing, learned the
+hard way:
+
+- **Build the images where the tasks will run.** Locally built `:latest` images
+  have no registry to pull from, so a task only starts on a node that already
+  has the image.
+- **Force the service update.** `docker stack deploy` won't roll out a rebuilt
+  image that kept the same tag, so a deploy that looks clean can change nothing.
+
+## Contributing
+
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+The [decisions log](planning/04-open-questions.md) records why things are the way
+they are (Q1–Q19), and code comments cite those numbers. Vulnerabilities go
+through [SECURITY.md](SECURITY.md), not a public issue.
+
+## Licence
+
+Copyright © 2026 Marcus Williams.
+
+- **Everything except `ios/`** — [GNU AGPL-3.0](LICENSE). Self-host it, modify it,
+  run it for your household; if you run a modified version as a network service,
+  your users are entitled to its source.
+- **`ios/`** — [source-available, not open source](ios/LICENSE). You may read it,
+  build it and run it on your own devices, and contribute back, but not
+  redistribute it or ship it to an app store.
+
+The carve-out exists because the App Store's terms and the GPL family conflict,
+which is what makes an AGPL iOS app undistributable there. Keeping `ios/` under
+its own licence is what lets the same code be published here and shipped through
+TestFlight. Contributions to `ios/` therefore need a CLA; everything else doesn't.

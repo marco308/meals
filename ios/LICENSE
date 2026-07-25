@@ -1,0 +1,53 @@
+Meals iOS app — source-available licence
+Copyright (c) 2026 Marcus Williams. All rights reserved.
+
+Everything else in this repository is licensed under the GNU Affero General
+Public License v3.0 (see ../LICENSE). This directory is the exception, and this
+licence — not the AGPL — governs every file under `ios/`.
+
+WHY THE CARVE-OUT
+
+The App Store's terms impose usage restrictions that the GPL family of licences
+forbids a distributor from adding; the two have been understood to conflict at
+least since VLC was pulled from the store in 2011. Keeping `ios/` outside the
+AGPL is what lets the same code be published here and shipped through
+TestFlight and the App Store.
+
+WHAT YOU MAY DO
+
+Permission is granted, free of charge, to any person obtaining a copy of the
+files in this directory to:
+
+  a. read, study and quote from them, including in commentary and teaching;
+  b. build them and run the result on devices you own or control, for your own
+     personal, non-commercial use, including against your own Meals server; and
+  c. modify them and submit those modifications back to this project.
+
+WHAT YOU MAY NOT DO
+
+Without prior written permission from the copyright holder, you may not:
+
+  d. redistribute these files or any derivative of them, in source or compiled
+     form, to anyone else;
+  e. publish an application derived from them to the App Store or any other
+     application marketplace; or
+  f. use them, or any derivative, for a commercial purpose.
+
+CONTRIBUTIONS
+
+Because this app is distributed through the App Store, contributions to `ios/`
+can only be accepted from contributors who have signed the contributor licence
+agreement described in ../CONTRIBUTING.md. A contribution under the AGPL, or
+under any licence obliging the copyright holder to grant rights Apple's terms
+do not permit, cannot be merged here.
+
+NO WARRANTY
+
+THE FILES IN THIS DIRECTORY ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THESE FILES OR THEIR USE.
+
+This is not an OSI-approved open source licence, and it is deliberately not one.

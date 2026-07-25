@@ -49,9 +49,13 @@ async def client(engine) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides.clear()
 
 
-async def register(client: AsyncClient, email: str = "marcus@example.com", name: str = "Marcus") -> dict:
+async def register(client: AsyncClient, email: str = "marcus@example.com", name: str = "Marcus", **extra) -> dict:
+    """Register a user. Extra kwargs (`invite_code`, `household_name`) go
+    straight into the payload; with none, the account gets its own fresh
+    household (decision Q19)."""
     response = await client.post(
-        "/auth/register", json={"email": email, "password": "a-strong-password", "display_name": name}
+        "/auth/register",
+        json={"email": email, "password": "a-strong-password", "display_name": name, **extra},
     )
     assert response.status_code == 201, response.text
     return response.json()

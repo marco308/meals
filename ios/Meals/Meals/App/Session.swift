@@ -74,8 +74,10 @@ final class Session {
         apply(auth)
     }
 
-    func register(email: String, password: String, displayName: String) async throws {
-        let auth = try await api.register(email: email, password: password, displayName: displayName)
+    func register(email: String, password: String, displayName: String, inviteCode: String? = nil) async throws {
+        let auth = try await api.register(
+            email: email, password: password, displayName: displayName, inviteCode: inviteCode
+        )
         apply(auth)
     }
 

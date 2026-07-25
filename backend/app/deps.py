@@ -36,7 +36,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     now = datetime.now(UTC)
-    if token.expires_at is not None and _aware(token.expires_at) < now:
+    if token.expires_at is not None and as_aware(token.expires_at) < now:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="token expired; log in again or create a new API token",
@@ -47,8 +47,10 @@ async def get_current_user(
     return token.user
 
 
-def _aware(value: datetime) -> datetime:
-    # SQLite round-trips datetimes naive; treat stored values as UTC.
+def as_aware(value: datetime) -> datetime:
+    # SQLite round-trips datetimes naive; treat stored values as UTC. Public
+    # because every expiry comparison against a stored column needs it —
+    # auth tokens here, household invites in routers/auth.py.
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 

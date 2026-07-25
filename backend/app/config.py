@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
 
+    # Wide open on purpose. This is a bearer-token API with no cookies and no
+    # session state, so a browser never attaches a credential of its own — a
+    # cross-origin page can only reach it by already holding a token, which CORS
+    # doesn't defend against anyway. Narrow this if you put a web frontend in
+    # front of the API and want defence in depth.
     cors_origins: list[str] = ["*"]
 
     # Client compatibility (see app/client_gate.py and CLAUDE.md). The API

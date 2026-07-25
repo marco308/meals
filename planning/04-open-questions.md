@@ -23,6 +23,7 @@ No cups, oz, sticks, etc. — the AI (or human) converts before writing. The bac
 
 **Q7 — Separate identities from day one.** Real per-user accounts and auth are **in v1** (not the static-API-key shortcut). Working assumption: multiple user accounts sharing one household's data (one recipe library, one plan, one list).
 > ✅ **RESOLVED (Q16, 2026-07-24):** Implemented as assumed — all v1 users share one household (one library, plan, list). The household is modelled explicitly (own table, FKs everywhere) so multi-household tenancy stays a cheap future change.
+> ⚠️ **AMENDED by Q19 (2026-07-25):** how you *join* a household changed. Users still share one household's data; registration no longer puts you in someone else's.
 
 **Q8 — MVP cut: approved**, amended by Q7 (auth/user accounts promoted into v1).
 
@@ -46,7 +47,7 @@ No cups, oz, sticks, etc. — the AI (or human) converts before writing. The bac
 
 ## Newly raised
 
-- **Q16** (above, under Q7): ✅ resolved — implemented as assumed.
+- **Q16** (above, under Q7): ✅ resolved — implemented as assumed, then amended by Q19.
 
 **Q17 — Premium vs budget, per ingredient: yes** (2026-07-25, inspired by the
 blind premium-vs-budget tastings). Ingredients carry a `value_tier` —
@@ -83,3 +84,36 @@ own quantities. Decisions:
   rather than a silent winner.
 - The scale is captured on the `cooked_event`, because "what we actually
   cooked" includes how much of it.
+
+**Q19 — Registration creates a new household; joining one needs an invite: yes**
+(2026-07-25, prompted by opening the repo to the public). This **amends Q7/Q16**,
+which had registration join the single existing household. That was defensible
+while the code was private and the deployment was one family's; published
+alongside a live URL, it meant any stranger who signed up landed inside that
+family's recipes, plan and shopping list, with write access. Decisions:
+
+- **`POST /auth/register` with no invite code creates a new, empty household**,
+  optionally named via `household_name` (default "Home"). The reversed default is
+  the whole point: the failure mode of getting this wrong is a data breach, so
+  the safe outcome has to be the one you get by doing nothing.
+- **Joining an existing household needs a single-use invite code** from
+  `POST /auth/invites`, issued by a member of it. Codes are 12 Crockford-base32
+  characters (~60 bits) shown as `XXXX-XXXX-XXXX` — short enough to read off one
+  phone and type into another, long enough that guessing is hopeless behind the
+  existing `/auth/register` rate limit. Stored as a SHA-256 hash like every other
+  credential, shown once, and forgiving about case, separators and look-alike
+  characters on entry.
+- **Invites are honoured even when `REGISTRATION_ENABLED=false`.** Otherwise the
+  flag is unusable: closing the server to strangers would also lock out your own
+  family. Closed now means "no new households", not "no new people".
+- **Redeemed invites are kept, not deleted.** `accepted_by_user_id` is the only
+  record of who admitted whom, which matters when the household *is* the
+  authorisation boundary.
+- **Still no roles, no admin, no per-user permissions inside a household** —
+  everyone in it can do everything, exactly as under Q16. Being invited is the
+  whole of the permission model.
+- **Q16 stays true about the data model**: users share one household's library,
+  plan and list. Nothing about scoping changed; every query already filtered on
+  `household_id`, which is why this was an auth change and not a rewrite. Note
+  that this also removes the blocker on multi-tenant hosting, which BACKLOG.md
+  had filed under "the freemium split".

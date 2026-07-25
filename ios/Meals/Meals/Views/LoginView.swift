@@ -6,6 +6,7 @@ struct LoginView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var displayName = ""
+    @State private var inviteCode = ""
     @State private var isRegistering = false
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -25,6 +26,20 @@ struct LoginView: View {
                     if isRegistering {
                         TextField("Your name", text: $displayName)
                             .textContentType(.name)
+                    }
+                }
+
+                if isRegistering {
+                    Section {
+                        TextField("Invite code (optional)", text: $inviteCode)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            .font(.callout.monospaced())
+                    } footer: {
+                        Text(
+                            "Joining someone's household? Enter their invite code to share "
+                                + "their recipes, plan and shopping list. Leave it blank to start your own."
+                        )
                     }
                 }
 
@@ -74,7 +89,9 @@ struct LoginView: View {
             defer { isWorking = false }
             do {
                 if isRegistering {
-                    try await session.register(email: email, password: password, displayName: displayName)
+                    try await session.register(
+                        email: email, password: password, displayName: displayName, inviteCode: inviteCode
+                    )
                 } else {
                     try await session.logIn(email: email, password: password)
                 }

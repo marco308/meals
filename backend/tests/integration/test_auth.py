@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from tests.conftest import create_recipe, register
 
 
@@ -171,14 +173,196 @@ class TestApiTokens:
         assert response.status_code == 404
 
 
-class TestSharedHousehold:
-    async def test_two_users_share_the_library(self, client):
-        """Decision Q16: all v1 users share one household's data."""
+async def create_invite(client, token: str, **payload) -> dict:
+    response = await client.post("/auth/invites", json=payload, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+class TestHouseholdIsolation:
+    async def test_uninvited_registration_gets_its_own_household(self, client):
+        """Decision Q19, reversing Q16: an uninvited signup must NOT land in
+        somebody else's household. This is the regression that made the public
+        instance unsafe — a stranger who registered saw the whole library."""
         first = await register(client, email="marcus@example.com", name="Marcus")
         client.headers["Authorization"] = f"Bearer {first['token']}"
         recipe = await create_recipe(client)
 
-        second = await register(client, email="isla@example.com", name="Isla")
+        stranger = await register(client, email="stranger@example.com", name="Stranger")
+        assert stranger["user"]["household_id"] != first["user"]["household_id"]
+
+        headers = {"Authorization": f"Bearer {stranger['token']}"}
+        assert (await client.get(f"/recipes/{recipe['id']}", headers=headers)).status_code == 404
+        assert (await client.get("/recipes", headers=headers)).json() == []
+
+    async def test_new_household_can_be_named(self, client):
+        auth = await register(client, email="marcus@example.com", name="Marcus", household_name="Williams")
+        assert auth["user"]["household_name"] == "Williams"
+
+    async def test_new_household_defaults_to_home(self, client):
+        auth = await register(client, email="marcus@example.com", name="Marcus")
+        assert auth["user"]["household_name"] == "Home"
+
+
+class TestInvites:
+    async def test_invited_user_shares_the_library(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        client.headers["Authorization"] = f"Bearer {first['token']}"
+        recipe = await create_recipe(client)
+        invite = await create_invite(client, first["token"])
+
+        second = await register(client, email="isla@example.com", name="Isla", invite_code=invite["code"])
+        assert second["user"]["household_id"] == first["user"]["household_id"]
         response = await client.get(f"/recipes/{recipe['id']}", headers={"Authorization": f"Bearer {second['token']}"})
         assert response.status_code == 200
         assert response.json()["title"] == "Spaghetti Bolognese"
+
+    async def test_code_is_single_use(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        invite = await create_invite(client, first["token"])
+        await register(client, email="isla@example.com", name="Isla", invite_code=invite["code"])
+
+        response = await client.post(
+            "/auth/register",
+            json={
+                "email": "gatecrasher@example.com",
+                "password": "a-strong-password",
+                "display_name": "G",
+                "invite_code": invite["code"],
+            },
+        )
+        assert response.status_code == 400
+        assert "used already or expired" in response.json()["detail"]
+
+    async def test_code_entry_is_forgiving(self, client):
+        """The code is typed off one phone into another, so case, separators and
+        look-alike characters must not matter."""
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        invite = await create_invite(client, first["token"])
+        sloppy = invite["code"].lower().replace("-", " ").replace("1", "l").replace("0", "O")
+
+        second = await register(client, email="isla@example.com", name="Isla", invite_code=sloppy)
+        assert second["user"]["household_id"] == first["user"]["household_id"]
+
+    async def test_unknown_code_rejected(self, client):
+        response = await client.post(
+            "/auth/register",
+            json={
+                "email": "a@b.com",
+                "password": "a-strong-password",
+                "display_name": "A",
+                "invite_code": "ZZZZ-ZZZZ-ZZZZ",
+            },
+        )
+        assert response.status_code == 400
+
+    async def test_expired_code_rejected(self, client, monkeypatch):
+        import app.routers.auth as auth_router
+
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        invite = await create_invite(client, first["token"], expires_in_days=1)
+
+        # Two days later, from the endpoint's point of view.
+        real_datetime = auth_router.datetime
+
+        class Later(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_datetime.now(tz) + timedelta(days=2)
+
+        monkeypatch.setattr(auth_router, "datetime", Later)
+        response = await client.post(
+            "/auth/register",
+            json={
+                "email": "isla@example.com",
+                "password": "a-strong-password",
+                "display_name": "Isla",
+                "invite_code": invite["code"],
+            },
+        )
+        assert response.status_code == 400
+
+    async def test_invite_admits_a_user_to_a_closed_server(self, client, settings_override):
+        """A closed server still lets the household admit the people it chose —
+        otherwise REGISTRATION_ENABLED=false locks out your own family."""
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        invite = await create_invite(client, first["token"])
+        settings_override(REGISTRATION_ENABLED="false")
+
+        uninvited = await client.post(
+            "/auth/register", json={"email": "a@b.com", "password": "a-strong-password", "display_name": "A"}
+        )
+        assert uninvited.status_code == 403
+        assert "invite code" in uninvited.json()["detail"]
+
+        invited = await client.post(
+            "/auth/register",
+            json={
+                "email": "isla@example.com",
+                "password": "a-strong-password",
+                "display_name": "Isla",
+                "invite_code": invite["code"],
+            },
+        )
+        assert invited.status_code == 201
+        assert invited.json()["user"]["household_id"] == first["user"]["household_id"]
+
+    async def test_listed_invite_records_who_was_admitted(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        client.headers["Authorization"] = f"Bearer {first['token']}"
+        invite = await create_invite(client, first["token"])
+        second = await register(client, email="isla@example.com", name="Isla", invite_code=invite["code"])
+
+        listed = await client.get("/auth/invites")
+        assert listed.status_code == 200
+        row = listed.json()[0]
+        assert row["accepted_by_user_id"] == second["user"]["id"]
+        assert row["accepted_at"] is not None
+        assert "code" not in row  # never recoverable after creation
+
+    async def test_invites_are_scoped_to_the_household(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        await create_invite(client, first["token"])
+        other = await register(client, email="other@example.com", name="Other")
+
+        listed = await client.get("/auth/invites", headers={"Authorization": f"Bearer {other['token']}"})
+        assert listed.json() == []
+
+    async def test_revoked_code_cannot_be_redeemed(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        client.headers["Authorization"] = f"Bearer {first['token']}"
+        invite = await create_invite(client, first["token"])
+
+        assert (await client.delete(f"/auth/invites/{invite['id']}")).status_code == 204
+        response = await client.post(
+            "/auth/register",
+            json={
+                "email": "isla@example.com",
+                "password": "a-strong-password",
+                "display_name": "Isla",
+                "invite_code": invite["code"],
+            },
+        )
+        assert response.status_code == 400
+
+    async def test_redeemed_invite_cannot_be_revoked(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        client.headers["Authorization"] = f"Bearer {first['token']}"
+        invite = await create_invite(client, first["token"])
+        await register(client, email="isla@example.com", name="Isla", invite_code=invite["code"])
+
+        response = await client.delete(f"/auth/invites/{invite['id']}")
+        assert response.status_code == 409
+
+    async def test_cannot_revoke_another_households_invite(self, client):
+        first = await register(client, email="marcus@example.com", name="Marcus")
+        invite = await create_invite(client, first["token"])
+        other = await register(client, email="other@example.com", name="Other")
+
+        response = await client.delete(
+            f"/auth/invites/{invite['id']}", headers={"Authorization": f"Bearer {other['token']}"}
+        )
+        assert response.status_code == 404
+
+    async def test_invites_require_auth(self, client):
+        assert (await client.post("/auth/invites", json={})).status_code == 401

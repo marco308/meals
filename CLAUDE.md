@@ -42,7 +42,7 @@ is what keeps the API complete and the views consistent.
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
-| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q16 |
+| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q19 |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
 (domain logic, session-scoped, `flush` not `commit`) → `models/` (SQLAlchemy).
@@ -52,9 +52,15 @@ from `deps.py`; every query filters on `user.household_id`.
 
 ### Domain invariants worth knowing before editing
 
-- **Household scoping.** All data hangs off one `Household` (decision Q16).
-  Multi-household tenancy is not implemented, but never add a query that
-  ignores `household_id`.
+- **Household scoping.** All data hangs off a `Household` (Q16), and since
+  **Q19 a server holds many of them**: `POST /auth/register` creates a new,
+  empty household, and joining an existing one needs a single-use invite code
+  from `POST /auth/invites`. `household_id` is therefore the *only* thing
+  standing between one family's shopping list and another's — a query that
+  forgets it is a data breach, not a bug. There are no roles or permissions
+  inside a household: everyone in it can do everything.
+  `REGISTRATION_ENABLED=false` blocks new *households* but still honours
+  invites, so a closed server can admit the people it chose.
 - **Plans are pools, not calendars** (Q1/Q4). A `Plan` is a labelled set of
   `PlanMeal`s with an optional `slot` ("dinner"). No days, no dates. Don't
   introduce per-day scheduling.
@@ -168,8 +174,16 @@ end. There is no iOS job: macOS runners are billed per minute, so
 ## Deployment
 
 Docker Swarm behind Traefik on `meals.marcuslab.uk` (api + mcp + Postgres).
-`deploy/deploy.sh` syncs sources to the swarm manager, builds images there,
-forces a service update (locally built `:latest` tags don't roll out
+
+**`deploy/` is gitignored and local-only** — it describes one specific set of
+machines, so it's deliberately not in the public repo. It's on this machine and
+backed up under `~/meals-local-deploy/`. Don't re-add it to git; if the deploy
+needs changing, change it in place. `docker-compose.yml` is the public reference
+deployment and the one CI boots.
+
+`deploy/deploy.sh` syncs sources to the swarm manager, builds images on the node
+that will run them (no registry, so a task only starts where its image already
+exists), forces a service update (locally built `:latest` tags don't roll out
 otherwise), and verifies `/healthz`, `/skill`, `/prompt-pack` and an MCP
 initialize handshake through Traefik. In that script, keep every check a bare
 command — `curl … && echo` is exempt from `set -e`.
