@@ -17,7 +17,10 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a7c31f4d90e2'
-down_revision: Union[str, Sequence[str], None] = 'e3d1f8c27a54'
+# Chained after the value-tier migration, not alongside it: two revisions sharing
+# a down_revision are two alembic heads, and `alembic upgrade head` — which the
+# container runs at startup — refuses to guess between them.
+down_revision: Union[str, Sequence[str], None] = 'a1c94f3b7e20'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
