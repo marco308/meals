@@ -1,3 +1,5 @@
+# Build from the repo root so the skill/prompt pack ship in the image (issue #5):
+#   docker build -f backend/Dockerfile .
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 WORKDIR /srv/meals
@@ -5,12 +7,14 @@ WORKDIR /srv/meals
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Install dependencies first for layer caching
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY alembic.ini ./
-COPY alembic ./alembic
-COPY app ./app
+COPY backend/alembic.ini ./
+COPY backend/alembic ./alembic
+COPY backend/app ./app
+# The skill + prompt pack, served at /skill and /prompt-pack
+COPY skill ./skill
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
