@@ -2,10 +2,10 @@
 
 from app.models import Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList
 from app.schemas.catalog import IngredientOut, RecipeLineOut, RecipeOut, RecipeSummary
-from app.schemas.planning import MealOut, PlanMealOut, PlanOut, PlanSummary
+from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
-from app.services.units import format_quantity
+from app.services.units import format_buy_quantity, format_quantity
 from app.services.values import value_tier_label
 
 _AISLE_LABELS = dict(AISLES)
@@ -85,7 +85,9 @@ def meal_out(meal: Meal) -> MealOut:
         id=meal.id,
         name=meal.name,
         slot=meal.slot,
-        recipes=[recipe_summary(link.recipe) for link in meal.recipe_links],
+        recipes=[
+            MealRecipeOut(**recipe_summary(link.recipe).model_dump(), scale=link.scale) for link in meal.recipe_links
+        ],
         loose_ingredients=[
             _line_out(link.ingredient, link.quantity, link.unit, None) for link in meal.ingredient_links
         ],
@@ -150,7 +152,7 @@ def list_item_out(item: ListItem) -> ListItemOut:
         value_note=item.ingredient.value_note,
         quantity=item.quantity,
         unit=item.unit,
-        display=format_quantity(item.quantity, item.unit),
+        display=format_buy_quantity(item.quantity, item.unit),
         checked=item.checked,
         excluded=item.excluded,
         staple_needed=item.staple_needed,

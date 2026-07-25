@@ -12,7 +12,10 @@ enum APIError: LocalizedError, Equatable {
         case .server(_, let detail): detail
         case .unauthorized(let detail): detail
         case .upgradeRequired(let detail): detail
-        case .offline: "You're offline. Changes are saved and will sync when you're back."
+        // Deliberately says nothing about saving or syncing: only the shopping
+        // list has a queue that can keep that promise (Q11), and this error is
+        // raised on every path (#33).
+        case .offline: "You're offline."
         case .invalidURL: "Invalid server URL."
         }
     }
@@ -236,21 +239,38 @@ extension APIClient {
         try await send("GET", "/meals", as: [Meal].self)
     }
 
+    /// The API takes recipes either as bare `recipe_ids` (all ×1) or as
+    /// `recipes: [{recipe_id, scale}]`, and rejects both together. Always send
+    /// the richer shape: an unscaled meal is just every scale at 1.
+    private static func recipePayload(_ recipeIds: [UUID], _ scales: [UUID: Double]) -> [[String: Any]] {
+        recipeIds.map { id in
+            ["recipe_id": id.uuidString.lowercased(), "scale": scales[id] ?? 1]
+        }
+    }
+
+    private static func linePayload(_ lines: [LooseLine]) -> [[String: Any]] {
+        lines.map { line in
+            var entry: [String: Any] = ["name": line.name]
+            if let quantity = line.quantity { entry["quantity"] = quantity }
+            if let unit = line.unit { entry["unit"] = unit }
+            return entry
+        }
+    }
+
     func createMeal(
-        name: String, slot: String?, recipeIds: [UUID], looseIngredients: [LooseLine] = []
+        name: String,
+        slot: String?,
+        recipeIds: [UUID],
+        scales: [UUID: Double] = [:],
+        looseIngredients: [LooseLine] = []
     ) async throws -> Meal {
         try await send(
             "POST", "/meals",
             json: [
                 "name": name,
                 "slot": slot,
-                "recipe_ids": recipeIds.map { $0.uuidString.lowercased() },
-                "loose_ingredients": looseIngredients.map { line in
-                    var entry: [String: Any] = ["name": line.name]
-                    if let quantity = line.quantity { entry["quantity"] = quantity }
-                    if let unit = line.unit { entry["unit"] = unit }
-                    return entry
-                },
+                "recipes": Self.recipePayload(recipeIds, scales),
+                "loose_ingredients": Self.linePayload(looseIngredients),
             ],
             as: Meal.self
         )
@@ -265,21 +285,41 @@ extension APIClient {
         name: String? = nil,
         slot: String? = nil,
         recipeIds: [UUID]? = nil,
+        scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine]? = nil
     ) async throws -> Meal {
         var payload: [String: Any?] = [:]
         if let name { payload["name"] = name }
         if let slot { payload["slot"] = slot }
-        if let recipeIds { payload["recipe_ids"] = recipeIds.map { $0.uuidString.lowercased() } }
-        if let looseIngredients {
-            payload["loose_ingredients"] = looseIngredients.map { line in
-                var entry: [String: Any] = ["name": line.name]
-                if let quantity = line.quantity { entry["quantity"] = quantity }
-                if let unit = line.unit { entry["unit"] = unit }
-                return entry
-            }
-        }
+        if let recipeIds { payload["recipes"] = Self.recipePayload(recipeIds, scales) }
+        if let looseIngredients { payload["loose_ingredients"] = Self.linePayload(looseIngredients) }
         return try await send("PATCH", "/meals/\(id.uuidString.lowercased())", json: payload, as: Meal.self)
+    }
+
+    /// Correct a parsed recipe (#29). Only the arguments passed are sent: the
+    /// endpoint is a true PATCH, and sending an untouched field would mark the
+    /// recipe edited for no reason. Passing `ingredients` replaces the whole
+    /// list and re-syncs the shopping list for every meal using the recipe,
+    /// so only send it when a line actually changed.
+    func updateRecipe(
+        id: UUID,
+        title: String? = nil,
+        servings: Int?? = nil,
+        prepMinutes: Int?? = nil,
+        cookMinutes: Int?? = nil,
+        instructions: String?? = nil,
+        tags: [String]? = nil,
+        ingredients: [LooseLine]? = nil
+    ) async throws -> Recipe {
+        var payload: [String: Any?] = [:]
+        if let title { payload["title"] = title }
+        if let servings { payload["servings"] = servings }
+        if let prepMinutes { payload["prep_minutes"] = prepMinutes }
+        if let cookMinutes { payload["cook_minutes"] = cookMinutes }
+        if let instructions { payload["instructions"] = instructions }
+        if let tags { payload["tags"] = tags }
+        if let ingredients { payload["ingredients"] = Self.linePayload(ingredients) }
+        return try await send("PATCH", "/recipes/\(id.uuidString.lowercased())", json: payload, as: Recipe.self)
     }
 
     func deleteMeal(id: UUID) async throws {

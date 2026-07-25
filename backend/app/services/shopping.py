@@ -33,11 +33,17 @@ async def get_active_list(db: AsyncSession, household_id: uuid.UUID) -> Shopping
 
 def _meal_contributions(meal: Meal) -> list[tuple[uuid.UUID, float | None, str | None, uuid.UUID | None]]:
     """Flatten a meal into (ingredient_id, quantity, unit, recipe_id) rows —
-    every recipe line plus every loose ingredient."""
+    every recipe line plus every loose ingredient.
+
+    Recipe lines are multiplied by their link's scale (Q18); loose ingredients
+    are already stated as the absolute amount the meal needs, so they aren't.
+    The exact float is what gets stored — rounding a half tin up here would
+    make two meals each needing half a tin buy two."""
     contributions = []
     for recipe_link in meal.recipe_links:
         for line in recipe_link.recipe.ingredient_links:
-            contributions.append((line.ingredient_id, line.quantity, line.unit, recipe_link.recipe_id))
+            quantity = None if line.quantity is None else line.quantity * recipe_link.scale
+            contributions.append((line.ingredient_id, quantity, line.unit, recipe_link.recipe_id))
     for loose in meal.ingredient_links:
         contributions.append((loose.ingredient_id, loose.quantity, loose.unit, None))
     return contributions

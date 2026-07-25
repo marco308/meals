@@ -27,6 +27,9 @@ struct MealEditorView: View {
     var mode: Mode = .create
     /// Called with the saved meal so the presenter can add-to-plan and dismiss.
     let onSaved: (Meal) -> Void
+    /// Supplied by a presenter that shows this in a sheet: the editor owns
+    /// Cancel so it can warn before throwing away unsaved edits (#31).
+    var onCancel: (() -> Void)? = nil
 
     @State private var name = ""
     @State private var slot = "dinner"
@@ -36,7 +39,41 @@ struct MealEditorView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var loaded = false
+    /// Per-recipe batch-cooking multiple (#32), keyed by recipe id.
+    @State private var scales: [UUID: Double] = [:]
+    @State private var editingLine: LooseLine?
+    @State private var addingLine = false
+    @State private var showDiscardConfirm = false
+    /// What was loaded, to tell a real edit from an untouched form.
+    @State private var baseline: Snapshot?
     @FocusState private var sideFieldFocused: Bool
+
+    /// Everything the save button would send, in a comparable shape.
+    private struct Snapshot: Equatable {
+        var name: String
+        var slot: String
+        var recipes: Set<UUID>
+        var scales: [UUID: Double]
+        var lines: [String]
+    }
+
+    private var snapshot: Snapshot {
+        Snapshot(
+            name: name,
+            slot: slot,
+            recipes: selectedRecipes,
+            scales: scales.filter { selectedRecipes.contains($0.key) },
+            lines: looseLines.map { line in
+                let amount = line.quantity.map { "\($0)" } ?? ""
+                return "\(line.name)|\(amount)|\(line.unit ?? "")"
+            }
+        )
+    }
+
+    private var hasUnsavedChanges: Bool {
+        guard let baseline else { return false }
+        return snapshot != baseline
+    }
 
     private let slots = ["dinner", "lunch", "breakfast", "other"]
 
@@ -65,34 +102,61 @@ struct MealEditorView: View {
                 }
             }
 
-            Section("Recipes") {
+            Section {
                 if recipeStore.recipes.isEmpty {
-                    Text("No recipes in the library yet — a meal can be just a name and sides.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        recipeStore.isOffline
+                            ? "Can't reach the server, and no saved copy of the library yet."
+                            : "No recipes in the library yet — a meal can be just a name and sides."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 }
                 ForEach(recipeStore.recipes) { recipe in
-                    Button {
-                        if selectedRecipes.contains(recipe.id) {
-                            selectedRecipes.remove(recipe.id)
-                        } else {
-                            selectedRecipes.insert(recipe.id)
-                        }
-                    } label: {
-                        HStack {
-                            Text(recipe.title).foregroundStyle(.primary)
-                            Spacer()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button {
                             if selectedRecipes.contains(recipe.id) {
-                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                                selectedRecipes.remove(recipe.id)
+                                scales[recipe.id] = nil
+                            } else {
+                                selectedRecipes.insert(recipe.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(recipe.title).foregroundStyle(.primary)
+                                Spacer()
+                                if selectedRecipes.contains(recipe.id) {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        // Batch cooking (#32): the multiple belongs to this
+                        // meal, so the recipe and any other meal using it are
+                        // untouched.
+                        if selectedRecipes.contains(recipe.id) {
+                            Stepper(value: scaleBinding(recipe.id), in: 1...10, step: 1) {
+                                Text(scaleLabel(recipe))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
+            } header: {
+                Text("Recipes")
+            } footer: {
+                if selectedRecipes.contains(where: { (scales[$0] ?? 1) > 1 }) {
+                    Text("Scaled recipes put more on the shopping list. The recipe itself doesn't change.")
+                }
             }
 
             Section {
-                ForEach(looseLines) { line in
-                    Text(line.display)
+                ForEach($looseLines) { $line in
+                    EditableLineRow(
+                        line: line,
+                        onEdit: { editingLine = line },
+                        onDelete: { looseLines.removeAll { $0.id == line.id } }
+                    )
                 }
                 .onDelete { looseLines.remove(atOffsets: $0) }
                 HStack {
@@ -104,10 +168,15 @@ struct MealEditorView: View {
                     }
                     .disabled(looseEntry.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+                Button {
+                    addingLine = true
+                } label: {
+                    Label("Add with an amount", systemImage: "plus.circle")
+                }
             } header: {
                 Text("On the side")
             } footer: {
-                Text("Loose ingredients go straight on the shopping list with the meal — no recipe needed.")
+                Text("Loose ingredients go straight on the shopping list with the meal — no recipe needed. Tap one to change its amount.")
             }
 
             if let errorMessage {
@@ -135,6 +204,48 @@ struct MealEditorView: View {
         }
         .navigationTitle(isEditing ? "Edit meal" : "New meal")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                // Also at the top: swiping a side away then dismissing from up
+                // here used to discard the change silently (#31).
+                Button("Save") { save() }
+                    .disabled(isSaving || resolvedName.isEmpty)
+                    .fontWeight(.semibold)
+            }
+            if let onCancel {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        if hasUnsavedChanges { showDiscardConfirm = true } else { onCancel() }
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled(hasUnsavedChanges)
+        .confirmationDialog(
+            "Discard your changes to this meal?",
+            isPresented: $showDiscardConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Discard changes", role: .destructive) { onCancel?() }
+            Button("Keep editing", role: .cancel) {}
+        }
+        // Editing a side is a nested edit of unsaved state — it must not
+        // commit anything on its own.
+        .sheet(item: $editingLine) { line in
+            NavigationStack {
+                IngredientLineEditor(line: line, title: "Edit side") { updated in
+                    guard let index = looseLines.firstIndex(where: { $0.id == line.id }) else { return }
+                    looseLines[index] = updated
+                }
+            }
+        }
+        .sheet(isPresented: $addingLine) {
+            NavigationStack {
+                IngredientLineEditor(line: nil, title: "Add a side") { line in
+                    looseLines.append(line)
+                }
+            }
+        }
         .task {
             await recipeStore.refresh()
             guard !loaded else { return }  // don't stomp edits if the task re-runs
@@ -143,11 +254,24 @@ struct MealEditorView: View {
                 name = meal.name
                 slot = meal.slot ?? "other"
                 selectedRecipes = Set(meal.recipes.map(\.id))
+                scales = Dictionary(uniqueKeysWithValues: meal.recipes.map { ($0.id, $0.scale ?? 1) })
                 looseLines = meal.looseIngredients.map {
                     LooseLine(name: $0.name, quantity: $0.quantity, unit: $0.unit)
                 }
             }
+            baseline = snapshot
         }
+    }
+
+    private func scaleBinding(_ recipeId: UUID) -> Binding<Double> {
+        Binding(get: { scales[recipeId] ?? 1 }, set: { scales[recipeId] = $0 })
+    }
+
+    private func scaleLabel(_ recipe: RecipeSummary) -> String {
+        let scale = scales[recipe.id] ?? 1
+        let multiple = "×\(IngredientLineEditor.amountText(scale))"
+        guard let servings = recipe.servings else { return "\(multiple) — batch cooking" }
+        return "\(multiple) — serves \(IngredientLineEditor.amountText(Double(servings) * scale))"
     }
 
     private func addLooseLine() {
@@ -188,6 +312,7 @@ struct MealEditorView: View {
                     name: resolvedName,
                     slot: slot,
                     recipeIds: Array(selectedRecipes),
+                    scales: scales,
                     looseIngredients: looseLines
                 )
                 if saved != nil {
@@ -199,6 +324,7 @@ struct MealEditorView: View {
                     name: resolvedName,
                     slot: slot,
                     recipeIds: Array(selectedRecipes),
+                    scales: scales,
                     looseIngredients: looseLines
                 )
             }

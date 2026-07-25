@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 3
+PLAYBOOK_VERSION = 4
 
 mcp = FastMCP(
     "meals",
@@ -265,14 +265,21 @@ async def create_meal(
     slot: str = "dinner",
     recipe_ids: list[str] | None = None,
     loose_ingredients: list[dict] | None = None,
+    recipe_scales: dict[str, float] | None = None,
 ) -> str:
     """Create a meal — the unit of planning. A meal can combine recipes and
     loose ingredients: 'cottage pie with peas' = the cottage pie recipe plus
-    {"name": "frozen peas", "quantity": 200, "unit": "g"} with no recipe."""
+    {"name": "frozen peas", "quantity": 200, "unit": "g"} with no recipe.
+
+    recipe_scales maps a recipe id to a multiplier for batch cooking: {"<id>":
+    2} doubles that recipe's quantities on the shopping list, leaving the
+    recipe itself and every other meal using it untouched. Confirm scaling with
+    the user before applying it."""
+    scales = recipe_scales or {}
     payload = {
         "name": name,
         "slot": slot,
-        "recipe_ids": recipe_ids or [],
+        "recipes": [{"recipe_id": rid, "scale": scales.get(rid, 1.0)} for rid in (recipe_ids or [])],
         "loose_ingredients": loose_ingredients or [],
     }
     try:
@@ -291,12 +298,17 @@ async def update_meal(
     remove_recipes: list[str] | None = None,
     add_loose_ingredients: list[dict] | None = None,
     remove_loose_ingredients: list[str] | None = None,
+    scale_recipes: dict[str, float] | None = None,
 ) -> str:
-    """Change an existing meal: rename it, move it to another slot, or add and
+    """Change an existing meal: rename it, move it to another slot, add and
     remove recipes and loose sides ('add garlic bread to the cottage pie',
-    'nobody eats the peas'). Recipes can be named or given by id. If the meal
-    is on the active plan the shopping list follows the change — added
-    ingredients appear, removed ones come off."""
+    'nobody eats the peas'), or scale a recipe for batch cooking. Recipes can
+    be named or given by id. If the meal is on the active plan the shopping
+    list follows the change — added ingredients appear, removed ones come off.
+
+    scale_recipes maps a recipe name or id to a multiplier: {"cottage pie": 2}
+    doubles that recipe's quantities on the list without touching the recipe or
+    any other meal using it. Ask before changing a scale."""
     try:
         meal = await _find_meal(meal_name)
         payload: dict[str, Any] = {}
@@ -305,15 +317,27 @@ async def update_meal(
         if slot:
             payload["slot"] = slot
 
-        if add_recipes or remove_recipes:
+        if add_recipes or remove_recipes or scale_recipes:
+            # Carry the existing scales through: adding garlic bread must not
+            # quietly reset the ×2 on the curry.
+            scales = {r["id"]: r.get("scale", 1.0) for r in meal["recipes"]}
             recipe_ids = [r["id"] for r in meal["recipes"]]
             for recipe in await _resolve_recipes(add_recipes or []):
                 if recipe["id"] not in recipe_ids:
                     recipe_ids.append(recipe["id"])
+                    scales.setdefault(recipe["id"], 1.0)
             for recipe in await _resolve_recipes(remove_recipes or []):
                 if recipe["id"] in recipe_ids:
                     recipe_ids.remove(recipe["id"])
-            payload["recipe_ids"] = recipe_ids
+            wanted = {key.lower().strip(): value for key, value in (scale_recipes or {}).items()}
+            for recipe in await _resolve_recipes(list(scale_recipes or {})):
+                requested = wanted.get(recipe["title"].lower(), wanted.get(recipe["id"].lower()))
+                if requested is None:
+                    continue
+                if recipe["id"] not in recipe_ids:
+                    return f"'{recipe['title']}' isn't in '{meal['name']}' — add it first, then scale it."
+                scales[recipe["id"]] = requested
+            payload["recipes"] = [{"recipe_id": rid, "scale": scales.get(rid, 1.0)} for rid in recipe_ids]
 
         if add_loose_ingredients or remove_loose_ingredients:
             # PATCH replaces the whole list, so rebuild it from what's there.

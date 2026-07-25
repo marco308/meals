@@ -75,6 +75,7 @@ async def record_cooked(
                 plan_meal_id=plan_meal.id,
                 meal_name=meal.name,
                 recipe_title=link.recipe.title,
+                scale=link.scale,
                 cooked_at=cooked_at,
                 created_by=user_id,
             )

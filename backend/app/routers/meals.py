@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import CurrentUser, DbSession
 from app.models import Meal, MealIngredient, MealRecipe, Plan, PlanMeal
 from app.schemas.common import IngredientLineIn
-from app.schemas.planning import MealCreate, MealOut, MealUpdate
+from app.schemas.planning import MealCreate, MealOut, MealRecipeIn, MealUpdate
 from app.serializers import meal_out
 from app.services.catalog import get_or_create_ingredient, get_recipe
 from app.services.shopping import get_active_list, remove_meal_contributions, resync_meal_contributions
@@ -24,22 +24,22 @@ async def get_meal(db: AsyncSession, household_id: uuid.UUID, meal_id: uuid.UUID
     return result.scalar_one_or_none()
 
 
-async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, recipe_ids: list[uuid.UUID]) -> None:
+async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, lines: list[MealRecipeIn]) -> None:
     existing = await db.execute(select(MealRecipe).where(MealRecipe.meal_id == meal.id))
     for link in existing.scalars():
         await db.delete(link)
     seen: set[uuid.UUID] = set()
-    for recipe_id in recipe_ids:
-        if recipe_id in seen:
+    for line in lines:
+        if line.recipe_id in seen:
             continue
-        seen.add(recipe_id)
-        recipe = await get_recipe(db, household_id, recipe_id)
+        seen.add(line.recipe_id)
+        recipe = await get_recipe(db, household_id, line.recipe_id)
         if recipe is None:
             raise HTTPException(
                 status_code=422,
-                detail=f"recipe {recipe_id} not found; browse the library via GET /recipes or ingest one first",
+                detail=f"recipe {line.recipe_id} not found; browse the library via GET /recipes or ingest one first",
             )
-        db.add(MealRecipe(meal_id=meal.id, recipe_id=recipe_id))
+        db.add(MealRecipe(meal_id=meal.id, recipe_id=line.recipe_id, scale=line.scale))
     await db.flush()
 
 
@@ -59,11 +59,15 @@ async def _set_loose_ingredients(
 async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> MealOut:
     """A meal = zero or more recipes plus loose ingredients — 'cottage pie
     with peas and carrots on the side' is one recipe and two loose
-    ingredients, no recipe needed for the veg."""
+    ingredients, no recipe needed for the veg.
+
+    Use `recipes: [{recipe_id, scale}]` instead of `recipe_ids` to batch-cook:
+    scale 2 doubles that recipe's quantities on the shopping list without
+    touching the recipe or any other meal using it."""
     meal = Meal(household_id=user.household_id, name=payload.name.strip(), slot=_clean_slot(payload.slot))
     db.add(meal)
     await db.flush()
-    await _set_recipes(db, user.household_id, meal, payload.recipe_ids)
+    await _set_recipes(db, user.household_id, meal, payload.resolved_recipes)
     await _set_loose_ingredients(db, user.household_id, meal, payload.loose_ingredients)
     await db.commit()
     fresh = await get_meal(db, user.household_id, meal.id)
@@ -98,7 +102,11 @@ async def get_meal_detail(meal_id: uuid.UUID, user: CurrentUser, db: DbSession) 
 @router.patch("/{meal_id}", response_model=MealOut)
 async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser, db: DbSession) -> MealOut:
     """Rename, re-slot, or change composition. Composition changes re-sync
-    the meal's contributions on the active shopping list."""
+    the meal's contributions on the active shopping list.
+
+    Changing a recipe's `scale` is a composition change: send the whole
+    `recipes: [{recipe_id, scale}]` list, and the list follows — ×1 to ×2
+    re-surfaces exactly the doubled lines and leaves everything else ticked."""
     meal = await get_meal(db, user.household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=404, detail="meal not found; list meals via GET /meals")
@@ -106,9 +114,10 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
         meal.name = payload.name.strip()
     if "slot" in payload.model_fields_set:
         meal.slot = _clean_slot(payload.slot)
-    composition_changed = payload.recipe_ids is not None or payload.loose_ingredients is not None
-    if payload.recipe_ids is not None:
-        await _set_recipes(db, user.household_id, meal, payload.recipe_ids)
+    recipes = payload.resolved_recipes
+    composition_changed = recipes is not None or payload.loose_ingredients is not None
+    if recipes is not None:
+        await _set_recipes(db, user.household_id, meal, recipes)
     if payload.loose_ingredients is not None:
         await _set_loose_ingredients(db, user.household_id, meal, payload.loose_ingredients)
     await db.flush()

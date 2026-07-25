@@ -85,8 +85,8 @@ class TestSkillPublishing:
 # Without this, guidance can ship under an unchanged number — which is exactly
 # what happened when the premium/budget tools landed on v1: a stale v1 copy
 # compared v1 to v1, found no drift, and never learned the tools existed.
-PINNED_PLAYBOOK_VERSION = 3
-PINNED_PLAYBOOK_DIGEST = "d6a6528221d3442518b8321fe7bad03abb76e80cb656f3218f7f888d0559ff12"
+PINNED_PLAYBOOK_VERSION = 4
+PINNED_PLAYBOOK_DIGEST = "efda55350ac448577370f82510f77b817b3778cfae42b9b6b0323b4a0079b805"
 
 _VERSION_STAMP = re.compile(r"<!--\s*playbook-version:\s*\d+\s*-->\n?")
 _VERSION_PROSE = re.compile(r"playbook v\d+", re.IGNORECASE)

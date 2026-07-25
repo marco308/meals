@@ -117,18 +117,11 @@ struct ShoppingListView: View {
         quickAddText = ""
     }
 
-    /// "milk 2 l" / "2 l milk" / "bin bags" → (name, qty?, unit?). Kept
-    /// deliberately simple: a trailing or leading "<number> <word>" pair.
+    /// "milk 2 l" / "2 l milk" / "milk 2l" / "bin bags" → (name, qty?, unit?).
+    /// Shared with the meal editor's side entry — see `QuantityParser`, which
+    /// is where the glued-unit handling lives (#30).
     static func parseQuickAdd(_ text: String) -> (String, Double?, String?) {
-        let words = text.split(separator: " ").map(String.init)
-        if words.count >= 3, let quantity = Double(words[words.count - 2]) {
-            let unit = words[words.count - 1]
-            return (words.dropLast(2).joined(separator: " "), quantity, unit)
-        }
-        if words.count >= 3, let quantity = Double(words[0]) {
-            return (words.dropFirst(2).joined(separator: " "), quantity, words[1])
-        }
-        return (text, nil, nil)
+        QuantityParser.parse(text)
     }
 }
 

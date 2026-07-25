@@ -61,3 +61,25 @@ blind premium-vs-budget tastings). Ingredients carry a `value_tier` —
 - The tier and note ride along on shopping-list items and recipe lines, so the
   advice appears at the shelf rather than in a settings screen.
 - No price tracking, no supermarket-specific products: that's still F5.
+
+**Q18 — Servings scaling, per meal-recipe link: yes** (2026-07-25, issue #32 —
+batch cooking for the freezer). A recipe can sit in a meal at a multiple of its
+own quantities. Decisions:
+
+- The factor lives on the **meal↔recipe link** (`meal_recipes.scale`), not on
+  the recipe (it would leak into every other meal) and not on the meal (a meal
+  can be "×2 the curry, ×1 the rice").
+- It is a **factor, not a target servings count**. `Recipe.servings` is
+  nullable, so an ingested recipe without it could not derive one; a servings
+  target is a client-side convenience where servings is known.
+- Loose ingredients are **not** scaled — they're already stated as the absolute
+  amount the meal needs.
+- **Stored exact, rounded up only for display on the shopping list**: a half
+  tin is not buyable, so the list shows "1 tin", but the stored quantity stays
+  the exact sum of its sources — otherwise two meals each needing half a tin
+  would buy two. Recipe lines are never rounded: that's what you cook.
+- The API stays additive: `recipe_ids` keeps working and means ×1; the new
+  `recipes: [{recipe_id, scale}]` carries the factor. Sending both is a 422
+  rather than a silent winner.
+- The scale is captured on the `cooked_event`, because "what we actually
+  cooked" includes how much of it.

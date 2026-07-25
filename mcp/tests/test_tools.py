@@ -387,8 +387,50 @@ class TestMealEditing:
             )
         )
         result = await server.update_meal("cottage pie", add_recipes=["garlic bread"])
-        assert json.loads(route.calls.last.request.content)["recipe_ids"] == ["r1", "r2"]
+        sent = json.loads(route.calls.last.request.content)
+        assert [line["recipe_id"] for line in sent["recipes"]] == ["r1", "r2"]
         assert "Garlic bread" in result and "re-synced" in result
+
+    @respx.mock
+    async def test_scaling_a_recipe_keeps_the_other_scales(self):
+        """Adding or scaling one recipe must not reset another's multiplier."""
+        import json
+
+        respx.get(f"{API}/meals").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "m1",
+                        "name": "Curry night",
+                        "slot": "dinner",
+                        "recipes": [
+                            {"id": "r1", "title": "Curry", "scale": 2.0},
+                            {"id": "r2", "title": "Rice", "scale": 1.0},
+                        ],
+                        "loose_ingredients": [],
+                    }
+                ],
+            )
+        )
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Curry"), _library_recipe("r2", "Rice")])
+        )
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "m1",
+                    "name": "Curry night",
+                    "slot": "dinner",
+                    "recipes": [{"title": "Curry"}, {"title": "Rice"}],
+                    "loose_ingredients": [],
+                },
+            )
+        )
+        await server.update_meal("curry night", scale_recipes={"Rice": 3})
+        sent = json.loads(route.calls.last.request.content)
+        assert {line["recipe_id"]: line["scale"] for line in sent["recipes"]} == {"r1": 2.0, "r2": 3}
 
     @respx.mock
     async def test_remove_loose_ingredient_by_name(self):

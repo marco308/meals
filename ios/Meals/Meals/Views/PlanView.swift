@@ -4,6 +4,7 @@ import SwiftUI
 /// never a calendar (guiding principle 1).
 struct PlanView: View {
     @Environment(PlanStore.self) private var store
+    @Environment(RecipeStore.self) private var recipeStore
     @Environment(Session.self) private var session
     @State private var showAddMeal = false
     @State private var showNewPlan = false
@@ -20,6 +21,12 @@ struct PlanView: View {
                     ProgressView()
                 } else {
                     noPlanView
+                }
+            }
+            // Stale data is useful; stale data mistaken for current isn't (#33).
+            .safeAreaInset(edge: .top) {
+                if store.isOffline {
+                    OfflineBanner(what: "plan")
                 }
             }
             .navigationTitle(store.plan?.label ?? "Plan")
@@ -45,6 +52,10 @@ struct PlanView: View {
                         Divider()
                         Button("Change password…", systemImage: "key") { showChangePassword = true }
                         Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
+                            // Cached reads are this session's data — a stale
+                            // plan must not outlive the login that fetched it.
+                            store.clearCache()
+                            recipeStore.clearCache()
                             session.logOut()
                         }
                     } label: {
@@ -271,12 +282,11 @@ struct PlanMealRow: View {
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack {
-                MealEditorView(mode: .edit(planMeal.meal)) { _ in showEditor = false }
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showEditor = false }
-                        }
-                    }
+                MealEditorView(
+                    mode: .edit(planMeal.meal),
+                    onSaved: { _ in showEditor = false },
+                    onCancel: { showEditor = false }
+                )
             }
         }
     }

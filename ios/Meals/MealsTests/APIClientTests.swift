@@ -203,7 +203,12 @@ final class APIClientTests: XCTestCase {
         StubProtocol.handler = { request in
             let body = request.httpBody ?? request.streamedBody()
             let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
-            XCTAssertEqual((sent?["recipe_ids"] as? [String])?.count, 1)
+            // Always the richer `recipes` shape — the API rejects both fields
+            // together, and an unscaled meal is just every scale at 1 (#32).
+            let recipes = sent?["recipes"] as? [[String: Any]]
+            XCTAssertEqual(recipes?.count, 1)
+            XCTAssertEqual(recipes?.first?["scale"] as? Double, 1)
+            XCTAssertNil(sent?["recipe_ids"])
             let sides = sent?["loose_ingredients"] as? [[String: Any]]
             XCTAssertEqual(sides?.first?["name"] as? String, "frozen peas")
             XCTAssertEqual(sides?.first?["quantity"] as? Double, 200)
@@ -220,6 +225,79 @@ final class APIClientTests: XCTestCase {
             id: UUID(),
             recipeIds: [UUID()],
             looseIngredients: [LooseLine(name: "frozen peas", quantity: 200, unit: "g")]
+        )
+    }
+
+    func testUpdateMealSendsPerRecipeScales() async throws {
+        let curry = UUID()
+        let rice = UUID()
+        StubProtocol.handler = { request in
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            let recipes = sent?["recipes"] as? [[String: Any]] ?? []
+            let byId = Dictionary(
+                uniqueKeysWithValues: recipes.map { ($0["recipe_id"] as? String ?? "", $0["scale"] as? Double ?? 0) }
+            )
+            // "×2 the curry, ×1 the rice" — one meal, two scales.
+            XCTAssertEqual(byId[curry.uuidString.lowercased()], 2)
+            XCTAssertEqual(byId[rice.uuidString.lowercased()], 1)
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "Curry night", "slot": "dinner", "recipes": [], "loose_ingredients": [], "created_at": "2026-07-25T09:00:00Z"}"#
+                    .utf8
+                )
+            )
+        }
+        _ = try await client(protocolClass: StubProtocol.self).updateMeal(
+            id: UUID(), recipeIds: [curry, rice], scales: [curry: 2]
+        )
+    }
+
+    func testUpdateRecipeSendsOnlyChangedFields() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["servings"] as? Int, 2)
+            // Untouched fields are absent, not null: sending them would mark
+            // the recipe edited and trigger a pointless meal resync (#29).
+            XCTAssertNil(sent?["title"])
+            XCTAssertNil(sent?["ingredients"])
+            XCTAssertNil(sent?["instructions"])
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "title": "Cottage Pie", "source_url": null, "servings": 2, "prep_minutes": null, "cook_minutes": null, "image_url": null, "instructions": null, "tags": [], "parse_source": "jsonld", "edited": true, "ingredients": []}"#
+                    .utf8
+                )
+            )
+        }
+        let updated = try await client(protocolClass: StubProtocol.self).updateRecipe(
+            id: UUID(), servings: .some(2)
+        )
+        XCTAssertEqual(updated.servings, 2)
+        XCTAssertTrue(updated.edited)
+    }
+
+    func testUpdateRecipeSendsIngredientsWhenTheyChange() async throws {
+        StubProtocol.handler = { request in
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            let lines = sent?["ingredients"] as? [[String: Any]]
+            XCTAssertEqual(lines?.count, 1)
+            XCTAssertEqual(lines?.first?["name"] as? String, "minced beef")
+            XCTAssertEqual(lines?.first?["quantity"] as? Double, 750)
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "title": "Cottage Pie", "source_url": null, "servings": null, "prep_minutes": null, "cook_minutes": null, "image_url": null, "instructions": null, "tags": [], "parse_source": "jsonld", "edited": true, "ingredients": []}"#
+                    .utf8
+                )
+            )
+        }
+        _ = try await client(protocolClass: StubProtocol.self).updateRecipe(
+            id: UUID(), ingredients: [LooseLine(name: "minced beef", quantity: 750, unit: "g")]
         )
     }
 

@@ -10,6 +10,7 @@ Canonical storage form: mass in g, volume in ml, natural units as singular
 lowercase words. The shopping list merges exact-matching canonical units only.
 """
 
+import math
 from fractions import Fraction
 
 # Metric units → (canonical unit, multiplier)
@@ -199,6 +200,21 @@ def format_quantity(quantity: float | None, unit: str | None) -> str:
         return f"×{_trim(quantity)}"
     plural = unit if quantity == 1 else _pluralize(unit)
     return f"{_trim(quantity)} {plural}"
+
+
+def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
+    """Rendering for the shopping list, where a fraction of a countable thing
+    isn't buyable (Q18): half a tin rounds up to one tin, 1.5 onions to 2.
+
+    Only the display rounds. The stored quantity stays the exact sum of its
+    sources, so two meals each needing half a tin still come to one tin, not
+    two — which is why this isn't done at contribution time. Mass and volume
+    are left alone: 750 g of mince is a real thing to ask for."""
+    if quantity is None or unit is None:
+        return ""
+    if unit not in ("g", "ml"):
+        quantity = float(math.ceil(round(quantity, 3)))
+    return format_quantity(quantity, unit)
 
 
 def _pluralize(unit: str) -> str:

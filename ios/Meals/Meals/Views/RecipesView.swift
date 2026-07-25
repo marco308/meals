@@ -26,11 +26,26 @@ struct RecipesView: View {
                     }
                 }
                 if store.recipes.isEmpty && !store.isLoading {
-                    ContentUnavailableView(
-                        "No recipes yet",
-                        systemImage: "book",
-                        description: Text("Add one from a URL — most recipe sites parse automatically.")
-                    )
+                    // "Empty" and "couldn't reach the server" are different
+                    // things and must never look the same (#33).
+                    if store.isOffline {
+                        ContentUnavailableView(
+                            "Offline",
+                            systemImage: "wifi.slash",
+                            description: Text("No saved copy of the library yet — it'll be here once you've loaded it online.")
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "No recipes yet",
+                            systemImage: "book",
+                            description: Text("Add one from a URL — most recipe sites parse automatically.")
+                        )
+                    }
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if store.isOffline && !store.recipes.isEmpty {
+                    OfflineBanner(what: "library")
                 }
             }
             .navigationTitle("Recipes")
@@ -142,6 +157,7 @@ struct RecipeDetailView: View {
     @State private var reloadKey = 0
     @State private var showDeleteConfirm = false
     @State private var deleteError: String?
+    @State private var showEditor = false
 
     var body: some View {
         Group {
@@ -191,6 +207,13 @@ struct RecipeDetailView: View {
                     Link(destination: url) {
                         Label("Open original recipe", systemImage: "safari")
                     }
+                }
+                if recipe.edited {
+                    // Says why re-ingesting the URL won't change anything: an
+                    // edited recipe is never overwritten by a re-parse (Q3).
+                    Label("Edited here — your corrections are kept", systemImage: "pencil.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -253,16 +276,31 @@ struct RecipeDetailView: View {
         .navigationTitle(recipe.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Only outside the plan: from a plan meal the destructive action
-            // that makes sense is "remove from plan", already in the list.
-            if planContext == nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Edit recipe", systemImage: "pencil") { showEditor = true }
+                    // Deleting only outside the plan: from a plan meal the
+                    // destructive action that makes sense is "remove from
+                    // plan", already in the list.
+                    if planContext == nil {
                         Button("Delete recipe", systemImage: "trash", role: .destructive) {
                             showDeleteConfirm = true
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showEditor) {
+            NavigationStack {
+                RecipeEditorView(recipe: recipe) { updated in
+                    self.recipe = updated
+                    showEditor = false
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showEditor = false }
                     }
                 }
             }

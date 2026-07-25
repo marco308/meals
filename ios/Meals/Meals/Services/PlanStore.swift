@@ -1,20 +1,31 @@
 import Foundation
 import Observation
 
-/// Online-only stores for the plan and recipe library (decision Q11: only
-/// the shopping list needs offline support in v1).
+/// The plan and meal library. Writes need a connection; **reads** fall back to
+/// a disk cache (issue #33) so a cold launch in a kitchen with no signal still
+/// shows the plan instead of an empty app. `isOffline` is what the views use to
+/// mark the data as a saved copy — stale is useful, stale-and-unlabelled isn't.
 @MainActor
 @Observable
 final class PlanStore {
     private(set) var plan: Plan?
     private(set) var mealLibrary: [Meal] = []
     private(set) var isLoading = false
+    /// True when the last read fell back to cache.
+    private(set) var isOffline = false
     var errorMessage: String?
 
     private let api: () -> APIClient
+    private let planCache: DiskCache<Plan>
+    private let mealCache: DiskCache<[Meal]>
 
-    init(api: @escaping () -> APIClient) {
+    init(api: @escaping () -> APIClient, directory: URL? = nil) {
         self.api = api
+        let base = directory ?? DiskCache<Plan>.defaultDirectory()
+        self.planCache = DiskCache(directory: base, filename: "plan-cache.json")
+        self.mealCache = DiskCache(directory: base, filename: "meal-library-cache.json")
+        self.plan = planCache.load()
+        self.mealLibrary = mealCache.load() ?? []
     }
 
     func refresh() async {
@@ -22,10 +33,17 @@ final class PlanStore {
         defer { isLoading = false }
         do {
             plan = try await api().currentPlan()
-        } catch let error as APIError where error == .offline {
-            errorMessage = APIError.offline.errorDescription
+            isOffline = false
+            if let plan { planCache.save(plan) }
+        } catch let error as APIError where error.isConnectivity {
+            // Keep serving the cached plan; don't claim anything was saved —
+            // only the shopping list can honestly promise a sync.
+            isOffline = true
+            if plan == nil { errorMessage = "You're offline and there's no saved copy of the plan yet." }
         } catch APIError.server(404, _) {
             plan = nil  // no active plan yet
+            isOffline = false
+            planCache.clear()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -34,9 +52,22 @@ final class PlanStore {
     func loadMealLibrary() async {
         do {
             mealLibrary = try await api().meals()
+            isOffline = false
+            mealCache.save(mealLibrary)
+        } catch let error as APIError where error.isConnectivity {
+            isOffline = true
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Drop everything cached on disk. A stale plan must not outlive the
+    /// session that fetched it.
+    func clearCache() {
+        planCache.clear()
+        mealCache.clear()
+        plan = nil
+        mealLibrary = []
     }
 
     func createPlan(label: String, copyFrom: UUID? = nil) async {
@@ -98,11 +129,15 @@ final class PlanStore {
     }
 
     func createMeal(
-        name: String, slot: String?, recipeIds: [UUID], looseIngredients: [LooseLine] = []
+        name: String,
+        slot: String?,
+        recipeIds: [UUID],
+        scales: [UUID: Double] = [:],
+        looseIngredients: [LooseLine] = []
     ) async -> Meal? {
         do {
             let meal = try await api().createMeal(
-                name: name, slot: slot, recipeIds: recipeIds, looseIngredients: looseIngredients
+                name: name, slot: slot, recipeIds: recipeIds, scales: scales, looseIngredients: looseIngredients
             )
             mealLibrary.append(meal)
             return meal
@@ -120,11 +155,17 @@ final class PlanStore {
         name: String? = nil,
         slot: String? = nil,
         recipeIds: [UUID]? = nil,
+        scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine]? = nil
     ) async -> Meal? {
         do {
             let updated = try await api().updateMeal(
-                id: meal.id, name: name, slot: slot, recipeIds: recipeIds, looseIngredients: looseIngredients
+                id: meal.id,
+                name: name,
+                slot: slot,
+                recipeIds: recipeIds,
+                scales: scales,
+                looseIngredients: looseIngredients
             )
             if let index = mealLibrary.firstIndex(where: { $0.id == updated.id }) {
                 mealLibrary[index] = updated
@@ -157,13 +198,26 @@ final class PlanStore {
 final class RecipeStore {
     private(set) var recipes: [RecipeSummary] = []
     private(set) var isLoading = false
+    /// True when the last read fell back to cache — so "no recipes yet" is
+    /// never shown because a fetch failed (#33).
+    private(set) var isOffline = false
     var errorMessage: String?
     var sort: RecipeSort = .title
 
     private let api: () -> APIClient
+    private let libraryCache: DiskCache<[RecipeSummary]>
+    private let detailCache: DiskCache<[UUID: Recipe]>
+    /// Recipes opened at least once, kept so the method is readable in a
+    /// kitchen with no signal.
+    private var details: [UUID: Recipe] = [:]
 
-    init(api: @escaping () -> APIClient) {
+    init(api: @escaping () -> APIClient, directory: URL? = nil) {
         self.api = api
+        let base = directory ?? DiskCache<Plan>.defaultDirectory()
+        self.libraryCache = DiskCache(directory: base, filename: "recipe-library-cache.json")
+        self.detailCache = DiskCache(directory: base, filename: "recipe-detail-cache.json")
+        self.recipes = libraryCache.load() ?? []
+        self.details = detailCache.load() ?? [:]
     }
 
     func refresh(search: String? = nil) async {
@@ -171,9 +225,69 @@ final class RecipeStore {
         defer { isLoading = false }
         do {
             recipes = try await api().recipes(search: search, sort: sort)
+            isOffline = false
+            // Only cache the unfiltered library — a search result isn't the
+            // library, and restoring one on next launch would look like data
+            // loss.
+            if search == nil || search!.isEmpty { libraryCache.save(recipes) }
+        } catch let error as APIError where error.isConnectivity {
+            isOffline = true
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// A recipe in full, from the server when it can be reached and from the
+    /// last-seen copy when it can't — a recipe you've opened once stays
+    /// readable in a kitchen with no signal (#33).
+    func detail(id: UUID) async throws -> Recipe {
+        do {
+            let recipe = try await api().recipe(id: id)
+            isOffline = false
+            details[id] = recipe
+            detailCache.save(details)
+            return recipe
+        } catch let error as APIError where error.isConnectivity {
+            guard let cached = details[id] else { throw error }
+            isOffline = true
+            return cached
+        }
+    }
+
+    /// Save a correction to a parsed recipe (#29). `ingredients` is only sent
+    /// when a line actually changed — that's what decides whether the server
+    /// re-syncs every meal using the recipe.
+    func update(
+        id: UUID,
+        title: String? = nil,
+        servings: Int?? = nil,
+        prepMinutes: Int?? = nil,
+        cookMinutes: Int?? = nil,
+        instructions: String?? = nil,
+        tags: [String]? = nil,
+        ingredients: [LooseLine]? = nil
+    ) async throws -> Recipe {
+        let updated = try await api().updateRecipe(
+            id: id,
+            title: title,
+            servings: servings,
+            prepMinutes: prepMinutes,
+            cookMinutes: cookMinutes,
+            instructions: instructions,
+            tags: tags,
+            ingredients: ingredients
+        )
+        details[id] = updated
+        detailCache.save(details)
+        await refresh()
+        return updated
+    }
+
+    func clearCache() {
+        libraryCache.clear()
+        detailCache.clear()
+        recipes = []
+        details = [:]
     }
 
     /// Delete a recipe from the library (issue #14). Returns nil on success or
@@ -205,10 +319,6 @@ final class RecipeStore {
         return users.count == 1
             ? "'\(list)' still uses this recipe. Remove it from that meal first, then delete the recipe."
             : "These meals still use this recipe: \(list). Remove it from them first, then delete the recipe."
-    }
-
-    func detail(id: UUID) async throws -> Recipe {
-        try await api().recipe(id: id)
     }
 
     func ingest(url: String) async throws -> IngestResponse {

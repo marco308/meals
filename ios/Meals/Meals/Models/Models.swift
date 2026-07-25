@@ -37,6 +37,10 @@ struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     // cooked-history fields.
     var timesCooked: Int? = nil
     var lastCookedAt: String? = nil
+    /// Only present when the recipe is read as part of a meal: the batch-cooking
+    /// multiple for *that* meal (#32). nil means ×1, which is what a backend
+    /// without scaling means too.
+    var scale: Double? = nil
 
     var totalMinutes: Int? {
         let total = (prepMinutes ?? 0) + (cookMinutes ?? 0)

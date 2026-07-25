@@ -13,6 +13,13 @@ struct MealDetailView: View {
     @State private var recipeDetails: [UUID: Recipe] = [:]
     @State private var reloadKey = 0
     @State private var showEditor = false
+
+    /// "×2" beside a scaled recipe — otherwise the meal reads as a single
+    /// batch while the shopping list says otherwise (#32).
+    static func scaleBadge(_ scale: Double?) -> String? {
+        guard let scale, scale != 1 else { return nil }
+        return "×\(IngredientLineEditor.amountText(scale))"
+    }
     @State private var showDeleteConfirm = false
 
     /// The plan is refetched after an edit, so read the meal back from the
@@ -44,7 +51,18 @@ struct MealDetailView: View {
                         RecipeDetailView(recipeId: recipe.id)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(recipe.title).fontWeight(.medium)
+                            HStack(spacing: 6) {
+                                Text(recipe.title).fontWeight(.medium)
+                                if let badge = Self.scaleBadge(recipe.scale) {
+                                    Text(badge)
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.tint.opacity(0.15), in: Capsule())
+                                        .accessibilityLabel("scaled \(badge)")
+                                }
+                            }
                             HStack(spacing: 8) {
                                 if let servings = recipe.servings {
                                     Label("\(servings)", systemImage: "person.2")
@@ -116,15 +134,14 @@ struct MealDetailView: View {
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack {
-                MealEditorView(mode: .edit(meal)) { _ in
-                    showEditor = false
-                    reloadKey += 1  // recipe ingredient lists may have changed
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showEditor = false }
-                    }
-                }
+                MealEditorView(
+                    mode: .edit(meal),
+                    onSaved: { _ in
+                        showEditor = false
+                        reloadKey += 1  // recipe ingredient lists may have changed
+                    },
+                    onCancel: { showEditor = false }
+                )
             }
         }
         .confirmationDialog(

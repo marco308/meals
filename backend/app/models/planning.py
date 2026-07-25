@@ -1,7 +1,18 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -34,12 +45,23 @@ class Meal(Base):
 
 
 class MealRecipe(Base):
+    """A recipe's place in a meal, and how much of it (decision Q18).
+
+    `scale` lives here rather than on the recipe or the meal: a meal can be
+    "×2 the curry, ×1 the rice", and scaling the recipe itself would leak into
+    every other meal using it.
+    """
+
     __tablename__ = "meal_recipes"
-    __table_args__ = (UniqueConstraint("meal_id", "recipe_id", name="uq_meal_recipe"),)
+    __table_args__ = (
+        UniqueConstraint("meal_id", "recipe_id", name="uq_meal_recipe"),
+        CheckConstraint("scale > 0 AND scale <= 20", name="ck_meal_recipe_scale"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     meal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("meals.id", ondelete="CASCADE"))
     recipe_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"))
+    scale: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
 
     meal: Mapped[Meal] = relationship(back_populates="recipe_links")
     recipe: Mapped[Recipe] = relationship(lazy="selectin")
@@ -106,6 +128,9 @@ class CookedEvent(Base):
     )
     meal_name: Mapped[str | None] = mapped_column(String(300), default=None)
     recipe_title: Mapped[str | None] = mapped_column(String(300), default=None)
+    # How much of the recipe was cooked (Q18). Part of "what was actually
+    # eaten", so it is captured here rather than read back off the live link.
+    scale: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
     cooked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
