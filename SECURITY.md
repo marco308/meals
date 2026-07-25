@@ -19,8 +19,9 @@ you'd like it.
 In scope: the backend API, the MCP server, the published skill and prompt pack,
 the iOS app, and the deployment guidance in this repo.
 
-`https://meals.marcuslab.uk` is a personal instance holding one household's real
-data. Please **don't test against it** — run your own with `make dev` (a full
+`https://meals.marcuslab.uk` is a private instance holding one household's real
+data — it isn't a public service, and registration on it is closed. Please
+**don't test against it** — run your own with `make dev` (a full
 stack in Docker) or `make run` (SQLite, no services). Reading the unauthenticated
 `/skill`, `/prompt-pack` and `/healthz` endpoints is fine.
 

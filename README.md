@@ -100,20 +100,27 @@ client ids and id-remapping for server-side merges) when connectivity returns.
 
 ## Trying the AI layer
 
+> **`meals.marcuslab.uk` is my household's private instance, not a free public
+> service.** Registration on it is closed. Self-hosting is the supported way to
+> use this — it's AGPL, it costs nothing, and `make dev` gets you the whole
+> stack. If you'd rather I hosted it for you, that's a paid arrangement: open an
+> issue and ask. The `/skill` and `/prompt-pack` endpoints stay open to
+> everyone, because they're documentation.
+
 The MCP server ships with the deployment — any MCP-capable assistant connects
 by URL, no local Python or repo checkout. Create a personal API token
 (`POST /auth/tokens`, or use the seed's) and send it as a bearer header:
 
 ```bash
-claude mcp add --transport http meals https://meals.marcuslab.uk/mcp \
+claude mcp add --transport http meals https://your-meals-server.example/mcp \
   --header "Authorization: Bearer meals_…"
 ```
 
 The remote server holds no credentials of its own: each request's bearer
 token is forwarded to the API, so every connecting client acts as themselves.
-Any MCP client that can send a custom header works the same way against
-`https://meals.marcuslab.uk/mcp` (claude.ai custom connectors need OAuth,
-which the server doesn't speak yet — see [BACKLOG.md](BACKLOG.md)).
+Any MCP client that can send a custom header works the same way (claude.ai
+custom connectors need OAuth, which the server doesn't speak yet — see
+[BACKLOG.md](BACKLOG.md)).
 
 **Local fallback (stdio)** — no deployment needed, runs from the repo:
 
@@ -141,12 +148,15 @@ HTTP at `/mcp` on `0.0.0.0:8000` (`make dev` exposes it on
 The server publishes its own operating manual — grab it from the deployment,
 not a repo checkout, so it always matches the endpoints it describes:
 
-- **<https://meals.marcuslab.uk/skill>** — `SKILL.md`, installable as a
-  Claude-family Agent Skill.
-- **<https://meals.marcuslab.uk/prompt-pack>** — portable instructions for
-  any assistant, served with that deployment's base URL already filled in:
-  paste into custom instructions, add your API token, and the REST API alone
-  is enough (no MCP needed).
+- **`/skill`** — `SKILL.md`, installable as a Claude-family Agent Skill.
+- **`/prompt-pack`** — portable instructions for any assistant, served with
+  that deployment's base URL already filled in: paste into custom instructions,
+  add your API token, and the REST API alone is enough (no MCP needed).
+
+Both are unauthenticated on any instance, so you can read mine to see the shape
+of them — <https://meals.marcuslab.uk/skill> and
+<https://meals.marcuslab.uk/prompt-pack> — but point your assistant at your own
+server, since the pack embeds the base URL it was served from.
 
 Both are unauthenticated, ship inside the backend image, and are advertised
 from the API root (`GET /` returns a JSON landing for non-browser clients).
@@ -252,8 +262,8 @@ through [SECURITY.md](SECURITY.md), not a public issue.
 Copyright © 2026 Marcus Williams.
 
 - **Everything except `ios/`** — [GNU AGPL-3.0](LICENSE). Self-host it, modify it,
-  run it for your household; if you run a modified version as a network service,
-  your users are entitled to its source.
+  run it for your household, free and without asking; if you run a modified
+  version as a network service, your users are entitled to its source.
 - **`ios/`** — [source-available, not open source](ios/LICENSE). You may read it,
   build it and run it on your own devices, and contribute back, but not
   redistribute it or ship it to an app store.
