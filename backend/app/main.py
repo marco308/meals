@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.config import get_settings
 from app.routers import auth, ingredients, meals, plans, recipes, shopping, skill
-from app.routers.skill import base_url
+from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
 
@@ -56,6 +56,8 @@ async def root(request: Request) -> Response:
             "docs": f"{base}/docs",
             "skill": f"{base}/skill",
             "prompt_pack": f"{base}/prompt-pack",
+            # Lets an assistant spot a stale installed copy without a second request.
+            "playbook_version": playbook_version(),
             "health": f"{base}/healthz",
         }
     )

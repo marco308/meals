@@ -76,6 +76,49 @@ class TestSkillPublishing:
         assert "not shipped" in response.json()["detail"]
 
 
+class TestPlaybookVersion:
+    """Installed copies never self-update, so the live surfaces publish the current
+    version and the shipped markdown carries the stamp to compare against."""
+
+    async def test_both_documents_carry_the_stamp(self, client):
+        current = skill_router.playbook_version()
+        assert current is not None
+        for path in ("/skill", "/prompt-pack"):
+            response = await client.get(path)
+            assert f"<!-- playbook-version: {current} -->" in response.text, path
+
+    async def test_skill_tells_a_stale_copy_where_to_refresh(self, client):
+        """The instruction has to travel inside the snapshot — that's the only copy
+        a user with a stale skill is reading."""
+        response = await client.get("/skill")
+        assert "http://test/skill/version" in response.text
+        assert "{{API_URL}}" not in response.text
+
+    async def test_version_endpoint_reports_the_stamp(self, client):
+        response = await client.get("/skill/version")
+        assert response.status_code == 200
+        assert response.json() == {
+            "version": skill_router.playbook_version(),
+            "skill": "http://test/skill",
+            "prompt_pack": "http://test/prompt-pack",
+        }
+
+    async def test_version_endpoint_404s_without_a_playbook(self, client, monkeypatch):
+        monkeypatch.setattr(skill_router, "_SKILL_DIRS", (Path("/nonexistent"),))
+        response = await client.get("/skill/version")
+        assert response.status_code == 404
+
+    async def test_landing_advertises_the_version(self, client, monkeypatch):
+        response = await client.get("/")
+        assert response.json()["playbook_version"] == skill_router.playbook_version()
+
+        # A build without skill/ still serves a landing rather than a 500.
+        monkeypatch.setattr(skill_router, "_SKILL_DIRS", (Path("/nonexistent"),))
+        response = await client.get("/")
+        assert response.status_code == 200
+        assert response.json()["playbook_version"] is None
+
+
 class TestExpiredTokens:
     async def test_expired_token_rejected(self, auth_client, engine):
         created = await auth_client.post("/auth/tokens", json={"label": "short-lived", "expires_in_days": 1})
