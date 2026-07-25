@@ -13,15 +13,11 @@ tail plus engineering debt worth naming.
 - [x] ~~**Deploy Q19**~~ — ✅ deployed 2026-07-25; migration `d9e4b17c3a86` applied, and the existing account kept its household as intended (nothing migrated)
 - [ ] **Onboard the second household member** — needs an invite from `POST /auth/invites`. Note the ordering problem: the invite field only exists in the iOS app from build 14 onwards, so until that reaches TestFlight the second person has to redeem their code through the API once, then log in normally on any build
 
-## Account lifecycle (prerequisites, not polish)
+## Account lifecycle
 
-Both of these are App Store review requirements for an app that creates
-accounts, and both are needed before anyone but us could reasonably pay for
-hosting. Neither exists today.
-
-- [ ] **Password reset** — there is no email path at all: `POST /auth/password` needs the *current* password, so a forgotten one is unrecoverable without database access. Needs an email sender, which the stack currently has none of
-- [ ] **Account deletion** — no `DELETE /auth/me`. Apple requires in-app deletion. Non-trivial here: deleting the last user of a household should take the household's data with it, and deleting a user who contributed shopping-list sources must not corrupt `ListItemSource` provenance
-- [ ] **Household admin** — you can create a household and invite into it, and that's all: no rename after signup, no way to leave, no way to remove someone you invited by mistake, and the iOS register screen can't set `household_name` (it takes the "Home" default). `GET /auth/me` now returns `household_id`/`household_name`, so the app has what it needs to show which household you're in
+- [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so. **Not yet set on the deployment**, so reset is unavailable in production until it is
+- [x] ~~**Account deletion**~~ — ✅ shipped (Q20): `DELETE /auth/me`, and in the app's account menu, which is what App Store review actually requires
+- [ ] **Household admin** — you can create a household and invite into it, and that's all: no rename after signup, no way to leave a household without deleting your account, no way to remove someone you invited by mistake, and the iOS register screen can't set `household_name` (it takes the "Home" default)
 
 ## Next (product tail from the plan)
 

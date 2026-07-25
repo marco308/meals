@@ -117,3 +117,49 @@ family's recipes, plan and shopping list, with write access. Decisions:
   `household_id`, which is why this was an auth change and not a rewrite. Note
   that this also removes the blocker on multi-tenant hosting, which BACKLOG.md
   had filed under "the freemium split".
+
+**Q20 — Password reset and account deletion: yes** (2026-07-25, prompted by
+opening the repo and shipping through TestFlight). Both are App Store review
+requirements for an app that creates accounts, and neither existed. Decisions:
+
+*Deletion.*
+
+- **`DELETE /auth/me`, confirmed with the current password**, in the body — a
+  password in a query string ends up in access logs and proxy caches.
+- **The last member out takes the household with them.** Its recipes, meals,
+  plans, lists and cooked history are deleted. Nobody could ever reach that data
+  again, so keeping it is hoarding rather than caretaking, and it is exactly what
+  the person asked us not to do.
+- **Anyone else leaving takes only themselves.** What they contributed belongs to
+  the household, not to them: `Recipe.created_by`, `CookedEvent.created_by` and
+  `HouseholdInvite.accepted_by_user_id` are all SET NULL, so "cooked 12×"
+  survives the cook leaving. `household_invites.created_by_user_id` moved from
+  CASCADE to SET NULL for the same reason — the record of who admitted whom
+  should outlast the person who issued the invite.
+- **Deletion is explicit and ordered, not delegated to cascades.** The
+  `household_id` columns deliberately carry no `ondelete`, so Postgres refuses to
+  drop a household while its rows survive; the order in `services/accounts.py` is
+  load-bearing and doing it in code behaves identically on both engines.
+- **No grace period and no soft delete.** A recoverable deletion is a different
+  feature with different promises; this one means what it says.
+
+*Reset.*
+
+- **Plain SMTP, configured by env, not a provider SDK.** This is self-hosted by
+  design: every relay speaks SMTP, while every SDK needs an account with one
+  particular company. Unconfigured servers return 503 saying which variables to
+  set, rather than pretending to send.
+- **A typed code, not a link.** The same XXXX-XXXX-XXXX format as invites (Q19),
+  so no web page has to exist and no deep link has to be registered. The backend
+  serves an API and an app, not a website.
+- **`POST /auth/password-reset` always returns 202** — unknown address, bounced
+  email, doesn't matter. Anything else turns it into a way to ask "does this
+  person have an account here?". Delivery failures are logged for the operator.
+- **Reset tokens live in `auth_tokens` under `kind="reset"` and cannot
+  authenticate.** `get_current_user` allow-lists `session` and `api`. Without
+  that filter, receiving the email would be enough to read the household's data
+  without ever setting a password — the codes hash to the same value the bearer
+  path computes once separators are stripped.
+- **Redeeming revokes every session token and returns a fresh one**, matching
+  `POST /auth/password`. API tokens survive: rotating a password shouldn't
+  silently break every AI client.

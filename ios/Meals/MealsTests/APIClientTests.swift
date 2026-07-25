@@ -397,3 +397,97 @@ final class APIClientTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Account lifecycle (decision Q20)
+
+final class AccountLifecycleTests: XCTestCase {
+    override func tearDown() {
+        StubProtocol.handler = nil
+        super.tearDown()
+    }
+
+    private func client(protocolClass: AnyClass, token: String? = "meals_test-token") -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [protocolClass]
+        return APIClient(
+            baseURL: URL(string: "http://testserver")!,
+            token: token,
+            session: URLSession(configuration: config)
+        )
+    }
+
+    private func sentBody(_ request: URLRequest) -> [String: Any]? {
+        let body = request.httpBody ?? request.streamedBody()
+        return try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+    }
+
+    func testRequestPasswordResetPostsTheAddress() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url!.path, "/auth/password-reset")
+            return (202, Data(#"{"detail": "if that address has an account, a reset code is on its way"}"#.utf8))
+        }
+        try await client(protocolClass: StubProtocol.self, token: nil)
+            .requestPasswordReset(email: "marcus@example.com")
+    }
+
+    func testConfirmPasswordResetReturnsAFreshSession() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url!.path, "/auth/password/reset-confirm")
+            let payload = """
+            {"token": "meals_new-session", "token_type": "bearer",
+             "user": {"id": "8B2E6E38-6B3E-4F45-9A6E-4C0C2F2D1A11", "email": "marcus@example.com",
+                      "display_name": "Marcus", "created_at": "2026-07-25T20:00:00Z",
+                      "household_id": "1E4E9C1E-0A8E-4C60-9C2A-8E4E2B7D9C31", "household_name": "Home"}}
+            """
+            return (200, Data(payload.utf8))
+        }
+        let auth = try await client(protocolClass: StubProtocol.self, token: nil)
+            .confirmPasswordReset(code: "ABCD-EFGH-JKMN", newPassword: "brand-new-password")
+        XCTAssertEqual(auth.token, "meals_new-session")
+        XCTAssertEqual(auth.user.email, "marcus@example.com")
+    }
+
+    func testDeleteAccountSendsPasswordInTheBodyNotTheURL() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url!.path, "/auth/me")
+            // A password in a query string lands in access logs and proxy caches.
+            XCTAssertNil(request.url!.query)
+            return (200, Data(#"{"household_deleted": true, "detail": "account deleted"}"#.utf8))
+        }
+        let result = try await client(protocolClass: StubProtocol.self)
+            .deleteAccount(password: "a-strong-password")
+        XCTAssertTrue(result.householdDeleted)
+    }
+
+    func testDeleteAccountCarriesThePassword() async throws {
+        let captured = Captured()
+        StubProtocol.handler = { [captured] request in
+            let body = request.httpBody ?? request.streamedBody()
+            captured.body = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            return (200, Data(#"{"household_deleted": false, "detail": "account deleted"}"#.utf8))
+        }
+        _ = try await client(protocolClass: StubProtocol.self).deleteAccount(password: "a-strong-password")
+        XCTAssertEqual(captured.body?["password"] as? String, "a-strong-password")
+    }
+
+    func testWrongPasswordSurfacesAsUnauthorized() async {
+        StubProtocol.handler = { _ in
+            (401, Data(#"{"detail": "that password is incorrect, so nothing was deleted"}"#.utf8))
+        }
+        do {
+            _ = try await client(protocolClass: StubProtocol.self).deleteAccount(password: "wrong")
+            XCTFail("expected an error")
+        } catch let error as APIError {
+            XCTAssertEqual(error, .unauthorized(detail: "that password is incorrect, so nothing was deleted"))
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
+    /// A reference box so the stub closure can hand a value back.
+    private final class Captured: @unchecked Sendable {
+        var body: [String: Any]?
+    }
+}

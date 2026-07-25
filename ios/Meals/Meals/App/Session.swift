@@ -89,6 +89,27 @@ final class Session {
         apply(auth)
     }
 
+    func requestPasswordReset(email: String) async throws {
+        try await api.requestPasswordReset(email: email)
+    }
+
+    /// Redeeming a reset code signs this device in with the fresh session the
+    /// server hands back, so the user doesn't have to type the new password again.
+    func confirmPasswordReset(code: String, newPassword: String) async throws {
+        let auth = try await api.confirmPasswordReset(code: code, newPassword: newPassword)
+        apply(auth)
+    }
+
+    /// Delete the account, then drop the local session. Caches are the caller's
+    /// to clear — the view does it before calling, for the same reason logging
+    /// out does: cached reads belong to the login that fetched them.
+    @discardableResult
+    func deleteAccount(password: String) async throws -> AccountDeleted {
+        let result = try await api.deleteAccount(password: password)
+        logOut()
+        return result
+    }
+
     /// Restore the user profile for an existing keychain token; drops the
     /// session only if the server says the token is bad (not when offline).
     func restore() async {

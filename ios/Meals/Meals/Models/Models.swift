@@ -15,6 +15,13 @@ struct AuthResponse: Codable, Sendable {
     let user: UserProfile
 }
 
+/// Result of DELETE /auth/me. `householdDeleted` is true when the account was
+/// the last member and the household's shared data went with it.
+struct AccountDeleted: Codable, Sendable {
+    let householdDeleted: Bool
+    let detail: String
+}
+
 /// What the server expects of native clients (GET /client-config). Builds below
 /// `minIosBuild` are refused with 426 on everything except the offline-queue
 /// endpoints; builds below `currentIosBuild` just get a nudge.

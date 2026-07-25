@@ -42,7 +42,7 @@ is what keeps the API complete and the views consistent.
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
-| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q19 |
+| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q20 |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
 (domain logic, session-scoped, `flush` not `commit`) → `models/` (SQLAlchemy).
@@ -61,6 +61,17 @@ from `deps.py`; every query filters on `user.household_id`.
   inside a household: everyone in it can do everything.
   `REGISTRATION_ENABLED=false` blocks new *households* but still honours
   invites, so a closed server can admit the people it chose.
+- **Account lifecycle** (Q20, `services/accounts.py`). Deleting the last member
+  of a household deletes the household's data; deleting anyone else deletes only
+  them. The order of deletes is load-bearing — `household_id` columns carry no
+  `ondelete`, so it is done explicitly in code rather than left to cascades, and
+  it must behave the same on SQLite and Postgres. Password-reset tokens share the
+  `auth_tokens` table under `kind="reset"` and **must never authenticate**:
+  `deps.AUTHENTICATING_KINDS` is an allow-list, and a reset code hashes to the
+  same value the bearer path computes once its separators are stripped.
+- **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
+  SQLite ships with them off, which silently turned every `ondelete` into
+  decoration while production enforced them. Don't build a test engine without it.
 - **Plans are pools, not calendars** (Q1/Q4). A `Plan` is a labelled set of
   `PlanMeal`s with an optional `slot` ("dinner"). No days, no dates. Don't
   introduce per-day scheduling.

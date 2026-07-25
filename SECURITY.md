@@ -56,8 +56,12 @@ not oversights:
   BACKLOG.md.
 - **The backend never calls an LLM** (decision Q13) and never executes anything
   it fetches. Recipe ingestion is schema.org JSON-LD extraction only.
-- **There is no password reset and no account deletion yet.** Both are known
-  gaps in BACKLOG.md rather than things to report.
+- **Password reset never confirms whether an address has an account.**
+  `POST /auth/password-reset` returns 202 for unknown addresses and for failed
+  deliveries alike; that is deliberate, not a bug. Reset codes live in the same
+  table as auth tokens but cannot be used as credentials.
+- **Account deletion is immediate and total.** `DELETE /auth/me` has no grace
+  period, and the last member of a household takes its data with them (Q20).
 
 ## Self-hosting: the things that actually bite
 

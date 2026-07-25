@@ -11,6 +11,7 @@ struct PlanView: View {
     @State private var showHistory = false
     @State private var showArchiveConfirm = false
     @State private var showChangePassword = false
+    @State private var showDeleteAccount = false
 
     var body: some View {
         NavigationStack {
@@ -51,6 +52,9 @@ struct PlanView: View {
                         }
                         Divider()
                         Button("Change password…", systemImage: "key") { showChangePassword = true }
+                        Button("Delete account…", systemImage: "person.crop.circle.badge.xmark", role: .destructive) {
+                            showDeleteAccount = true
+                        }
                         Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
                             // Cached reads are this session's data — a stale
                             // plan must not outlive the login that fetched it.
@@ -67,6 +71,12 @@ struct PlanView: View {
             .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
             .sheet(isPresented: $showHistory) { PastPlansSheet() }
             .sheet(isPresented: $showChangePassword) { ChangePasswordView() }
+            .sheet(isPresented: $showDeleteAccount) {
+                DeleteAccountView {
+                    store.clearCache()
+                    recipeStore.clearCache()
+                }
+            }
             .confirmationDialog(
                 "Archive '\(store.plan?.label ?? "")'? Its meals come off the shopping list; anything added by hand stays.",
                 isPresented: $showArchiveConfirm,

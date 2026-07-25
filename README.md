@@ -37,10 +37,12 @@ drive it with their own AI assistant. POC implementation of the plan in
   Everyone in a household can do everything in it — being invited *is* the
   permission model.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens), plus
-  per-user API tokens (PATs) for AI clients. Users can
-  change their own password (`POST /auth/password`, or from the app's menu):
-  it revokes every session token and issues a fresh one, so the device doing
-  the change stays logged in and the others don't.
+  per-user API tokens (PATs) for AI clients. Users can change their own password
+  (`POST /auth/password`, or from the app's menu): it revokes every session token
+  and issues a fresh one, so the device doing the change stays logged in and the
+  others don't. **Forgotten** passwords reset by emailed code, and accounts can be
+  **deleted** from inside the app — the last member of a household takes its data
+  with them, anyone else takes only themselves.
 
 ## Quickstart
 
@@ -58,6 +60,22 @@ No Docker? `make run` starts the API locally on SQLite (zero services), and
 
 ```
 make help    # everything else: logs, lint, migrate, fmt, down, nuke…
+```
+
+### Sending email (optional)
+
+Only password reset sends any, and it's plain SMTP so any relay works. Leave it
+unset and `POST /auth/password-reset` returns a 503 explaining what's missing;
+everything else, including changing a password you *know*, works without it.
+
+```bash
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587           # default
+SMTP_FROM=meals@example.com
+SMTP_USERNAME=...       # if your relay authenticates
+SMTP_PASSWORD=...
+SMTP_START_TLS=true     # default
+PASSWORD_RESET_TTL_MINUTES=30   # default
 ```
 
 ## Repo layout

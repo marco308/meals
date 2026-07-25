@@ -8,6 +8,7 @@ struct LoginView: View {
     @State private var displayName = ""
     @State private var inviteCode = ""
     @State private var isRegistering = false
+    @State private var showForgotPassword = false
     @State private var isWorking = false
     @State private var errorMessage: String?
 
@@ -68,6 +69,11 @@ struct LoginView: View {
                         errorMessage = nil
                     }
                     .font(.callout)
+
+                    if !isRegistering {
+                        Button("Forgot password?") { showForgotPassword = true }
+                            .font(.callout)
+                    }
                 }
 
                 Section("Server") {
@@ -79,6 +85,7 @@ struct LoginView: View {
                 }
             }
             .navigationTitle("Meals")
+            .sheet(isPresented: $showForgotPassword) { ForgotPasswordView(initialEmail: email) }
         }
     }
 

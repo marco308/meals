@@ -207,6 +207,30 @@ extension APIClient {
         try await send("GET", "/auth/me", as: UserProfile.self)
     }
 
+    /// Ask the server to email a reset code. Always succeeds if the server can
+    /// send mail at all — it deliberately doesn't say whether the address has an
+    /// account, so the app must not imply that it does either.
+    func requestPasswordReset(email: String) async throws {
+        try await raw("POST", "/auth/password-reset", json: ["email": email])
+    }
+
+    /// Redeem a reset code. Returns a fresh session, so the user lands logged in.
+    func confirmPasswordReset(code: String, newPassword: String) async throws -> AuthResponse {
+        try await send(
+            "POST", "/auth/password/reset-confirm",
+            json: ["code": code, "new_password": newPassword],
+            as: AuthResponse.self
+        )
+    }
+
+    /// Permanently delete the signed-in account. `household_deleted` reports
+    /// whether the household's shared data went too, which it does when this
+    /// was the last member.
+    @discardableResult
+    func deleteAccount(password: String) async throws -> AccountDeleted {
+        try await send("DELETE", "/auth/me", json: ["password": password], as: AccountDeleted.self)
+    }
+
     func ingredient(id: UUID) async throws -> IngredientInfo {
         try await send("GET", "/ingredients/\(id.uuidString.lowercased())", as: IngredientInfo.self)
     }
