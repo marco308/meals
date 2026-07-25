@@ -1,3 +1,5 @@
+import hashlib
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -76,9 +78,65 @@ class TestSkillPublishing:
         assert "not shipped" in response.json()["detail"]
 
 
+# The playbook's guidance, pinned to the version that announces it. The digest
+# covers both markdown files with every mention of the version number normalised
+# away, so it tracks the guidance alone: editing what the playbook *says* moves
+# the digest and fails the test below until the change is announced with a bump.
+# Without this, guidance can ship under an unchanged number — which is exactly
+# what happened when the premium/budget tools landed on v1: a stale v1 copy
+# compared v1 to v1, found no drift, and never learned the tools existed.
+PINNED_PLAYBOOK_VERSION = 1
+PINNED_PLAYBOOK_DIGEST = "3656f96d6f4f3953ff48d0dfa0c78c5f02de0840c6fc626ab5ee14463a2f1aa3"
+
+_VERSION_STAMP = re.compile(r"<!--\s*playbook-version:\s*\d+\s*-->\n?")
+_VERSION_PROSE = re.compile(r"playbook v\d+", re.IGNORECASE)
+
+
+def playbook_digest() -> str:
+    """sha256 over SKILL.md + prompt-pack.md with the version references neutralised.
+
+    Stripping them keeps the two halves of the pin independent: a pure version
+    bump doesn't perturb the digest, and a guidance edit doesn't hide behind one.
+    """
+    documents = []
+    for filename in ("SKILL.md", "prompt-pack.md"):
+        text = _VERSION_STAMP.sub("", skill_router._load(filename))
+        documents.append(_VERSION_PROSE.sub("playbook vN", text))
+    return hashlib.sha256("\0".join(documents).encode("utf-8")).hexdigest()
+
+
 class TestPlaybookVersion:
     """Installed copies never self-update, so the live surfaces publish the current
     version and the shipped markdown carries the stamp to compare against."""
+
+    def test_guidance_changes_are_announced_by_a_version_bump(self):
+        """A stamp that doesn't move when the guidance does tells a stale copy nothing."""
+        version, digest = skill_router.playbook_version(), playbook_digest()
+        assert (version, digest) == (PINNED_PLAYBOOK_VERSION, PINNED_PLAYBOOK_DIGEST), (
+            "The playbook changed. Assistants hold snapshots that never self-update and "
+            "learn they are stale only from the version number, so announce the change — "
+            f"raise the version above {version} in all four places:\n"
+            "  1. skill/SKILL.md — the <!-- playbook-version: N --> stamp and the 'playbook vN' line\n"
+            "  2. skill/prompt-pack.md — the same two\n"
+            "  3. mcp/meals_mcp/server.py — PLAYBOOK_VERSION\n"
+            "  4. this file — PINNED_PLAYBOOK_VERSION, plus the digest of the new guidance:\n"
+            f'     PINNED_PLAYBOOK_DIGEST = "{digest}"'
+        )
+
+    def test_the_digest_tracks_guidance_not_the_version_number(self, monkeypatch):
+        """Guard the normalisation, so the pin fires on the right event: a bump on its
+        own must not move the digest, and any edit to the guidance must."""
+        baseline = playbook_digest()
+        original = skill_router._load
+
+        def renumbered(filename: str) -> str:
+            return re.sub(r"(?i)(playbook-version:\s*|playbook v)\d+", r"\g<1>99", original(filename))
+
+        monkeypatch.setattr(skill_router, "_load", renumbered)
+        assert playbook_digest() == baseline
+
+        monkeypatch.setattr(skill_router, "_load", lambda filename: original(filename) + "\nBuy the posh oil.\n")
+        assert playbook_digest() != baseline
 
     async def test_both_documents_carry_the_stamp(self, client):
         current = skill_router.playbook_version()

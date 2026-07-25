@@ -29,8 +29,9 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
 # Mirrors the <!-- playbook-version: N --> stamp in skill/SKILL.md (a test fails if
-# they drift). Instructions ship fresh on every connection, so this is the one
-# channel that can tell an assistant its installed skill snapshot has gone stale.
+# they drift, and the backend suite fails if the guidance changes without a bump).
+# Instructions ship fresh on every connection, so this is the one channel that can
+# tell an assistant its installed skill snapshot has gone stale.
 PLAYBOOK_VERSION = 1
 
 mcp = FastMCP(

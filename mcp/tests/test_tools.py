@@ -377,7 +377,8 @@ class TestPlaybookVersion:
         stamped = re.search(r"<!--\s*playbook-version:\s*(\d+)\s*-->", skill.read_text(encoding="utf-8"))
         assert stamped, "SKILL.md lost its playbook-version stamp"
         assert int(stamped.group(1)) == server.PLAYBOOK_VERSION, (
-            "bump PLAYBOOK_VERSION and both skill/*.md stamps together"
+            "bump PLAYBOOK_VERSION, both skill/*.md stamps, and the digest pinned in "
+            "backend/tests/integration/test_misc.py together"
         )
 
     def test_instructions_announce_the_version_and_the_fix(self):
