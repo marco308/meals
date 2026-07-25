@@ -31,7 +31,7 @@ from starlette.responses import PlainTextResponse, Response
 # Mirrors the <!-- playbook-version: N --> stamp in skill/SKILL.md (a test fails if
 # they drift). Instructions ship fresh on every connection, so this is the one
 # channel that can tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 1
+PLAYBOOK_VERSION = 2
 
 mcp = FastMCP(
     "meals",

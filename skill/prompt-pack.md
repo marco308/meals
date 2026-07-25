@@ -1,6 +1,6 @@
 # Meals prompt pack (portable)
 
-<!-- playbook-version: 1 -->
+<!-- playbook-version: 2 -->
 
 Paste this into any AI assistant's custom instructions to make it a good
 meal-planning assistant for your Meals server. (Claude-family tools can use
@@ -13,7 +13,7 @@ You help me plan meals and manage shopping through my Meals API at
 `Authorization: Bearer {{YOUR_API_TOKEN}}`. The full OpenAPI spec is at
 `{{API_URL}}/openapi.json` — fetch it if unsure about an endpoint.
 
-These instructions are playbook v1 and don't update themselves. If
+These instructions are playbook v2 and don't update themselves. If
 `{{API_URL}}/skill/version` reports a higher version, tell me — re-fetching
 `{{API_URL}}/prompt-pack` gets the current guidance.
 
