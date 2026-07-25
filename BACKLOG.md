@@ -7,10 +7,11 @@ tail plus engineering debt worth naming.
 ## Now
 
 - [x] ~~**Deploy to the homelab**~~ — ✅ live at `https://meals.marcuslab.uk` (2026-07-24; `make deploy`, stack in the gitignored local `deploy/`)
-- [x] ~~**Close registration**~~ — ✅ superseded by decision Q19: registering creates a *new* household, so an open `/auth/register` no longer exposes this household's data. **This branch must be deployed for that to be true** — the live instance runs the pre-Q19 code until it is. `REGISTRATION_ENABLED=false` is now optional (it blocks new households but still honours invites)
-- [ ] **Postgres backups** — nightly `pg_dump` from the `meals_db` service onto the swarm manager. Still nothing. Now that the repo is public and other people may self-host, worth writing up rather than just doing
+- [x] ~~**Close registration**~~ — ✅ done twice over: decision Q19 means a registration creates its own household rather than joining this one, and `REGISTRATION_ENABLED=false` is set on the deployment as well, so new households are refused outright. Invite codes are still honoured, which is how the next household member gets in
+- [ ] **Postgres backups** — still no automation. A one-off `pg_dump` was taken before the Q19 deploy (2026-07-25) and sits in `~/backups` on the node running the database, which proves the command works but is not a backup strategy. Wants a nightly job plus a documented restore, and now that other people may self-host it's worth writing up rather than just doing
 - [ ] **Point the iOS app at the domain** — set the server field to `https://meals.marcuslab.uk`, register, re-test offline sync over the real network
-- [ ] **Deploy Q19 and re-invite the household** — after this lands, existing accounts keep the household they're already in (nothing migrates), but the *second* person to join a fresh install now needs an invite. Issue one from `POST /auth/invites`
+- [x] ~~**Deploy Q19**~~ — ✅ deployed 2026-07-25; migration `d9e4b17c3a86` applied, and the existing account kept its household as intended (nothing migrated)
+- [ ] **Onboard the second household member** — needs an invite from `POST /auth/invites`. Note the ordering problem: the invite field only exists in the iOS app from build 14 onwards, so until that reaches TestFlight the second person has to redeem their code through the API once, then log in normally on any build
 
 ## Account lifecycle (prerequisites, not polish)
 
