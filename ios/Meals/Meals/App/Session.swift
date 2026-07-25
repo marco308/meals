@@ -35,6 +35,14 @@ final class Session {
         apply(auth)
     }
 
+    /// Changing the password revokes every session token server-side, so the
+    /// fresh one that comes back replaces what's in the keychain — this device
+    /// stays logged in, others have to sign in again.
+    func changePassword(current: String, new: String) async throws {
+        let auth = try await api.changePassword(currentPassword: current, newPassword: new)
+        apply(auth)
+    }
+
     /// Restore the user profile for an existing keychain token; drops the
     /// session only if the server says the token is bad (not when offline).
     func restore() async {

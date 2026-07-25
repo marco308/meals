@@ -22,7 +22,10 @@ drive it with their own AI assistant. POC implementation of the plan in
   itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
   bring your own.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
-  one household, plus per-user API tokens (PATs) for AI clients.
+  one household, plus per-user API tokens (PATs) for AI clients. Users can
+  change their own password (`POST /auth/password`, or from the app's menu):
+  it revokes every session token and issues a fresh one, so the device doing
+  the change stays logged in and the others don't.
 
 ## Quickstart
 
@@ -126,13 +129,14 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 209 backend tests (98% coverage) + 19 mcp tests — no Docker, no network
+make test      # 216 backend tests (98% coverage) + 19 mcp tests — no Docker, no network
 make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
 The suite covers the unit convention, JSON-LD extraction (incl. `@graph`,
 HowToSections, malformed scripts), ingredient-line parsing, auth + PATs +
-rate limiting, recipe caching semantics, and the full shopping-list engine
+rate limiting, password change + session revocation, recipe caching semantics,
+and the full shopping-list engine
 (merging, provenance, decrement-on-removal, ad-hoc survival, staples,
 check-off/uncheck, archive, resync on meal/recipe edits).
 

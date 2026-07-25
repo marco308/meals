@@ -56,6 +56,84 @@ class TestRegisterAndLogin:
         _attempts.clear()
 
 
+class TestChangePassword:
+    async def test_change_password_switches_credentials(self, client):
+        auth = await register(client)
+        headers = {"Authorization": f"Bearer {auth['token']}"}
+        response = await client.post(
+            "/auth/password",
+            json={"current_password": "a-strong-password", "new_password": "an-even-stronger-password"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["user"]["email"] == "marcus@example.com"
+
+        old = await client.post("/auth/login", json={"email": "marcus@example.com", "password": "a-strong-password"})
+        assert old.status_code == 401
+        new = await client.post(
+            "/auth/login", json={"email": "marcus@example.com", "password": "an-even-stronger-password"}
+        )
+        assert new.status_code == 200
+
+    async def test_returned_token_works_and_old_sessions_are_revoked(self, client):
+        auth = await register(client)
+        other_device = await client.post(
+            "/auth/login", json={"email": "marcus@example.com", "password": "a-strong-password"}
+        )
+        response = await client.post(
+            "/auth/password",
+            json={"current_password": "a-strong-password", "new_password": "an-even-stronger-password"},
+            headers={"Authorization": f"Bearer {auth['token']}"},
+        )
+        fresh = response.json()["token"]
+
+        assert (await client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})).status_code == 200
+        for stale in (auth["token"], other_device.json()["token"]):
+            assert (await client.get("/auth/me", headers={"Authorization": f"Bearer {stale}"})).status_code == 401
+
+    async def test_api_tokens_survive(self, auth_client):
+        """A rotated password shouldn't silently break every AI client."""
+        pat = (await auth_client.post("/auth/tokens", json={"label": "my AI"})).json()["token"]
+        await auth_client.post(
+            "/auth/password",
+            json={"current_password": "a-strong-password", "new_password": "an-even-stronger-password"},
+        )
+        assert (await auth_client.get("/recipes", headers={"Authorization": f"Bearer {pat}"})).status_code == 200
+
+    async def test_wrong_current_password_401_and_no_change(self, auth_client):
+        response = await auth_client.post(
+            "/auth/password",
+            json={"current_password": "not-my-password", "new_password": "an-even-stronger-password"},
+        )
+        assert response.status_code == 401
+        assert "current password" in response.json()["detail"]
+        still_works = await auth_client.post(
+            "/auth/login", json={"email": "marcus@example.com", "password": "a-strong-password"}
+        )
+        assert still_works.status_code == 200
+
+    async def test_reusing_the_same_password_400(self, auth_client):
+        response = await auth_client.post(
+            "/auth/password",
+            json={"current_password": "a-strong-password", "new_password": "a-strong-password"},
+        )
+        assert response.status_code == 400
+
+    async def test_short_new_password_422(self, auth_client):
+        response = await auth_client.post(
+            "/auth/password", json={"current_password": "a-strong-password", "new_password": "short"}
+        )
+        assert response.status_code == 422
+
+    async def test_requires_authentication(self, client):
+        await register(client)
+        response = await client.post(
+            "/auth/password",
+            json={"current_password": "a-strong-password", "new_password": "an-even-stronger-password"},
+        )
+        assert response.status_code == 401
+
+
 class TestAuthGuard:
     async def test_missing_token_401_with_pointer(self, client):
         response = await client.get("/recipes")
