@@ -18,7 +18,10 @@ services:
       retries: 15
 
   api:
-    build: ./backend
+    # Repo-root context so skill/ ships in the image (served at /skill, /prompt-pack)
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://meals:meals@db:5432/meals
       ENVIRONMENT: development

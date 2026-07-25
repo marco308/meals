@@ -18,8 +18,9 @@ drive it with their own AI assistant. POC implementation of the plan in
   item knows which meals need it), exact-unit merging, ad-hoc items, staples
   check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
 - **AI access layer** — the headline: a documented REST API, an MCP server
-  with 16 task-level tools, and a published skill/prompt pack. The app ships
-  **no built-in LLM** — bring your own.
+  with 16 task-level tools, and a skill/prompt pack the server publishes
+  itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
+  bring your own.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
   one household, plus per-user API tokens (PATs) for AI clients.
 
@@ -48,7 +49,7 @@ make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 | [`backend/`](backend/) | FastAPI + async SQLAlchemy + Alembic. Postgres in Docker, SQLite for local/tests |
 | [`ios/`](ios/) | Native SwiftUI iPhone app: plan, recipe library + URL ingest, and an **offline-first shopping list** |
 | [`mcp/`](mcp/) | MCP server wrapping the API with task-level tools (`ingest_recipe`, `get_shopping_list`, `check_off`, …) |
-| [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) |
+| [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) — served live at `/skill` + `/prompt-pack` |
 | [`planning/`](planning/) | Product plan and decisions log this POC implements |
 
 ### iOS app
@@ -97,9 +98,23 @@ which the server doesn't speak yet — see [BACKLOG.md](BACKLOG.md)).
 
 Self-hosting the remote mode: `MEALS_MCP_TRANSPORT=http` serves streamable
 HTTP at `/mcp` on `0.0.0.0:8000` (`make dev` exposes it on
-`http://localhost:8100/mcp`). Non-MCP assistants: paste
-[`skill/prompt-pack.md`](skill/prompt-pack.md) into their instructions — the
-REST API alone is enough.
+`http://localhost:8100/mcp`).
+
+### The skill & prompt pack
+
+The server publishes its own operating manual — grab it from the deployment,
+not a repo checkout, so it always matches the endpoints it describes:
+
+- **<https://meals.marcuslab.uk/skill>** — `SKILL.md`, installable as a
+  Claude-family Agent Skill.
+- **<https://meals.marcuslab.uk/prompt-pack>** — portable instructions for
+  any assistant, served with that deployment's base URL already filled in:
+  paste into custom instructions, add your API token, and the REST API alone
+  is enough (no MCP needed).
+
+Both are unauthenticated, ship inside the backend image, and are advertised
+from the API root (`GET /` returns a JSON landing for non-browser clients).
+The repo copies in [`skill/`](skill/) are the sources.
 
 ### The quantity convention (decision Q2)
 
@@ -111,7 +126,7 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 201 backend tests (98% coverage) + 16 mcp tests — no Docker, no network
+make test      # 209 backend tests (98% coverage) + 19 mcp tests — no Docker, no network
 make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
