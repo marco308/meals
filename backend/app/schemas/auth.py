@@ -15,6 +15,11 @@ class LoginIn(BaseModel):
     password: str
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=72)  # bcrypt operates on the first 72 bytes
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

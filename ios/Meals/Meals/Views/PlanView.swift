@@ -9,6 +9,7 @@ struct PlanView: View {
     @State private var showNewPlan = false
     @State private var showHistory = false
     @State private var showArchiveConfirm = false
+    @State private var showChangePassword = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +43,7 @@ struct PlanView: View {
                             }
                         }
                         Divider()
+                        Button("Change password…", systemImage: "key") { showChangePassword = true }
                         Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
                             session.logOut()
                         }
@@ -53,6 +55,7 @@ struct PlanView: View {
             .sheet(isPresented: $showAddMeal) { AddMealSheet() }
             .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
             .sheet(isPresented: $showHistory) { PastPlansSheet() }
+            .sheet(isPresented: $showChangePassword) { ChangePasswordView() }
             .confirmationDialog(
                 "Archive '\(store.plan?.label ?? "")'? Its meals come off the shopping list; anything added by hand stays.",
                 isPresented: $showArchiveConfirm,

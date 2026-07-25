@@ -26,6 +26,7 @@
 		9570A6AF9CB96D7AB7894058 /* RecipesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB3E84858DE7AF4A674A1FA /* RecipesView.swift */; };
 		A4A491836C1BDFDDD6A6B33B /* plan.json in Resources */ = {isa = PBXBuildFile; fileRef = B9B88F8FC063E246124D6EA3 /* plan.json */; };
 		A97F0D4927A1D18C0172B39F /* PlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 508A6AD1482A364B03642B52 /* PlanView.swift */; };
+		B3FA72CB65C1D2FAAB0D3C92 /* ChangePasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F93C9793423E38D460520F63 /* ChangePasswordView.swift */; };
 		BA0A74697255173765923E51 /* aisles.json in Resources */ = {isa = PBXBuildFile; fileRef = BD2BEC69F167222907AD234D /* aisles.json */; };
 		C3D0639E33EC93FDB10619C9 /* ingredient.json in Resources */ = {isa = PBXBuildFile; fileRef = 62A92E5B709FD4CC91E22138 /* ingredient.json */; };
 		CF57C60353F0389D6450EAFB /* NewMealView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA23C9A26AF05C8A57B8615B /* NewMealView.swift */; };
@@ -74,6 +75,7 @@
 		D1AC43C84338A492F52D61E6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D794A2CBEB5E171DE8360CE0 /* Meals.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Meals.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F3C5D33E6010EF40C8FD6D70 /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		F93C9793423E38D460520F63 /* ChangePasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangePasswordView.swift; sourceTree = "<group>"; };
 		FAE55DDAC07906AA53CD27FA /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -162,6 +164,7 @@
 		CA390BBB959139731E839E35 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F93C9793423E38D460520F63 /* ChangePasswordView.swift */,
 				4F6D79B7EB6A841D8F713F5B /* IngredientEditorView.swift */,
 				FAE55DDAC07906AA53CD27FA /* LoginView.swift */,
 				AC170AD6BFF1EFA5014D9508 /* MealDetailView.swift */,
@@ -291,6 +294,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				475C3F03F4D79C506CB60EDE /* APIClient.swift in Sources */,
+				B3FA72CB65C1D2FAAB0D3C92 /* ChangePasswordView.swift in Sources */,
 				3EE517289ABBACA40AC6115A /* IngredientEditorView.swift in Sources */,
 				48A1C5E3B7FDEC1F529CC2D2 /* KeychainStore.swift in Sources */,
 				E6FAC2023D7C9105BBDEFE90 /* LoginView.swift in Sources */,

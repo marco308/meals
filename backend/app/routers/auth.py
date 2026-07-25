@@ -2,12 +2,21 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.config import get_settings
 from app.deps import CurrentUser, DbSession, auth_rate_limit
 from app.models import AuthToken, Household, User
-from app.schemas.auth import AuthOut, LoginIn, RegisterIn, TokenCreatedOut, TokenCreateIn, TokenOut, UserOut
+from app.schemas.auth import (
+    AuthOut,
+    LoginIn,
+    PasswordChangeIn,
+    RegisterIn,
+    TokenCreatedOut,
+    TokenCreateIn,
+    TokenOut,
+    UserOut,
+)
 from app.services.security import generate_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -60,6 +69,31 @@ async def login(payload: LoginIn, db: DbSession, _: None = Depends(auth_rate_lim
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="incorrect email or password")
+    token = _session_token(user)
+    db.add(token)
+    await db.commit()
+    return AuthOut(token=token.plain, user=UserOut.model_validate(user))
+
+
+@router.post("/password", response_model=AuthOut)
+async def change_password(
+    payload: PasswordChangeIn, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> AuthOut:
+    """Change the signed-in user's password. Knowing the current password is
+    required, so this is also the brute-force surface — hence the rate limit.
+
+    Every existing session token is revoked (a password change should evict
+    anyone still holding one) and a fresh one is returned, so the caller stays
+    logged in while other devices have to sign in again. Personal API tokens
+    are separate credentials and deliberately survive: rotating a password
+    shouldn't silently break every AI client. Revoke those via
+    DELETE /auth/tokens/{id}."""
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="new password must be different from the current one")
+    user.password_hash = hash_password(payload.new_password)
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "session"))
     token = _session_token(user)
     db.add(token)
     await db.commit()
