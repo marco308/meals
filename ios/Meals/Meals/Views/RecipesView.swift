@@ -5,6 +5,8 @@ struct RecipesView: View {
     @Environment(PlanStore.self) private var planStore
     @State private var search = ""
     @State private var showIngest = false
+    @State private var pendingDelete: RecipeSummary?
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationStack {
@@ -12,6 +14,15 @@ struct RecipesView: View {
                 ForEach(store.recipes) { recipe in
                     NavigationLink(value: recipe.id) {
                         RecipeRow(recipe: recipe)
+                    }
+                    // No full swipe: deleting a recipe can't be undone, so it
+                    // always goes through the confirmation.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            pendingDelete = recipe
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
                 if store.recipes.isEmpty && !store.isLoading {
@@ -32,6 +43,17 @@ struct RecipesView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Sort", selection: sortBinding) {
+                            ForEach(RecipeSort.allCases, id: \.self) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showIngest = true
                     } label: {
@@ -40,9 +62,38 @@ struct RecipesView: View {
                 }
             }
             .sheet(isPresented: $showIngest) { IngestSheet() }
+            .confirmationDialog(
+                "Delete '\(pendingDelete?.title ?? "")'? This can't be undone.",
+                isPresented: .init(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete recipe", role: .destructive) {
+                    guard let recipe = pendingDelete else { return }
+                    pendingDelete = nil
+                    Task { deleteError = await store.delete(id: recipe.id) }
+                }
+            }
+            .alert(
+                "Couldn't delete",
+                isPresented: .init(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+            ) {
+                Button("OK") { deleteError = nil }
+            } message: {
+                Text(deleteError ?? "")
+            }
             .task { await store.refresh() }
             .refreshable { await store.refresh(search: search.isEmpty ? nil : search) }
         }
+    }
+
+    private var sortBinding: Binding<RecipeSort> {
+        Binding(
+            get: { store.sort },
+            set: { option in
+                store.sort = option
+                Task { await store.refresh(search: search.isEmpty ? nil : search) }
+            }
+        )
     }
 }
 
@@ -68,6 +119,11 @@ struct RecipeRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if let cooked = recipe.cookedSummary {
+                Text(cooked)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -84,6 +140,8 @@ struct RecipeDetailView: View {
     @State private var errorMessage: String?
     @State private var addedMealName: String?
     @State private var reloadKey = 0
+    @State private var showDeleteConfirm = false
+    @State private var deleteError: String?
 
     var body: some View {
         Group {
@@ -123,6 +181,12 @@ struct RecipeDetailView: View {
                 if let cook = recipe.cookMinutes {
                     LabeledContent("Cook", value: "\(cook) min")
                 }
+                if let times = recipe.timesCooked {
+                    LabeledContent("Cooked", value: times == 0 ? "never" : "\(times)×")
+                }
+                if let last = CookedHistory.monthLabel(recipe.lastCookedAt) {
+                    LabeledContent("Last cooked", value: last)
+                }
                 if let source = recipe.sourceUrl, let url = URL(string: source) {
                     Link(destination: url) {
                         Label("Open original recipe", systemImage: "safari")
@@ -132,23 +196,12 @@ struct RecipeDetailView: View {
 
             Section {
                 ForEach(recipe.ingredients) { line in
-                    NavigationLink {
-                        IngredientEditorView(ingredientId: line.ingredientId) { reloadKey += 1 }
-                    } label: {
-                        HStack {
-                            Text(line.aisle)
-                            Text(line.name)
-                            Spacer()
-                            Text(line.display)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
+                    IngredientLineRow(line: line) { reloadKey += 1 }
                 }
             } header: {
                 Text("Ingredients")
             } footer: {
-                Text("Tap an ingredient to set its aisle or staple flag.")
+                Text("Tap an ingredient to set its aisle or staple flag. \(Image(systemName: "cabinet")) marks a staple — it stays off the shopping list until the staples check.")
             }
 
             if let instructions = recipe.instructions, !instructions.isEmpty {
@@ -199,10 +252,48 @@ struct RecipeDetailView: View {
         }
         .navigationTitle(recipe.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Only outside the plan: from a plan meal the destructive action
+            // that makes sense is "remove from plan", already in the list.
+            if planContext == nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Delete recipe", systemImage: "trash", role: .destructive) {
+                            showDeleteConfirm = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
         .alert("Added to plan", isPresented: .init(get: { addedMealName != nil }, set: { if !$0 { addedMealName = nil } })) {
             Button("OK") { addedMealName = nil }
         } message: {
             Text("\(addedMealName ?? "") is on the plan and its ingredients are on the shopping list.")
+        }
+        .confirmationDialog(
+            "Delete '\(recipe.title)'? This can't be undone.",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete recipe", role: .destructive) {
+                Task {
+                    if let problem = await store.delete(id: recipe.id) {
+                        deleteError = problem
+                    } else {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .alert(
+            "Couldn't delete",
+            isPresented: .init(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+        ) {
+            Button("OK") { deleteError = nil }
+        } message: {
+            Text(deleteError ?? "")
         }
     }
 }

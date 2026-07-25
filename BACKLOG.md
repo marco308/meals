@@ -14,7 +14,7 @@ tail plus engineering debt worth naming.
 ## Next (product tail from the plan)
 
 - [ ] **Cooked → release ingredients** (F2 nice-to-have): marking a meal cooked optionally checks off / removes its outstanding list items
-- [ ] **Un-cook** — no way to undo a mistaken "cooked" today (v1 accepted this; it already bit us once)
+- [ ] **Un-cook** — no way to undo a mistaken "cooked" today (v1 accepted this; it already bit us once). Now also wrong in the cooked history: a mis-tap permanently inflates `times_cooked`. The fix is to delete the `cooked_events` rows for that plan-meal and re-derive the counters (`app/services/cooking.py` already recomputes rather than increments)
 - [ ] **Servings scaling** — scale a recipe's quantities when adding to a meal ("×2 for batch cooking"); skill/prompt pack tells AIs to confirm scaling, the API has no first-class support
 - [ ] **Archived shopping lists in iOS** — API has `GET /shopping-list/archived`; no screen for "what did we buy last week"
 - [ ] **Re-parse endpoint** — refresh a cached recipe from its URL on demand (edits win; needs an explicit force flag)
@@ -26,7 +26,7 @@ tail plus engineering debt worth naming.
 
 - [ ] **F5 supermarket integration** — per-ingredient `(supermarket, product_url)` pairs for Sainsbury's / Ocado / M&S (Q6); enables the "do the Ocado shop" AI flow (use case 6)
 - [ ] **Multi-household tenancy** — the freemium split; household is already modelled, so this is auth + scoping work, not a data-model rewrite
-- [ ] **Cooked-meal analytics** — "what do we actually eat"; `cooked_at` is already stored
+- [ ] **Cooked-meal analytics** — "what do we actually eat"; the `cooked_events` log and `times_cooked` / `last_cooked_at` counters landed with issue #13, so what's left is the reporting on top (per-month breakdowns, "you always cook this on the week you shop late", etc.)
 - [ ] **Notifications / sharing / collaborative lists**
 - [ ] **Imports** (Paprika, Mealie, Tandoor)
 

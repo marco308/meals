@@ -52,6 +52,8 @@ def recipe_out(recipe: Recipe) -> RecipeOut:
         edited=recipe.edited,
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
+        times_cooked=recipe.times_cooked,
+        last_cooked_at=recipe.last_cooked_at,
         ingredients=[
             _line_out(link.ingredient, link.quantity, link.unit, link.raw_text) for link in recipe.ingredient_links
         ],
@@ -67,6 +69,8 @@ def recipe_summary(recipe: Recipe) -> RecipeSummary:
         prep_minutes=recipe.prep_minutes,
         cook_minutes=recipe.cook_minutes,
         tags=list(recipe.tags or []),
+        times_cooked=recipe.times_cooked,
+        last_cooked_at=recipe.last_cooked_at,
     )
 
 
@@ -80,6 +84,8 @@ def meal_out(meal: Meal) -> MealOut:
             _line_out(link.ingredient, link.quantity, link.unit, None) for link in meal.ingredient_links
         ],
         created_at=meal.created_at,
+        times_cooked=meal.times_cooked,
+        last_cooked_at=meal.last_cooked_at,
     )
 
 

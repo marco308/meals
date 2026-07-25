@@ -187,6 +187,160 @@ class TestRecipes:
         assert json.loads(route.calls.last.request.content)["parse_source"] == "ai"
 
 
+def _library_recipe(id: str, title: str, **extra) -> dict:
+    return {"id": id, "title": title, "servings": None, "times_cooked": 0, "last_cooked_at": None, **extra}
+
+
+class TestRecipeUsage:
+    @respx.mock
+    async def test_list_shows_cooked_counts_and_passes_sort_through(self):
+        route = respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    _library_recipe("r1", "Chilli", times_cooked=3, last_cooked_at="2026-07-19T18:00:00Z"),
+                    _library_recipe("r2", "Beef wellington"),
+                ],
+            )
+        )
+        result = await server.list_recipes(sort="most_cooked")
+        assert "cooked 3× (last 2026-07-19)" in result
+        assert "never cooked" in result
+        assert route.calls.last.request.url.params["sort"] == "most_cooked"
+
+    @respx.mock
+    async def test_delete_recipe_resolves_by_title(self):
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
+        )
+        route = respx.delete(f"{API}/recipes/r1").mock(return_value=httpx.Response(204))
+        result = await server.delete_recipe("garlic bread")
+        assert "Deleted 'Garlic bread'" in result
+        assert route.called
+
+    @respx.mock
+    async def test_delete_recipe_in_use_passes_the_409_back(self):
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
+        )
+        respx.delete(f"{API}/recipes/r1").mock(
+            return_value=httpx.Response(409, json={"detail": "recipe is used by one or more meals; remove it first"})
+        )
+        result = await server.delete_recipe("Garlic bread")
+        assert "used by one or more meals" in result
+
+    @respx.mock
+    async def test_delete_recipe_unknown_lists_the_library(self):
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Garlic bread")])
+        )
+        result = await server.delete_recipe("tiramisu")
+        assert "No recipe matching 'tiramisu'" in result
+        assert "Garlic bread" in result
+
+
+class TestMealEditing:
+    MEALS = [
+        {
+            "id": "m1",
+            "name": "Cottage pie",
+            "slot": "dinner",
+            "recipes": [{"id": "r1", "title": "Cottage pie"}],
+            "loose_ingredients": [{"name": "frozen peas", "quantity": 200, "unit": "g"}],
+            "times_cooked": 0,
+            "last_cooked_at": None,
+        }
+    ]
+
+    def _mock_meal_library(self):
+        respx.get(f"{API}/meals").mock(return_value=httpx.Response(200, json=self.MEALS))
+
+    @respx.mock
+    async def test_add_recipe_by_title_keeps_existing_composition(self):
+        import json
+
+        self._mock_meal_library()
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(
+                200, json=[_library_recipe("r1", "Cottage pie"), _library_recipe("r2", "Garlic bread")]
+            )
+        )
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "m1",
+                    "name": "Cottage pie",
+                    "slot": "dinner",
+                    "recipes": [{"title": "Cottage pie"}, {"title": "Garlic bread"}],
+                    "loose_ingredients": [{"name": "frozen peas"}],
+                },
+            )
+        )
+        result = await server.update_meal("cottage pie", add_recipes=["garlic bread"])
+        assert json.loads(route.calls.last.request.content)["recipe_ids"] == ["r1", "r2"]
+        assert "Garlic bread" in result and "re-synced" in result
+
+    @respx.mock
+    async def test_remove_loose_ingredient_by_name(self):
+        import json
+
+        self._mock_meal_library()
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "m1", "name": "Cottage pie", "slot": "dinner", "recipes": [], "loose_ingredients": []},
+            )
+        )
+        result = await server.update_meal("Cottage pie", remove_loose_ingredients=["Frozen peas"])
+        assert json.loads(route.calls.last.request.content)["loose_ingredients"] == []
+        assert "no sides" in result
+
+    @respx.mock
+    async def test_rename_and_reslot_only_sends_those_fields(self):
+        import json
+
+        self._mock_meal_library()
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "m1",
+                    "name": "Cottage pie with peas",
+                    "slot": "lunch",
+                    "recipes": [],
+                    "loose_ingredients": [],
+                },
+            )
+        )
+        await server.update_meal("Cottage pie", new_name="Cottage pie with peas", slot="lunch")
+        body = json.loads(route.calls.last.request.content)
+        assert body == {"name": "Cottage pie with peas", "slot": "lunch"}
+
+    @respx.mock
+    async def test_no_changes_is_explained_not_sent(self):
+        self._mock_meal_library()
+        patch = respx.patch(f"{API}/meals/m1")
+        result = await server.update_meal("Cottage pie")
+        assert "Nothing to change" in result
+        assert not patch.called
+
+    @respx.mock
+    async def test_unknown_meal_lists_the_library(self):
+        self._mock_meal_library()
+        result = await server.update_meal("lasagne", new_name="x")
+        assert "No meal matching 'lasagne'" in result
+        assert "Cottage pie" in result
+
+    @respx.mock
+    async def test_delete_meal(self):
+        self._mock_meal_library()
+        route = respx.delete(f"{API}/meals/m1").mock(return_value=httpx.Response(204))
+        result = await server.delete_meal("cottage pie")
+        assert "Deleted 'Cottage pie'" in result
+        assert route.called
+
+
 class TestPlan:
     @respx.mock
     async def test_get_plan_groups_by_slot(self):

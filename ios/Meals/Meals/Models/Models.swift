@@ -23,10 +23,40 @@ struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     let prepMinutes: Int?
     let cookMinutes: Int?
     let tags: [String]
+    // Optional so the app still decodes against a backend that predates the
+    // cooked-history fields.
+    var timesCooked: Int? = nil
+    var lastCookedAt: String? = nil
 
     var totalMinutes: Int? {
         let total = (prepMinutes ?? 0) + (cookMinutes ?? 0)
         return total > 0 ? total : nil
+    }
+
+    var cookedSummary: String? { CookedHistory.summary(times: timesCooked, lastCookedAt: lastCookedAt) }
+}
+
+/// "cooked 12×" / "last cooked in May" — the phrasing for a recipe's or meal's
+/// usage count (issue #13). Never says "never cooked": a library full of
+/// zeroes shouldn't nag.
+enum CookedHistory {
+    static func summary(times: Int?, lastCookedAt: String?) -> String? {
+        guard let times, times > 0 else { return nil }
+        let count = "cooked \(times)×"
+        guard let month = monthLabel(lastCookedAt) else { return count }
+        return "\(count) · last \(month)"
+    }
+
+    /// Timestamps stay strings app-wide (see the note above), so this reads the
+    /// ISO-8601 prefix rather than round-tripping through a formatter.
+    static func monthLabel(_ timestamp: String?) -> String? {
+        guard let timestamp, timestamp.count >= 7 else { return nil }
+        let parts = timestamp.prefix(7).split(separator: "-")
+        guard parts.count == 2, let year = Int(parts[0]), let month = Int(parts[1]), (1...12).contains(month) else {
+            return nil
+        }
+        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return "\(names[month - 1]) \(year)"
     }
 }
 
@@ -56,6 +86,10 @@ struct Recipe: Codable, Identifiable, Equatable, Sendable {
     let parseSource: String
     let edited: Bool
     let ingredients: [RecipeLine]
+    var timesCooked: Int? = nil
+    var lastCookedAt: String? = nil
+
+    var cookedSummary: String? { CookedHistory.summary(times: timesCooked, lastCookedAt: lastCookedAt) }
 }
 
 struct IngestResponse: Codable, Sendable {
@@ -69,6 +103,10 @@ struct Meal: Codable, Identifiable, Equatable, Sendable {
     let slot: String?
     let recipes: [RecipeSummary]
     let looseIngredients: [RecipeLine]
+    var timesCooked: Int? = nil
+    var lastCookedAt: String? = nil
+
+    var cookedSummary: String? { CookedHistory.summary(times: timesCooked, lastCookedAt: lastCookedAt) }
 }
 
 struct PlanMeal: Codable, Identifiable, Equatable, Sendable {

@@ -377,6 +377,49 @@ class TestResync:
         assert item_by_name(shopping, "frozen peas") is None
         assert item_by_name(shopping, "green beans")["quantity"] == 150
 
+    async def test_unrelated_edit_keeps_checked_items_checked(self, auth_client, planned_week):
+        """Editing a meal (issue #16) re-syncs by replacing its contributions.
+        Lines whose need didn't change must keep the state the shopper gave
+        them — un-ticking mince already in the trolley because garlic bread was
+        added is the bug this guards."""
+        shopping = await get_list(auth_client)
+        beef = item_by_name(shopping, "minced beef")
+        potato = item_by_name(shopping, "potato")
+        await auth_client.patch(f"/shopping-list/items/{beef['id']}", json={"checked": True})
+        await auth_client.patch(f"/shopping-list/items/{potato['id']}", json={"excluded": True})
+
+        bread = await create_recipe(
+            auth_client, title="Garlic bread", ingredients=[{"name": "bread", "quantity": 1, "unit": "loaf"}]
+        )
+        meal_id = planned_week["cottage_meal"]["id"]
+        current = (await auth_client.get(f"/meals/{meal_id}")).json()
+        response = await auth_client.patch(
+            f"/meals/{meal_id}",
+            json={"recipe_ids": [r["id"] for r in current["recipes"]] + [bread["id"]]},
+        )
+        assert response.status_code == 200
+
+        after = await get_list(auth_client, include_excluded="true")
+        assert item_by_name(after, "minced beef")["checked"] is True
+        assert item_by_name(after, "potato")["excluded"] is True
+        assert item_by_name(after, "bread")["checked"] is False  # the genuinely new need
+
+    async def test_changed_quantity_resurfaces_a_checked_item(self, auth_client, planned_week):
+        """The flip side: a *different* need is worth showing again."""
+        shopping = await get_list(auth_client)
+        peas = item_by_name(shopping, "frozen peas")
+        await auth_client.patch(f"/shopping-list/items/{peas['id']}", json={"checked": True})
+
+        meal_id = planned_week["cottage_meal"]["id"]
+        response = await auth_client.patch(
+            f"/meals/{meal_id}",
+            json={"loose_ingredients": [{"name": "frozen peas", "quantity": 500, "unit": "g"}]},
+        )
+        assert response.status_code == 200
+        after = await get_list(auth_client)
+        assert item_by_name(after, "frozen peas")["quantity"] == 500
+        assert item_by_name(after, "frozen peas")["checked"] is False
+
     async def test_recipe_edit_resyncs_active_list(self, auth_client, planned_week):
         """Correcting a recipe (500 g → 750 g mince) flows through to the list."""
         recipe_id = planned_week["spag_recipe"]["id"]

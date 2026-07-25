@@ -28,6 +28,8 @@ class MealOut(BaseModel):
     recipes: list[RecipeSummary]
     loose_ingredients: list[RecipeLineOut]
     created_at: datetime
+    times_cooked: int
+    last_cooked_at: datetime | None
 
 
 class MealSummary(BaseModel):

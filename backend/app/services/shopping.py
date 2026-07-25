@@ -151,10 +151,39 @@ async def archive_and_replace(db: AsyncSession, shopping_list: ShoppingList) -> 
     return fresh
 
 
+ItemState = tuple[bool, bool, bool]  # checked, excluded, staple_needed
+
+
+async def _contribution_state(
+    db: AsyncSession, shopping_list: ShoppingList, plan_meal_id: uuid.UUID
+) -> dict[tuple[uuid.UUID, str | None], tuple[float | None, ItemState]]:
+    """What this plan-meal contributes right now, and the shopping state of the
+    lines it lands on: `(ingredient, unit) -> (quantity from this meal, flags)`."""
+    result = await db.execute(
+        select(ListItem, ListItemSource)
+        .join(ListItemSource, ListItemSource.item_id == ListItem.id)
+        .where(ListItem.list_id == shopping_list.id, ListItemSource.plan_meal_id == plan_meal_id)
+        .execution_options(populate_existing=True)
+    )
+    state: dict[tuple[uuid.UUID, str | None], tuple[float | None, ItemState]] = {}
+    for item, source in result.all():
+        key = (item.ingredient_id, item.unit)
+        total, _ = state.get(key, (None, None))  # type: ignore[assignment]
+        if source.quantity is not None:
+            total = (total or 0) + source.quantity
+        state[key] = (total, (item.checked, item.excluded, item.staple_needed))
+    return state
+
+
 async def resync_meal_contributions(db: AsyncSession, household_id: uuid.UUID, meal: Meal) -> None:
-    """After a meal's (or one of its recipes') composition changes, replace
-    its contributions on the active list for every active plan it is in.
-    Re-added lines come back unchecked."""
+    """After a meal's (or one of its recipes') composition changes, replace its
+    contributions on the active list for every active plan it is in.
+
+    A line whose need is unchanged keeps the shopping state it already had:
+    editing a meal to add garlic bread must not quietly un-tick the mince you
+    already put in the trolley. Genuinely changed lines (new ingredient, or a
+    different quantity of the same one) come back unchecked, which is the point
+    of re-surfacing them."""
     from app.models import Plan
 
     active_list = await get_active_list(db, household_id)
@@ -164,8 +193,18 @@ async def resync_meal_contributions(db: AsyncSession, household_id: uuid.UUID, m
         .where(PlanMeal.meal_id == meal.id, Plan.status == "active", Plan.household_id == household_id)
     )
     for plan_meal in result.scalars().all():
+        before = await _contribution_state(db, active_list, plan_meal.id)
         await remove_meal_contributions(db, active_list, plan_meal.id)
         await add_meal_contributions(db, active_list, plan_meal, meal)
+        after = await _contribution_state(db, active_list, plan_meal.id)
+        for key, (quantity, _) in after.items():
+            previous = before.get(key)
+            if previous is None or previous[0] != quantity:
+                continue
+            item = await _find_item(db, active_list.id, key[0], key[1])
+            if item is not None:
+                item.checked, item.excluded, item.staple_needed = previous[1]
+        await db.flush()
 
 
 async def get_list_full(db: AsyncSession, list_id: uuid.UUID) -> ShoppingList:

@@ -100,6 +100,15 @@ def _fmt_qty(item: dict) -> str:
     return f" — {display}" if display else ""
 
 
+def _fmt_cooked(entity: dict) -> str:
+    """'cooked 3×' — the answer to 'what do we actually eat' (issue #13)."""
+    count = entity.get("times_cooked") or 0
+    if not count:
+        return ", never cooked"
+    last = (entity.get("last_cooked_at") or "")[:10]
+    return f", cooked {count}×" + (f" (last {last})" if last else "")
+
+
 def _fmt_recipe_summary(recipe: dict) -> str:
     time_bits = []
     if recipe.get("prep_minutes"):
@@ -108,7 +117,38 @@ def _fmt_recipe_summary(recipe: dict) -> str:
         time_bits.append(f"cook {recipe['cook_minutes']}m")
     times = f" ({', '.join(time_bits)})" if time_bits else ""
     servings = f", serves {recipe['servings']}" if recipe.get("servings") else ""
-    return f"{recipe['title']}{times}{servings} [id: {recipe['id']}]"
+    return f"{recipe['title']}{times}{servings}{_fmt_cooked(recipe)} [id: {recipe['id']}]"
+
+
+async def _find_meal(name: str) -> dict:
+    """Resolve a meal by name across the whole library — a meal worth editing
+    isn't necessarily on the current plan."""
+    meals = await _call("GET", "/meals")
+    wanted = name.lower().strip()
+    exact = [m for m in meals if m["name"].lower() == wanted]
+    partial = [m for m in meals if wanted in m["name"].lower()]
+    match = exact or partial
+    if not match:
+        known = ", ".join(m["name"] for m in meals) or "(no meals yet)"
+        raise ApiError(f"No meal matching '{name}'. Meals: {known}")
+    return match[0]
+
+
+async def _resolve_recipes(terms: list[str]) -> list[dict]:
+    """Accept recipe ids or titles — an assistant saying 'add garlic bread'
+    shouldn't have to look the id up first."""
+    library = await _call("GET", "/recipes")
+    resolved = []
+    for term in terms:
+        wanted = term.lower().strip()
+        match = [r for r in library if r["id"] == term]
+        match = match or [r for r in library if r["title"].lower() == wanted]
+        match = match or [r for r in library if wanted in r["title"].lower()]
+        if not match:
+            known = ", ".join(r["title"] for r in library) or "(library is empty)"
+            raise ApiError(f"No recipe matching '{term}'. Library: {known}")
+        resolved.append(match[0])
+    return resolved
 
 
 # ---------------------------------------------------------------- recipes
@@ -163,10 +203,21 @@ async def submit_recipe(
 
 
 @mcp.tool()
-async def list_recipes(search: str | None = None, tag: str | None = None, max_total_minutes: int | None = None) -> str:
+async def list_recipes(
+    search: str | None = None,
+    tag: str | None = None,
+    max_total_minutes: int | None = None,
+    sort: str = "title",
+) -> str:
     """Browse the recipe library, optionally filtered by title text, tag, or
-    total time ('what can I cook in 30 minutes?')."""
-    params = {k: v for k, v in {"search": search, "tag": tag, "max_total_minutes": max_total_minutes}.items() if v}
+    total time ('what can I cook in 30 minutes?'). sort: 'title' (default),
+    'most_cooked' for the household's regulars, or 'least_recently_cooked' for
+    'what haven't we had in ages' (never-cooked recipes come first)."""
+    params = {
+        k: v
+        for k, v in {"search": search, "tag": tag, "max_total_minutes": max_total_minutes, "sort": sort}.items()
+        if v
+    }
     try:
         recipes = await _call("GET", "/recipes", params=params)
     except ApiError as exc:
@@ -174,6 +225,19 @@ async def list_recipes(search: str | None = None, tag: str | None = None, max_to
     if not recipes:
         return "No recipes found. Ingest one with ingest_recipe(url) or save one with submit_recipe."
     return "\n".join(f"- {_fmt_recipe_summary(recipe)}" for recipe in recipes)
+
+
+@mcp.tool()
+async def delete_recipe(title: str) -> str:
+    """Delete a recipe from the library by title (a bad parse, a duplicate,
+    something nobody liked). Refused while a meal still uses the recipe —
+    detach it with update_meal(remove_recipes=[...]) first."""
+    try:
+        recipe = (await _resolve_recipes([title]))[0]
+        await _call("DELETE", f"/recipes/{recipe['id']}")
+    except ApiError as exc:
+        return str(exc)
+    return f"Deleted '{recipe['title']}' from the library."
 
 
 # ---------------------------------------------------------------- meals & plan
@@ -200,6 +264,79 @@ async def create_meal(
     except ApiError as exc:
         return str(exc)
     return f"Meal created: {meal['name']} ({meal['slot'] or 'no slot'}) [id: {meal['id']}]"
+
+
+@mcp.tool()
+async def update_meal(
+    meal_name: str,
+    new_name: str | None = None,
+    slot: str | None = None,
+    add_recipes: list[str] | None = None,
+    remove_recipes: list[str] | None = None,
+    add_loose_ingredients: list[dict] | None = None,
+    remove_loose_ingredients: list[str] | None = None,
+) -> str:
+    """Change an existing meal: rename it, move it to another slot, or add and
+    remove recipes and loose sides ('add garlic bread to the cottage pie',
+    'nobody eats the peas'). Recipes can be named or given by id. If the meal
+    is on the active plan the shopping list follows the change — added
+    ingredients appear, removed ones come off."""
+    try:
+        meal = await _find_meal(meal_name)
+        payload: dict[str, Any] = {}
+        if new_name:
+            payload["name"] = new_name
+        if slot:
+            payload["slot"] = slot
+
+        if add_recipes or remove_recipes:
+            recipe_ids = [r["id"] for r in meal["recipes"]]
+            for recipe in await _resolve_recipes(add_recipes or []):
+                if recipe["id"] not in recipe_ids:
+                    recipe_ids.append(recipe["id"])
+            for recipe in await _resolve_recipes(remove_recipes or []):
+                if recipe["id"] in recipe_ids:
+                    recipe_ids.remove(recipe["id"])
+            payload["recipe_ids"] = recipe_ids
+
+        if add_loose_ingredients or remove_loose_ingredients:
+            # PATCH replaces the whole list, so rebuild it from what's there.
+            lines = [
+                {"name": line["name"], "quantity": line.get("quantity"), "unit": line.get("unit")}
+                for line in meal["loose_ingredients"]
+            ]
+            dropped = {name.lower().strip() for name in (remove_loose_ingredients or [])}
+            lines = [line for line in lines if line["name"].lower() not in dropped]
+            lines.extend(add_loose_ingredients or [])
+            payload["loose_ingredients"] = lines
+
+        if not payload:
+            return (
+                f"Nothing to change on '{meal['name']}'. Pass new_name, slot, add_recipes, "
+                "remove_recipes, add_loose_ingredients, or remove_loose_ingredients."
+            )
+        updated = await _call("PATCH", f"/meals/{meal['id']}", json=payload)
+    except ApiError as exc:
+        return str(exc)
+    recipes = ", ".join(r["title"] for r in updated["recipes"]) or "no recipes"
+    sides = ", ".join(line["name"] for line in updated["loose_ingredients"]) or "no sides"
+    return (
+        f"Updated '{updated['name']}' ({updated['slot'] or 'no slot'}): {recipes}; on the side: {sides}. "
+        "The shopping list has been re-synced."
+    )
+
+
+@mcp.tool()
+async def delete_meal(meal_name: str) -> str:
+    """Delete a meal from the library entirely. It comes off any active plan
+    first and its shopping-list contributions are removed. The cooked history
+    is kept — 'how often did we make this' survives the delete."""
+    try:
+        meal = await _find_meal(meal_name)
+        await _call("DELETE", f"/meals/{meal['id']}")
+    except ApiError as exc:
+        return str(exc)
+    return f"Deleted '{meal['name']}'. Any plan and shopping-list entries were cleaned up."
 
 
 @mcp.tool()

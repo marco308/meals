@@ -111,6 +111,45 @@ final class PlanStore {
             return nil
         }
     }
+
+    /// Edit a meal in place (issue #16). The plan is re-fetched so the caller
+    /// sees the new composition; the shopping list is re-synced server-side and
+    /// the caller refreshes its store — the recalculated list is the point.
+    func updateMeal(
+        _ meal: Meal,
+        name: String? = nil,
+        slot: String? = nil,
+        recipeIds: [UUID]? = nil,
+        looseIngredients: [LooseLine]? = nil
+    ) async -> Meal? {
+        do {
+            let updated = try await api().updateMeal(
+                id: meal.id, name: name, slot: slot, recipeIds: recipeIds, looseIngredients: looseIngredients
+            )
+            if let index = mealLibrary.firstIndex(where: { $0.id == updated.id }) {
+                mealLibrary[index] = updated
+            }
+            await refresh()
+            return updated
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Delete a meal outright. The API takes it off any active plan and off the
+    /// shopping list first; the cooked history survives.
+    func deleteMeal(_ meal: Meal) async -> Bool {
+        do {
+            try await api().deleteMeal(id: meal.id)
+            mealLibrary.removeAll { $0.id == meal.id }
+            await refresh()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
 }
 
 @MainActor
@@ -119,6 +158,7 @@ final class RecipeStore {
     private(set) var recipes: [RecipeSummary] = []
     private(set) var isLoading = false
     var errorMessage: String?
+    var sort: RecipeSort = .title
 
     private let api: () -> APIClient
 
@@ -130,10 +170,41 @@ final class RecipeStore {
         isLoading = recipes.isEmpty
         defer { isLoading = false }
         do {
-            recipes = try await api().recipes(search: search)
+            recipes = try await api().recipes(search: search, sort: sort)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Delete a recipe from the library (issue #14). Returns nil on success or
+    /// a message to show: a 409 means meals still use it, and the user needs to
+    /// know *which* ones, not just that some exist. The row disappears
+    /// immediately and comes back if the server refuses.
+    func delete(id: UUID) async -> String? {
+        let snapshot = recipes
+        recipes.removeAll { $0.id == id }
+        do {
+            try await api().deleteRecipe(id: id)
+            return nil
+        } catch APIError.server(409, let detail) {
+            recipes = snapshot
+            return await inUseMessage(recipeId: id) ?? detail
+        } catch {
+            recipes = snapshot
+            return error.localizedDescription
+        }
+    }
+
+    /// Names the meals blocking a delete. Best-effort: if the lookup itself
+    /// fails the caller falls back to the API's own wording.
+    private func inUseMessage(recipeId: UUID) async -> String? {
+        guard let meals = try? await api().meals() else { return nil }
+        let users = meals.filter { $0.recipes.contains { $0.id == recipeId } }.map(\.name)
+        guard !users.isEmpty else { return nil }
+        let list = users.joined(separator: ", ")
+        return users.count == 1
+            ? "'\(list)' still uses this recipe. Remove it from that meal first, then delete the recipe."
+            : "These meals still use this recipe: \(list). Remove it from them first, then delete the recipe."
     }
 
     func detail(id: UUID) async throws -> Recipe {

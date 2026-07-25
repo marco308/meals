@@ -77,6 +77,8 @@ class RecipeOut(BaseModel):
     edited: bool
     created_at: datetime
     updated_at: datetime
+    times_cooked: int
+    last_cooked_at: datetime | None
     ingredients: list[RecipeLineOut]
 
 
@@ -88,6 +90,8 @@ class RecipeSummary(BaseModel):
     prep_minutes: int | None
     cook_minutes: int | None
     tags: list[str]
+    times_cooked: int
+    last_cooked_at: datetime | None
 
 
 class IngestIn(BaseModel):

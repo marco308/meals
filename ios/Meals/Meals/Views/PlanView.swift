@@ -222,6 +222,7 @@ struct PastPlansSheet: View {
 struct PlanMealRow: View {
     @Environment(PlanStore.self) private var store
     let planMeal: PlanMeal
+    @State private var showEditor = false
 
     var body: some View {
         NavigationLink {
@@ -251,6 +252,12 @@ struct PlanMealRow: View {
             } label: {
                 Label("Remove", systemImage: "trash")
             }
+            Button {
+                showEditor = true
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(.orange)
         }
         // allowsFullSwipe off: a stray horizontal drag while scrolling must
         // not silently mark a meal cooked (there is no un-cook in v1).
@@ -261,6 +268,16 @@ struct PlanMealRow: View {
                 Label("Cooked", systemImage: "checkmark")
             }
             .tint(.green)
+        }
+        .sheet(isPresented: $showEditor) {
+            NavigationStack {
+                MealEditorView(mode: .edit(planMeal.meal)) { _ in showEditor = false }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showEditor = false }
+                        }
+                    }
+            }
         }
     }
 
@@ -300,7 +317,7 @@ struct AddMealSheet: View {
             List {
                 Section {
                     NavigationLink {
-                        NewMealView { meal in
+                        MealEditorView { meal in
                             Task {
                                 await store.addMeal(meal)
                                 dismiss()

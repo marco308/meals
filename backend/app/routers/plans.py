@@ -11,6 +11,7 @@ from app.models.users import utcnow
 from app.routers.meals import get_meal
 from app.schemas.planning import AddMealIn, PlanCreate, PlanOut, PlanSummary
 from app.serializers import plan_out, plan_summary
+from app.services.cooking import record_cooked
 from app.services.shopping import add_meal_contributions, get_active_list, remove_meal_contributions
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -175,6 +176,9 @@ async def mark_cooked(plan_meal_id: uuid.UUID, plan_id: uuid.UUID, user: Current
         )
     if plan_meal.cooked_at is None:
         plan_meal.cooked_at = utcnow()
+        meal = await get_meal(db, user.household_id, plan_meal.meal_id)
+        if meal is not None:
+            await record_cooked(db, user.household_id, plan_meal, meal, user.id)
     await db.commit()
     fresh = await get_plan(db, user.household_id, plan.id)
     assert fresh is not None

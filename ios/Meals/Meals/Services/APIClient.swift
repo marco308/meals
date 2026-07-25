@@ -89,6 +89,22 @@ struct APIClient: Sendable {
     }
 }
 
+/// Library ordering (issue #13). `title` is the API default and is left out of
+/// the query so old backends keep working.
+enum RecipeSort: String, CaseIterable, Sendable {
+    case title
+    case mostCooked = "most_cooked"
+    case leastRecentlyCooked = "least_recently_cooked"
+
+    var label: String {
+        switch self {
+        case .title: "A–Z"
+        case .mostCooked: "Most cooked"
+        case .leastRecentlyCooked: "Not had in a while"
+        }
+    }
+}
+
 // MARK: - Endpoint helpers
 
 extension APIClient {
@@ -130,14 +146,20 @@ extension APIClient {
         )
     }
 
-    func recipes(search: String?) async throws -> [RecipeSummary] {
+    func recipes(search: String?, sort: RecipeSort = .title) async throws -> [RecipeSummary] {
         var query: [URLQueryItem] = []
         if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
+        if sort != .title { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
         return try await send("GET", "/recipes", query: query, as: [RecipeSummary].self)
     }
 
     func recipe(id: UUID) async throws -> Recipe {
         try await send("GET", "/recipes/\(id.uuidString.lowercased())", as: Recipe.self)
+    }
+
+    /// 409 when a meal still uses the recipe — the detail names the way out.
+    func deleteRecipe(id: UUID) async throws {
+        try await raw("DELETE", "/recipes/\(id.uuidString.lowercased())")
     }
 
     func ingest(url: String) async throws -> IngestResponse {
@@ -166,6 +188,36 @@ extension APIClient {
             ],
             as: Meal.self
         )
+    }
+
+    /// A true PATCH: only the arguments passed are sent, so a rename can't
+    /// silently blank the meal's composition. Passing recipeIds or
+    /// looseIngredients replaces that whole list (the API's contract) and
+    /// re-syncs the active shopping list server-side.
+    func updateMeal(
+        id: UUID,
+        name: String? = nil,
+        slot: String? = nil,
+        recipeIds: [UUID]? = nil,
+        looseIngredients: [LooseLine]? = nil
+    ) async throws -> Meal {
+        var payload: [String: Any?] = [:]
+        if let name { payload["name"] = name }
+        if let slot { payload["slot"] = slot }
+        if let recipeIds { payload["recipe_ids"] = recipeIds.map { $0.uuidString.lowercased() } }
+        if let looseIngredients {
+            payload["loose_ingredients"] = looseIngredients.map { line in
+                var entry: [String: Any] = ["name": line.name]
+                if let quantity = line.quantity { entry["quantity"] = quantity }
+                if let unit = line.unit { entry["unit"] = unit }
+                return entry
+            }
+        }
+        return try await send("PATCH", "/meals/\(id.uuidString.lowercased())", json: payload, as: Meal.self)
+    }
+
+    func deleteMeal(id: UUID) async throws {
+        try await raw("DELETE", "/meals/\(id.uuidString.lowercased())")
     }
 
     func currentPlan() async throws -> Plan {

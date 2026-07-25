@@ -46,6 +46,10 @@ class Recipe(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     parse_source: Mapped[str] = mapped_column(String(20), default="manual")  # jsonld | ai | manual
     edited: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Denormalised read model over cooked_events (never incremented blindly —
+    # always recomputed from the events, so the two can't drift).
+    times_cooked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_cooked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

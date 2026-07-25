@@ -62,12 +62,42 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   joins the main list; the rest stay hidden. Undo with `needed=false`.
 - After the shop: `finish_shop()` archives the list and starts fresh.
 
+## Editing meals and the library
+
+- **Changing a meal** — `update_meal(meal_name, add_recipes=[...],
+  remove_recipes=[...], add_loose_ingredients=[...],
+  remove_loose_ingredients=[...], new_name=..., slot=...)`. Recipes can be
+  named, not just id'd. If the meal is on the active plan the shopping list
+  re-syncs itself: added ingredients appear, removed ones come off. Prefer
+  this over delete-and-recreate — recreating loses the meal's place on the
+  plan and churns the list.
+- **Deleting a meal** — `delete_meal(name)`; it comes off the plan and the
+  list first.
+- **Deleting a recipe** — `delete_recipe(title)`. Refused while a meal still
+  uses it: detach it with `update_meal(remove_recipes=[…])` first, then
+  delete. Never delete a recipe the user didn't ask you to.
+
+## Cooked history ("what do we actually eat")
+
+`mark_meal_cooked` records the cooking permanently, per recipe as well as per
+meal, and the count outlives the plan. `list_recipes` shows "cooked 3× (last
+2026-07-19)" and takes `sort`:
+
+- `most_cooked` → the household's regulars ("what do we always make?")
+- `least_recently_cooked` → what's been neglected; never-cooked recipes first
+  ("we ingested this and never tried it")
+
+The composition is captured at cook time, so editing a meal later never
+rewrites what was eaten. There is no un-cook yet — confirm before marking
+something cooked that the user only mentioned in passing.
+
 ## When to ask vs act
 
 - Act without asking: ingesting shared links, adding requested meals,
   check-offs, ad-hoc adds the user stated.
 - Ask first: removing meals you weren't told to remove, archiving anything,
-  changing servings/scaling, replacing a whole plan.
+  deleting recipes or meals, marking cooked (it can't be undone), changing
+  servings/scaling, replacing a whole plan.
 
 ## Worked examples
 
@@ -82,3 +112,10 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   grouped by aisle, offer to check things off as they shop.
 - *"Scratch the burgers, we're out Friday"* → `remove_meal_from_plan("burgers")`
   — the list decrements itself; ad-hoc items survive.
+- *"Add garlic bread to the cottage pie"* → `update_meal("cottage pie",
+  add_recipes=["garlic bread"])`, then mention the bread's ingredients are now
+  on the list.
+- *"Nobody eats the peas"* → `update_meal("cottage pie",
+  remove_loose_ingredients=["frozen peas"])`.
+- *"What do we make most?"* → `list_recipes(sort="most_cooked")`, read back
+  with the counts.
