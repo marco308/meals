@@ -108,6 +108,31 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertFalse(info.isStaple)
     }
 
+    func testDecodesValueTier() throws {
+        let json = Data(
+            """
+            {"id":"61931d47-4154-418a-a43f-f734a0e3d888","name":"olive oil","aisle":"🍝",
+             "aisle_label":"Dry goods & pasta","is_staple":true,"value_tier":"premium",
+             "value_tier_label":"Worth paying up for","value_note":"the cheap stuff goes bitter"}
+            """.utf8
+        )
+        let info = try APIClient.decoder().decode(IngredientInfo.self, from: json)
+        XCTAssertEqual(info.tier, .premium)
+        XCTAssertEqual(info.tier.badge, "⭐")
+        XCTAssertEqual(info.valueNote, "the cheap stuff goes bitter")
+    }
+
+    func testUntaggedAndOlderPayloadsHaveNoValueOpinion() throws {
+        // The fixtures predate the value tier — an older backend (or a cache
+        // written by an older app) must still decode, with no advice shown.
+        let info = try APIClient.decoder().decode(IngredientInfo.self, from: fixture("ingredient"))
+        XCTAssertEqual(info.tier, .any)
+        XCTAssertEqual(info.tier.badge, "")
+
+        let payload = try APIClient.decoder().decode(ShoppingListPayload.self, from: fixture("shopping_list"))
+        XCTAssertTrue(payload.items.allSatisfy { $0.tier == .any && $0.valueNote == nil })
+    }
+
     func testDecodesAisles() throws {
         let aisles = try APIClient.decoder().decode([Aisle].self, from: fixture("aisles"))
         XCTAssertEqual(aisles.first?.emoji, "🥬")

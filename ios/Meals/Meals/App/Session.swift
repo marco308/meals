@@ -8,17 +8,61 @@ import Observation
 @Observable
 final class Session {
     var serverURL: String {
-        didSet { UserDefaults.standard.set(serverURL, forKey: "serverURL") }
+        didSet {
+            UserDefaults.standard.set(serverURL, forKey: "serverURL")
+            // A verdict belongs to the server that gave it — pointing the app
+            // at localhost must not inherit the homelab's floor, or vice versa.
+            upgrade = .ok
+            Task { await checkClientCompatibility() }
+        }
     }
 
     private(set) var token: String?
     private(set) var user: UserProfile?
+
+    /// Where this build stands against the server's expectations. `.required`
+    /// blocks the UI; `.available` is a dismissible nudge.
+    enum Upgrade: Equatable {
+        case ok
+        case available(url: String?)
+        case required(detail: String, url: String?)
+
+        init(config: ClientConfig, build: Int) {
+            if build < config.minIosBuild {
+                self = .required(
+                    detail: "This version of Meals is too old for the server (it needs build "
+                        + "\(config.minIosBuild), this is build \(build)). Update to carry on — anything "
+                        + "you've ticked off or added is saved and will sync.",
+                    url: config.upgradeUrl
+                )
+            } else if build < config.currentIosBuild {
+                self = .available(url: config.upgradeUrl)
+            } else {
+                self = .ok
+            }
+        }
+
+        /// A nudge can be waved away; a hard block can't be.
+        var dismissingNudge: Self {
+            if case .available = self { .ok } else { self }
+        }
+    }
+
+    private(set) var upgrade: Upgrade = .ok
+    // Written once in init, read once in deinit (which is nonisolated), so it
+    // steps outside the actor rather than dragging the rest of Session with it.
+    @ObservationIgnored private nonisolated(unsafe) var upgradeObserver: (any NSObjectProtocol)?
 
     var isAuthenticated: Bool { token != nil }
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? "http://localhost:8000"
         token = KeychainStore.loadToken()
+        observeUpgradeNotices()
+    }
+
+    deinit {
+        if let upgradeObserver { NotificationCenter.default.removeObserver(upgradeObserver) }
     }
 
     var api: APIClient {
@@ -53,6 +97,31 @@ final class Session {
             logOut()
         } catch {
             // Offline or server unreachable — keep the session; cached data still works.
+        }
+    }
+
+    // MARK: - Version alignment
+
+    /// Ask the server what it expects of this build. Called at launch and on
+    /// every foreground, so a deploy that raises the floor is noticed before
+    /// the user hits a wall mid-task. Silent when offline — a server we can't
+    /// reach can't refuse us either.
+    func checkClientCompatibility() async {
+        guard let config = try? await api.clientConfig() else { return }
+        upgrade = Upgrade(config: config, build: ClientIdentity.buildNumber)
+    }
+
+    func dismissUpgradeNudge() {
+        upgrade = upgrade.dismissingNudge
+    }
+
+    private func observeUpgradeNotices() {
+        upgradeObserver = NotificationCenter.default.addObserver(
+            forName: .mealsUpgradeRequired, object: nil, queue: nil
+        ) { [weak self] note in
+            let detail = note.userInfo?["detail"] as? String ?? "This version of Meals is too old for the server."
+            let url = note.userInfo?["upgradeUrl"] as? String
+            Task { @MainActor in self?.upgrade = .required(detail: detail, url: url) }
         }
     }
 

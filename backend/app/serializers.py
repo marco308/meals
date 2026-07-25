@@ -6,6 +6,7 @@ from app.schemas.planning import MealOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
 from app.services.units import format_quantity
+from app.services.values import value_tier_label
 
 _AISLE_LABELS = dict(AISLES)
 
@@ -21,6 +22,9 @@ def ingredient_out(ingredient: Ingredient) -> IngredientOut:
         aisle=ingredient.aisle,
         aisle_label=aisle_label(ingredient.aisle),
         is_staple=ingredient.is_staple,
+        value_tier=ingredient.value_tier,
+        value_tier_label=value_tier_label(ingredient.value_tier),
+        value_note=ingredient.value_note,
     )
 
 
@@ -30,6 +34,8 @@ def _line_out(ingredient: Ingredient, quantity: float | None, unit: str | None, 
         name=ingredient.name,
         aisle=ingredient.aisle,
         is_staple=ingredient.is_staple,
+        value_tier=ingredient.value_tier,
+        value_note=ingredient.value_note,
         quantity=quantity,
         unit=unit,
         display=format_quantity(quantity, unit),
@@ -139,6 +145,9 @@ def list_item_out(item: ListItem) -> ListItemOut:
         aisle=item.ingredient.aisle,
         aisle_label=aisle_label(item.ingredient.aisle),
         is_staple=item.ingredient.is_staple,
+        value_tier=item.ingredient.value_tier,
+        value_tier_label=value_tier_label(item.ingredient.value_tier),
+        value_note=item.ingredient.value_note,
         quantity=item.quantity,
         unit=item.unit,
         display=format_quantity(item.quantity, item.unit),

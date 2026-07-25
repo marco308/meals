@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// The one place to see and edit an ingredient's metadata: canonical name,
-/// supermarket aisle, staple flag. Reached from any ingredient row (recipe,
-/// meal, shopping item). Changes are saved immediately and ripple everywhere
-/// the ingredient appears — one canonical ingredient per name is the point.
+/// supermarket aisle, staple flag, premium-vs-budget advice. Reached from any
+/// ingredient row (recipe, meal, shopping item). Changes are saved immediately
+/// and ripple everywhere the ingredient appears — one canonical ingredient per
+/// name is the point.
 struct IngredientEditorView: View {
     @Environment(Session.self) private var session
     @Environment(ShoppingListStore.self) private var listStore
@@ -15,6 +16,8 @@ struct IngredientEditorView: View {
     @State private var aisles: [Aisle] = []
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var noteDraft = ""
+    @FocusState private var noteFocused: Bool
 
     var body: some View {
         List {
@@ -27,6 +30,29 @@ struct IngredientEditorView: View {
                     .disabled(isSaving)
                 } footer: {
                     Text("Staples stay off the shopping list until a staples check before shopping.")
+                }
+
+                Section {
+                    Picker("Buying advice", selection: tierBinding) {
+                        ForEach(ValueTier.allCases) { tier in
+                            Text(tier.badge.isEmpty ? tier.short : "\(tier.badge) \(tier.short)").tag(tier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(isSaving)
+
+                    TextField("Why? e.g. the cheap stuff goes bitter", text: $noteDraft)
+                        .focused($noteFocused)
+                        .submitLabel(.done)
+                        .disabled(isSaving)
+                        .onSubmit { saveNoteIfChanged() }
+                        .onChange(of: noteFocused) { _, focused in
+                            if !focused { saveNoteIfChanged() }
+                        }
+                } header: {
+                    Text("Premium or budget?")
+                } footer: {
+                    Text("Decide once; the verdict shows next to the item on the shopping list, when you're at the shelf.")
                 }
 
                 Section("Aisle") {
@@ -73,23 +99,46 @@ struct IngredientEditorView: View {
         )
     }
 
+    private var tierBinding: Binding<ValueTier> {
+        Binding(
+            get: { info?.tier ?? .any },
+            set: { value in save(valueTier: value) }
+        )
+    }
+
     private func load() async {
         do {
-            info = try await session.api.ingredient(id: ingredientId)
+            let loaded = try await session.api.ingredient(id: ingredientId)
+            info = loaded
+            noteDraft = loaded.valueNote ?? ""
             aisles = try await session.api.fetchAisles()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func save(aisle: String? = nil, isStaple: Bool? = nil) {
+    /// The note saves on Done or when the field loses focus — an empty string
+    /// clears it server-side.
+    private func saveNoteIfChanged() {
+        let trimmed = noteDraft.trimmingCharacters(in: .whitespaces)
+        guard trimmed != (info?.valueNote ?? "") else { return }
+        save(valueNote: trimmed)
+    }
+
+    private func save(
+        aisle: String? = nil, isStaple: Bool? = nil, valueTier: ValueTier? = nil, valueNote: String? = nil
+    ) {
         isSaving = true
         errorMessage = nil
         Task {
             defer { isSaving = false }
             do {
-                info = try await session.api.updateIngredient(id: ingredientId, aisle: aisle, isStaple: isStaple)
-                await listStore.sync()  // aisle/staple changes re-sort and re-filter the list
+                let updated = try await session.api.updateIngredient(
+                    id: ingredientId, aisle: aisle, isStaple: isStaple, valueTier: valueTier, valueNote: valueNote
+                )
+                info = updated
+                noteDraft = updated.valueNote ?? ""
+                await listStore.sync()  // aisle/staple/value changes re-sort, re-filter and re-badge the list
                 onChange?()
             } catch {
                 errorMessage = error.localizedDescription

@@ -201,7 +201,7 @@ struct RecipeDetailView: View {
             } header: {
                 Text("Ingredients")
             } footer: {
-                Text("Tap an ingredient to set its aisle or staple flag. \(Image(systemName: "cabinet")) marks a staple — it stays off the shopping list until the staples check.")
+                Text("Tap an ingredient to set its aisle, staple flag, or whether the premium version is worth it. \(Image(systemName: "cabinet")) marks a staple — it stays off the shopping list until the staples check.")
             }
 
             if let instructions = recipe.instructions, !instructions.isEmpty {

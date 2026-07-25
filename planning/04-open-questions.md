@@ -47,3 +47,17 @@ No cups, oz, sticks, etc. — the AI (or human) converts before writing. The bac
 ## Newly raised
 
 - **Q16** (above, under Q7): ✅ resolved — implemented as assumed.
+
+**Q17 — Premium vs budget, per ingredient: yes** (2026-07-25, inspired by the
+blind premium-vs-budget tastings). Ingredients carry a `value_tier` —
+`premium` (⭐ worth paying up for), `budget` (💷 own-brand is fine) or `any`
+(no opinion, the default) — plus a one-line `value_note` reason. Decisions:
+
+- It hangs off the **ingredient**, not the recipe or the list line, so the
+  verdict is decided once and applies everywhere that ingredient appears.
+- It is **never guessed** — unlike an aisle, "is the posh one worth it" is a
+  household's own taste and budget. No keyword table; the user or their AI
+  sets it, and the skill tells AIs to suggest but not assume.
+- The tier and note ride along on shopping-list items and recipe lines, so the
+  advice appears at the shelf rather than in a settings screen.
+- No price tracking, no supermarket-specific products: that's still F5.

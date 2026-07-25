@@ -34,7 +34,10 @@ targets:
         CFBundleName: $(PRODUCT_NAME)
         CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
         CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "5"
+        # App Store Connect is the source of truth for what has shipped —
+        # uploads have come from outside this repo, so check the latest build
+        # there and set this above it before `make ios-testflight`.
+        CFBundleVersion: "11"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

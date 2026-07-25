@@ -1,0 +1,167 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+make dev          # full stack in Docker (Postgres + API on :8000, remote MCP on :8100)
+make run          # API locally on SQLite, no Docker, with --reload
+make seed         # load demo data through the public API against a running server (idempotent)
+make test         # backend (pytest + coverage) then mcp tests — no Docker, no network
+make test-fast    # same without coverage
+make lint / fmt   # ruff check + format (backend and mcp)
+make migration m="add foo"   # autogenerate an Alembic revision
+make migrate      # alembic upgrade head
+make deploy       # rsync + build + `docker stack deploy` on the homelab swarm
+```
+
+Single test / subset (from `backend/` or `mcp/`, both use `uv`):
+
+```bash
+cd backend && uv run pytest tests/integration/test_shopping_list.py::test_name -q
+```
+
+iOS (needs Xcode + XcodeGen; `Meals.xcodeproj` is generated, never hand-edited):
+
+```bash
+make ios-build    # xcodegen generate + xcodebuild for the iPhone simulator
+make ios-test     # XCTest suite
+make ios-testflight   # archive, export, upload (App Store Connect API key in ~/.appstoreconnect)
+```
+
+## Architecture
+
+Monorepo with one API and three clients. **The REST API is the only thing that
+touches the database** — the iOS app and any AI use the same endpoints, which
+is what keeps the API complete and the views consistent.
+
+| Path | Role |
+|---|---|
+| `backend/` | FastAPI + async SQLAlchemy 2.0 + Alembic. Postgres in Docker; SQLite for `make run` and all tests |
+| `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
+| `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
+| `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
+| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q16 |
+
+Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
+(domain logic, session-scoped, `flush` not `commit`) → `models/` (SQLAlchemy).
+`serializers.py` is the single model→schema conversion layer; `schemas/` holds
+Pydantic I/O only. Auth is `CurrentUser`/`DbSession` annotated dependencies
+from `deps.py`; every query filters on `user.household_id`.
+
+### Domain invariants worth knowing before editing
+
+- **Household scoping.** All data hangs off one `Household` (decision Q16).
+  Multi-household tenancy is not implemented, but never add a query that
+  ignores `household_id`.
+- **Plans are pools, not calendars** (Q1/Q4). A `Plan` is a labelled set of
+  `PlanMeal`s with an optional `slot` ("dinner"). No days, no dates. Don't
+  introduce per-day scheduling.
+- **The shopping list knows *why*.** `ListItem` identity is
+  `(list, ingredient, unit)` and its quantity is the **sum of its
+  `ListItemSource` rows** — one per contributing plan-meal/recipe, or
+  `plan_meal_id IS NULL` for ad-hoc adds. Adding a meal to a plan merges
+  contributions; removing it deletes exactly its own rows and drops the line
+  only when no source remains. Edits to a meal or recipe go through
+  `resync_meal_contributions`. Never mutate `ListItem.quantity` — it's a
+  derived property.
+- **Unit convention (Q2), enforced in `services/units.py`.** Everything is
+  metric (canonicalised to g/ml) or a count of a singularised natural unit
+  ("tin", "clove"). Imperial and spoon/cup units are rejected for API clients
+  with the exact conversion in the error; the backend's own JSON-LD ingestion
+  converts instead (`INGEST_CONVERSIONS`). Merging only ever happens on an
+  exact canonical-unit match.
+- **Parse once, reuse forever** (Q3). `source_url` is unique per household and
+  is the cache key: re-posting a known URL returns the stored recipe with 200,
+  never a duplicate, and never clobbers a recipe with `edited=True`. Ingestion
+  is free schema.org JSON-LD extraction only; a page without usable JSON-LD
+  returns 422 telling the calling AI to parse it and `POST /recipes` with
+  `parse_source="ai"`. **The backend never calls an LLM.**
+- **Offline sync contract** (Q11). Clients may supply the `id` on ad-hoc adds;
+  `ListItemSource.client_key` makes a replayed POST a no-op (returns 200, not
+  201), and item ids are honoured unless already taken. iOS
+  `ShoppingListStore` renders *server truth + queued `PendingOp`s*, persists
+  both to disk, and replays ops in order — changes there must preserve
+  idempotency and id-remapping.
+- **Aisle order** (`services/aisles.py`) is the shopping-list sort order and
+  its emoji vocabulary is published in the skill. Keep the two in sync.
+- **Premium vs budget** (`services/values.py`, Q17). An ingredient's
+  `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
+  household's own verdict — unlike an aisle it is **never guessed**, so no
+  keyword table. It rides along on list items and recipe lines so it shows up
+  at the shelf; the vocabulary is published in the skill.
+
+### Client/API compatibility
+
+The skill and the MCP server ship with the API, so **iOS is the only client
+that can be older than the server**, and once a build is on TestFlight it can't
+be recalled. The contract is therefore **additive-only**:
+
+- Never remove or rename a response field — deprecate by leaving it populated.
+  Swift `Codable` ignores unknown keys, so *adding* fields is always safe.
+- Never add a required request field, and never tighten validation on an
+  existing one.
+- New behaviour goes behind a new endpoint or a new optional query param.
+- Never change the meaning of an existing value in place (re-canonicalising a
+  unit, renumbering an enum) — that's the one class of change a tolerant
+  decoder can't absorb.
+- Keep the iOS models free of `String`-backed enums for server vocabularies
+  (aisles, slots). A new aisle must never be a decode error.
+
+`app/client_gate.py` is the escape hatch for the rare change that can't be
+additive. The app sends `X-Meals-Client: ios/<version> (<build>)`; builds below
+`min_ios_build` get a 426 and a blocking upgrade screen. Two rules:
+
+- **Requests without that header are never gated** — curl, assistants and the
+  MCP server must keep working.
+- **The offline queue always drains.** `/shopping-list*` is exempt (and must
+  stay exempt), because a blocked app that can't flush its queued `PendingOp`s
+  destroys the user's data rather than merely showing them a stale UI (Q11).
+
+Raising `MIN_IOS_BUILD` is a deploy-time decision that cuts off every install
+below it, so it stays at `0` until a change genuinely forces it; the config
+refuses a floor above `current_ios_build`. `GET /client-config` publishes both
+numbers and the app checks it at launch and on every foreground. When
+`CFBundleVersion` in `ios/project.yml` is bumped for an upload, move
+`current_ios_build` with it — that number is what drives the soft nudge.
+
+### AI-facing surfaces
+
+Error strings, endpoint docstrings and MCP tool descriptions end up in an
+agent's context — they are part of the product. Every 4xx should say what to
+do instead (see the 409 in `routers/shopping.py` for the shape).
+
+The MCP server (`mcp/meals_mcp/server.py`) runs in two modes: **stdio** with
+`MEALS_API_TOKEN` from the env, and **http** (deployed at `/mcp`) which holds
+no credentials and forwards each request's `Authorization` header to the API
+verbatim — never add a server-side token fallback in http mode.
+
+`skill/` is shipped inside the backend image (hence `docker build` uses the
+**repo root** as context, not `backend/`) and served unauthenticated with
+`{{API_URL}}` substituted from the request's forwarded-proto/host headers.
+Keep `SKILL.md`, `prompt-pack.md` and the API in step when endpoints change.
+
+## Testing
+
+`backend/tests/conftest.py` pins `DATABASE_URL` to in-memory SQLite and
+disables rate limiting **before importing any app module** — keep new imports
+below that block. Tests drive the ASGI app through `httpx.AsyncClient`
+(`auth_client` is pre-registered); use the shared builders in conftest
+(`create_recipe`, `create_meal`, `create_plan`, `get_list`) rather than
+hand-rolled payloads. `asyncio_mode = "auto"`, so no `@pytest.mark.asyncio`.
+External HTTP is stubbed with `respx` — tests never hit the network.
+
+Model changes need an Alembic revision (`make migration m="..."`); tests
+create tables from metadata and won't catch a missing migration.
+
+## Deployment
+
+Docker Swarm behind Traefik on `meals.marcuslab.uk` (api + mcp + Postgres).
+`deploy/deploy.sh` syncs sources to the swarm manager, builds images there,
+forces a service update (locally built `:latest` tags don't roll out
+otherwise), and verifies `/healthz`, `/skill`, `/prompt-pack` and an MCP
+initialize handshake through Traefik. In that script, keep every check a bare
+command — `curl … && echo` is exempt from `set -e`.
+
+Open items and deferred work live in `BACKLOG.md`.

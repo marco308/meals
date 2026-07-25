@@ -15,6 +15,16 @@ struct AuthResponse: Codable, Sendable {
     let user: UserProfile
 }
 
+/// What the server expects of native clients (GET /client-config). Builds below
+/// `minIosBuild` are refused with 426 on everything except the offline-queue
+/// endpoints; builds below `currentIosBuild` just get a nudge.
+struct ClientConfig: Codable, Equatable, Sendable {
+    let apiVersion: String
+    let minIosBuild: Int
+    let currentIosBuild: Int
+    let upgradeUrl: String?
+}
+
 struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let title: String
@@ -60,6 +70,46 @@ enum CookedHistory {
     }
 }
 
+/// Is the posh version of an ingredient worth the money? Recorded once per
+/// ingredient and surfaced where the decision is actually made — standing in
+/// front of the shelf.
+enum ValueTier: String, CaseIterable, Identifiable, Sendable {
+    case premium
+    case budget
+    case any
+
+    var id: String { rawValue }
+
+    /// Tolerant of missing/unknown values so older caches and backends render.
+    init(raw: String?) {
+        self = ValueTier(rawValue: raw ?? "") ?? .any
+    }
+
+    var label: String {
+        switch self {
+        case .premium: "Worth paying up for"
+        case .budget: "Own-brand is fine"
+        case .any: "No strong opinion"
+        }
+    }
+
+    var short: String {
+        switch self {
+        case .premium: "Premium"
+        case .budget: "Budget"
+        case .any: "No opinion"
+        }
+    }
+
+    var badge: String {
+        switch self {
+        case .premium: "⭐"
+        case .budget: "💷"
+        case .any: ""
+        }
+    }
+}
+
 struct RecipeLine: Codable, Identifiable, Equatable, Sendable {
     let ingredientId: UUID
     let name: String
@@ -69,8 +119,12 @@ struct RecipeLine: Codable, Identifiable, Equatable, Sendable {
     let unit: String?
     let display: String
     let raw: String?
+    // Optional so responses from an older backend still decode.
+    var valueTier: String? = nil
+    var valueNote: String? = nil
 
     var id: UUID { ingredientId }
+    var tier: ValueTier { ValueTier(raw: valueTier) }
 }
 
 struct Recipe: Codable, Identifiable, Equatable, Sendable {
@@ -160,6 +214,8 @@ struct ListItem: Codable, Identifiable, Equatable, Sendable {
     // Staple marked "I'm low" in the staples check — shown on the main list.
     // Optional so caches written by older app versions still decode.
     var stapleNeeded: Bool? = nil
+    var valueTier: String? = nil
+    var valueNote: String? = nil
     var sources: [ItemSource]
 
     var neededBy: [String] {
@@ -167,6 +223,7 @@ struct ListItem: Codable, Identifiable, Equatable, Sendable {
     }
 
     var isNeededStaple: Bool { stapleNeeded ?? false }
+    var tier: ValueTier { ValueTier(raw: valueTier) }
 }
 
 struct ShoppingListPayload: Codable, Equatable, Sendable {
@@ -181,14 +238,20 @@ struct Aisle: Codable, Equatable, Hashable, Sendable {
     let label: String
 }
 
-/// Ingredient-level metadata (canonical name, aisle, staple flag) — shared
-/// by every recipe line and list item that references the ingredient.
+/// Ingredient-level metadata (canonical name, aisle, staple flag, premium-vs-
+/// budget advice) — shared by every recipe line and list item that references
+/// the ingredient.
 struct IngredientInfo: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let name: String
     var aisle: String
     var aisleLabel: String
     var isStaple: Bool
+    // Optional so responses from an older backend still decode.
+    var valueTier: String? = nil
+    var valueNote: String? = nil
+
+    var tier: ValueTier { ValueTier(raw: valueTier) }
 }
 
 /// A loose ingredient being written (meal sides, decision F1/F2): name plus

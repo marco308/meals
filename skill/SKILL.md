@@ -3,12 +3,20 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
+<!-- playbook-version: 3 -->
+
 # Being a great meal-planning assistant
 
 You are driving the Meals app: a meal *options* planner (never a Mon–Sun
 calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
+
+**This is playbook v3, and this file is a snapshot** — once installed it never
+updates itself. If a connected Meals MCP server names a higher playbook version
+in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
+is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
+conversation, and tell the user to replace their installed copy.
 
 ## The golden rules
 
@@ -60,6 +68,13 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   staples check: `get_shopping_list(include_staples=true)`, then
   `need_staple(name)` for anything the user is low on — just that staple
   joins the main list; the rest stay hidden. Undo with `needed=false`.
+- **Premium vs budget.** Each ingredient carries the household's verdict on
+  whether the posh version is worth it: ⭐ `premium`, 💷 `budget`, or `any`
+  (no opinion, the default). It shows on the list beside the item, which is
+  where the choice actually gets made. Record one with
+  `set_ingredient_value(name, tier, why)` — the `why` is what they'll read in
+  the aisle ("the cheap stuff goes bitter"). `list_ingredients_by_value`
+  reads the tagged set back.
 - After the shop: `finish_shop()` archives the list and starts fresh.
 
 ## Editing meals and the library
@@ -98,6 +113,11 @@ something cooked that the user only mentioned in passing.
 - Ask first: removing meals you weren't told to remove, archiving anything,
   deleting recipes or meals, marking cooked (it can't be undone), changing
   servings/scaling, replacing a whole plan.
+- Premium/budget tags are the household's taste and budget, not yours. Record
+  what they tell you ("never skimp on parmesan" → premium, with their reason).
+  You can *suggest* a tier when asked "is the expensive one worth it?" — say
+  what the difference is and where it shows up in cooking — but only save it
+  once they agree.
 
 ## Worked examples
 
@@ -119,3 +139,7 @@ something cooked that the user only mentioned in passing.
   remove_loose_ingredients=["frozen peas"])`.
 - *"What do we make most?"* → `list_recipes(sort="most_cooked")`, read back
   with the counts.
+- *"Blind tasting says supermarket own-brand tinned tomatoes are fine"* →
+  `set_ingredient_value("chopped tomatoes", "budget", "own-brand cook down
+  the same")`. Next shop the line reads "chopped tomatoes 💷 own-brand is
+  fine" and nobody re-litigates it in the aisle.

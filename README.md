@@ -25,7 +25,7 @@ drive it with their own AI assistant. POC implementation of the plan in
   item knows which meals need it), exact-unit merging, ad-hoc items, staples
   check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
 - **AI access layer** — the headline: a documented REST API, an MCP server
-  with 19 task-level tools, and a skill/prompt pack the server publishes
+  with 21 task-level tools, and a skill/prompt pack the server publishes
   itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
   bring your own.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens) sharing
@@ -126,6 +126,30 @@ Both are unauthenticated, ship inside the backend image, and are advertised
 from the API root (`GET /` returns a JSON landing for non-browser clients).
 The repo copies in [`skill/`](skill/) are the sources.
 
+**Version stamp.** An installed skill or a pasted prompt pack is a snapshot
+that never updates itself, so both carry a `<!-- playbook-version: N -->` marker
+and the live surfaces publish the current number: `GET /skill/version` (also on
+the root landing as `playbook_version`) and the MCP server's connection
+instructions, which every client re-reads on connect. An assistant that sees a
+higher number than its own copy knows to re-fetch and say so.
+
+When the playbook's guidance changes, bump all four together — the stamps in
+[`skill/SKILL.md`](skill/SKILL.md) and [`skill/prompt-pack.md`](skill/prompt-pack.md)
+(the `<!-- playbook-version: N -->` marker *and* the "playbook vN" line each file
+states in its prose), `PLAYBOOK_VERSION` in
+[`mcp/meals_mcp/server.py`](mcp/meals_mcp/server.py), and the version + content
+digest pinned in
+[`backend/tests/integration/test_misc.py`](backend/tests/integration/test_misc.py).
+
+Tests fail if they drift — and the pinned digest is what makes that mean
+something. A stamp only helps if it moves when the guidance does: without the
+pin, new tools and new advice can ship under an unchanged number, so a stale
+copy compares v1 to v1, sees no drift, and never learns what it is missing. The
+digest hashes both documents with the version references normalised out, so
+editing what the playbook *says* fails
+`test_guidance_changes_are_announced_by_a_version_bump` until the version is
+bumped; the failure message prints the new digest to paste in.
+
 ### The quantity convention (decision Q2)
 
 Every quantity is **metric** (g/kg/ml/l) or a **count of a natural unit**
@@ -136,8 +160,8 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 229 backend tests (98% coverage) + 29 mcp tests — no Docker, no network
-make ios-test  # 57 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
+make test      # 268 backend tests (99% coverage) + 38 mcp tests — no Docker, no network
+make ios-test  # 71 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
 The suite covers the unit convention, JSON-LD extraction (incl. `@graph`,
@@ -158,3 +182,11 @@ API, which stays the single auth gate. Being internet-facing, auth is
 mandatory everywhere except `/healthz`, auth endpoints are rate-limited, and
 registration can be closed with `REGISTRATION_ENABLED=false` once the
 household has its accounts.
+
+All three services are pinned to the worker node `the app node` rather than the
+swarm manager, which carries the rest of the homelab. `make deploy` still goes
+through the manager — it holds the secrets and is the only node that can run
+`docker stack deploy` — but it forwards the sources to `the app node` and builds
+there, because locally built `:latest` images have no registry to pull from
+and a task only starts where its image exists. Traefik keeps running on the
+manager and reaches the tasks over the `traefik-public` overlay.

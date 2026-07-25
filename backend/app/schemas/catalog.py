@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import IngredientLineIn
 from app.services.aisles import AISLE_EMOJIS, is_valid_aisle
+from app.services.values import VALUE_TIER_HINT, is_valid_value_tier
+
+
+def _check_value_tier(value: str | None) -> str | None:
+    """Shared by every schema that accepts a tier so the hint is identical."""
+    if value is not None and not is_valid_value_tier(value):
+        raise ValueError(f"unknown value tier '{value}'; {VALUE_TIER_HINT}")
+    return value
 
 
 class IngredientOut(BaseModel):
@@ -14,11 +22,16 @@ class IngredientOut(BaseModel):
     aisle: str
     aisle_label: str
     is_staple: bool
+    value_tier: str  # premium | budget | any — is the posh version worth it?
+    value_tier_label: str
+    value_note: str | None  # the household's reason, e.g. "cheap ones go bitter"
 
 
 class IngredientUpdate(BaseModel):
     aisle: str | None = None
     is_staple: bool | None = None
+    value_tier: str | None = None
+    value_note: str | None = Field(default=None, max_length=200)
 
     @field_validator("aisle")
     @classmethod
@@ -27,12 +40,19 @@ class IngredientUpdate(BaseModel):
             raise ValueError(f"unknown aisle '{value}'; valid aisles are: {' '.join(AISLE_EMOJIS)}")
         return value
 
+    @field_validator("value_tier")
+    @classmethod
+    def _check_tier(cls, value: str | None) -> str | None:
+        return _check_value_tier(value)
+
 
 class RecipeLineOut(BaseModel):
     ingredient_id: uuid.UUID
     name: str
     aisle: str
     is_staple: bool
+    value_tier: str
+    value_note: str | None
     quantity: float | None
     unit: str | None
     display: str

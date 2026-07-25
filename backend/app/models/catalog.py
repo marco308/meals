@@ -7,13 +7,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.users import utcnow
 from app.services.aisles import UNKNOWN_AISLE
+from app.services.values import DEFAULT_VALUE_TIER
 
 
 class Ingredient(Base):
     """A canonical grocery item shared across recipes. Name is the canonical
     key ('chopped tomatoes' from two recipes is one ingredient); the aisle
     emoji drives shopping-list sort order; staples are hidden from the list by
-    default (decision Q5)."""
+    default (decision Q5); the value tier says whether the posh version is
+    worth it (decision Q17)."""
 
     __tablename__ = "ingredients"
     __table_args__ = (UniqueConstraint("household_id", "name", name="uq_ingredient_household_name"),)
@@ -23,6 +25,8 @@ class Ingredient(Base):
     name: Mapped[str] = mapped_column(String(200), index=True)
     aisle: Mapped[str] = mapped_column(String(10), default=UNKNOWN_AISLE)
     is_staple: Mapped[bool] = mapped_column(Boolean, default=False)
+    value_tier: Mapped[str] = mapped_column(String(10), default=DEFAULT_VALUE_TIER)  # premium | budget | any
+    value_note: Mapped[str | None] = mapped_column(String(200), default=None)  # why — "the cheap one goes bitter"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

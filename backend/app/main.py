@@ -1,10 +1,13 @@
+from collections.abc import Awaitable, Callable
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app import client_gate
 from app.config import get_settings
 from app.routers import auth, ingredients, meals, plans, recipes, shopping, skill
-from app.routers.skill import base_url
+from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
 
@@ -31,6 +34,33 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
+
+@app.middleware("http")
+async def client_compatibility(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """Reject clients older than `min_ios_build`, and tell every identified
+    client where the floor is so it can nudge the user before that happens."""
+    client = client_gate.parse_client_header(request.headers.get(client_gate.CLIENT_HEADER))
+    if client is None:  # curl, assistants, the MCP server — never gated
+        return await call_next(request)
+
+    config = get_settings()
+    if client.platform == "ios" and client.build < config.min_ios_build and not client_gate.is_exempt(request.url.path):
+        return JSONResponse(
+            status_code=426,  # Upgrade Required
+            content={
+                "detail": client_gate.upgrade_detail(client, config.min_ios_build, config.ios_upgrade_url),
+                "min_ios_build": config.min_ios_build,
+                "your_build": client.build,
+                "upgrade_url": config.ios_upgrade_url,
+            },
+        )
+
+    response = await call_next(request)
+    response.headers["X-Meals-Min-Client-Build"] = str(config.min_ios_build)
+    response.headers["X-Meals-Current-Client-Build"] = str(config.current_ios_build)
+    return response
+
+
 app.include_router(auth.router)
 app.include_router(ingredients.router)
 app.include_router(recipes.router)
@@ -56,6 +86,8 @@ async def root(request: Request) -> Response:
             "docs": f"{base}/docs",
             "skill": f"{base}/skill",
             "prompt_pack": f"{base}/prompt-pack",
+            # Lets an assistant spot a stale installed copy without a second request.
+            "playbook_version": playbook_version(),
             "health": f"{base}/healthz",
         }
     )
@@ -64,3 +96,18 @@ async def root(request: Request) -> Response:
 @app.get("/healthz", tags=["meta"])
 async def healthcheck() -> dict:
     return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
+
+
+@app.get("/client-config", tags=["meta"])
+async def client_config() -> dict:
+    """What this deployment expects of native clients. The iOS app reads this
+    at launch: below `min_ios_build` it is blocked (426 on everything except
+    the offline-queue endpoints), below `current_ios_build` it shows a
+    dismissible nudge. Unauthenticated, and never gated itself."""
+    config = get_settings()
+    return {
+        "api_version": app.version,
+        "min_ios_build": config.min_ios_build,
+        "current_ios_build": config.current_ios_build,
+        "upgrade_url": config.ios_upgrade_url,
+    }
