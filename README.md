@@ -163,3 +163,11 @@ API, which stays the single auth gate. Being internet-facing, auth is
 mandatory everywhere except `/healthz`, auth endpoints are rate-limited, and
 registration can be closed with `REGISTRATION_ENABLED=false` once the
 household has its accounts.
+
+All three services are pinned to the worker node `the app node` rather than the
+swarm manager, which carries the rest of the homelab. `make deploy` still goes
+through the manager — it holds the secrets and is the only node that can run
+`docker stack deploy` — but it forwards the sources to `the app node` and builds
+there, because locally built `:latest` images have no registry to pull from
+and a task only starts where its image exists. Traefik keeps running on the
+manager and reaches the tasks over the `traefik-public` overlay.

@@ -1,8 +1,11 @@
 # The backend image builds from the repo root (docker build -f backend/Dockerfile .)
 # so skill/ can ship in the image. This file also governs the deploy dir on the
-# swarm manager, where .env (secrets) must never enter a build context.
+# build node, where .env (secrets) and any database dump must never enter a
+# build context.
 .git
 .env
+backups
+*.sql
 ios
 planning
 deploy
