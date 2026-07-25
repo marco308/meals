@@ -126,10 +126,22 @@ the root landing as `playbook_version`) and the MCP server's connection
 instructions, which every client re-reads on connect. An assistant that sees a
 higher number than its own copy knows to re-fetch and say so.
 
-When the playbook's guidance changes, bump all three together — the stamps in
-[`skill/SKILL.md`](skill/SKILL.md) and [`skill/prompt-pack.md`](skill/prompt-pack.md),
-and `PLAYBOOK_VERSION` in [`mcp/meals_mcp/server.py`](mcp/meals_mcp/server.py).
-Tests fail if they drift.
+When the playbook's guidance changes, bump all four together — the stamps in
+[`skill/SKILL.md`](skill/SKILL.md) and [`skill/prompt-pack.md`](skill/prompt-pack.md)
+(the `<!-- playbook-version: N -->` marker *and* the "playbook vN" line each file
+states in its prose), `PLAYBOOK_VERSION` in
+[`mcp/meals_mcp/server.py`](mcp/meals_mcp/server.py), and the version + content
+digest pinned in
+[`backend/tests/integration/test_misc.py`](backend/tests/integration/test_misc.py).
+
+Tests fail if they drift — and the pinned digest is what makes that mean
+something. A stamp only helps if it moves when the guidance does: without the
+pin, new tools and new advice can ship under an unchanged number, so a stale
+copy compares v1 to v1, sees no drift, and never learns what it is missing. The
+digest hashes both documents with the version references normalised out, so
+editing what the playbook *says* fails
+`test_guidance_changes_are_announced_by_a_version_bump` until the version is
+bumped; the failure message prints the new digest to paste in.
 
 ### The quantity convention (decision Q2)
 
@@ -141,7 +153,7 @@ exact-matching canonical units only.
 ## Tests
 
 ```bash
-make test      # 216 backend tests (98% coverage) + 19 mcp tests — no Docker, no network
+make test      # 254 backend tests (99% coverage) + 28 mcp tests — no Docker, no network
 make ios-test  # 30 XCTest tests: API decoding against captured fixtures, the offline sync engine, error mapping
 ```
 
