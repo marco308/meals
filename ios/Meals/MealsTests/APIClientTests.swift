@@ -134,6 +134,41 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(updated.aisleLabel, "Tins & jars")
     }
 
+    func testChangePasswordPostsBothFieldsAndReturnsFreshToken() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/auth/password")
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["current_password"] as? String, "a-strong-password")
+            XCTAssertEqual(sent?["new_password"] as? String, "an-even-stronger-password")
+            return (
+                200,
+                Data(
+                    #"{"token": "meals_fresh-token", "token_type": "bearer", "user": {"id": "61931d47-4154-418a-a43f-f734a0e3d888", "email": "marcus@example.com", "display_name": "Marcus", "created_at": "2026-07-25T09:00:00Z"}}"#
+                    .utf8
+                )
+            )
+        }
+        let auth = try await client(protocolClass: StubProtocol.self)
+            .changePassword(currentPassword: "a-strong-password", newPassword: "an-even-stronger-password")
+        XCTAssertEqual(auth.token, "meals_fresh-token")
+        XCTAssertEqual(auth.user.displayName, "Marcus")
+    }
+
+    func testWrongCurrentPasswordSurfacesServerDetail() async {
+        StubProtocol.handler = { _ in (401, Data(#"{"detail": "current password is incorrect"}"#.utf8)) }
+        do {
+            _ = try await client(protocolClass: StubProtocol.self)
+                .changePassword(currentPassword: "nope", newPassword: "an-even-stronger-password")
+            XCTFail("expected an error")
+        } catch let error as APIError {
+            XCTAssertEqual(error, .unauthorized(detail: "current password is incorrect"))
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
     func testTransportErrorMapsToOffline() async {
         do {
             _ = try await client(protocolClass: FailingProtocol.self).fetchAisles()

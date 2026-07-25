@@ -104,6 +104,15 @@ extension APIClient {
         )
     }
 
+    /// Returns a fresh session token: the server revokes every existing one.
+    func changePassword(currentPassword: String, newPassword: String) async throws -> AuthResponse {
+        try await send(
+            "POST", "/auth/password",
+            json: ["current_password": currentPassword, "new_password": newPassword],
+            as: AuthResponse.self
+        )
+    }
+
     func me() async throws -> UserProfile {
         try await send("GET", "/auth/me", as: UserProfile.self)
     }
