@@ -33,18 +33,32 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.isAuthenticated {
+            // A build the server has cut off can't be trusted to render or
+            // write anything correctly, so it gets one screen and no tabs.
+            if case .required(let detail, let url) = session.upgrade {
+                UpgradeRequiredView(detail: detail, upgradeURL: url)
+            } else if session.isAuthenticated {
                 MainTabView()
                     .task { await session.restore() }
+                    .safeAreaInset(edge: .top) {
+                        if case .available(let url) = session.upgrade {
+                            UpgradeBanner(upgradeURL: url)
+                        }
+                    }
             } else {
                 LoginView()
             }
         }
+        .task { await session.checkClientCompatibility() }
         .onChange(of: scenePhase) { _, phase in
             // Coming back to the foreground is the natural sync point for
-            // anything queued while offline.
-            if phase == .active && session.isAuthenticated {
-                Task { await listStore.sync() }
+            // anything queued while offline — and the natural moment to notice
+            // that the server has moved on without us.
+            if phase == .active {
+                Task { await session.checkClientCompatibility() }
+                if session.isAuthenticated {
+                    Task { await listStore.sync() }
+                }
             }
         }
     }

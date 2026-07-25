@@ -92,6 +92,40 @@ from `deps.py`; every query filters on `user.household_id`.
   keyword table. It rides along on list items and recipe lines so it shows up
   at the shelf; the vocabulary is published in the skill.
 
+### Client/API compatibility
+
+The skill and the MCP server ship with the API, so **iOS is the only client
+that can be older than the server**, and once a build is on TestFlight it can't
+be recalled. The contract is therefore **additive-only**:
+
+- Never remove or rename a response field — deprecate by leaving it populated.
+  Swift `Codable` ignores unknown keys, so *adding* fields is always safe.
+- Never add a required request field, and never tighten validation on an
+  existing one.
+- New behaviour goes behind a new endpoint or a new optional query param.
+- Never change the meaning of an existing value in place (re-canonicalising a
+  unit, renumbering an enum) — that's the one class of change a tolerant
+  decoder can't absorb.
+- Keep the iOS models free of `String`-backed enums for server vocabularies
+  (aisles, slots). A new aisle must never be a decode error.
+
+`app/client_gate.py` is the escape hatch for the rare change that can't be
+additive. The app sends `X-Meals-Client: ios/<version> (<build>)`; builds below
+`min_ios_build` get a 426 and a blocking upgrade screen. Two rules:
+
+- **Requests without that header are never gated** — curl, assistants and the
+  MCP server must keep working.
+- **The offline queue always drains.** `/shopping-list*` is exempt (and must
+  stay exempt), because a blocked app that can't flush its queued `PendingOp`s
+  destroys the user's data rather than merely showing them a stale UI (Q11).
+
+Raising `MIN_IOS_BUILD` is a deploy-time decision that cuts off every install
+below it, so it stays at `0` until a change genuinely forces it; the config
+refuses a floor above `current_ios_build`. `GET /client-config` publishes both
+numbers and the app checks it at launch and on every foreground. When
+`CFBundleVersion` in `ios/project.yml` is bumped for an upload, move
+`current_ios_build` with it — that number is what drives the soft nudge.
+
 ### AI-facing surfaces
 
 Error strings, endpoint docstrings and MCP tool descriptions end up in an
