@@ -86,6 +86,30 @@ class TokenCreatedOut(TokenOut):
     token: str  # the plaintext PAT — shown exactly once
 
 
+class AccountDeleteIn(BaseModel):
+    # In the body, never a query parameter — a password in a URL ends up in
+    # access logs and proxy caches.
+    password: str = Field(description="Your current password, to confirm the deletion.")
+
+
+class AccountDeletedOut(BaseModel):
+    household_deleted: bool
+    detail: str
+
+
+class PasswordResetRequestIn(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64, description="The code from the reset email.")
+    new_password: str = Field(min_length=8, max_length=72)  # bcrypt operates on the first 72 bytes
+
+
+class AcceptedOut(BaseModel):
+    detail: str
+
+
 class InviteCreateIn(BaseModel):
     expires_in_days: int = Field(default=7, ge=1, le=90)
 

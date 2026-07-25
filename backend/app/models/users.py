@@ -71,7 +71,13 @@ class HouseholdInvite(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id", ondelete="CASCADE"))
-    created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Always set when an invite is created; nullable only so that deleting the
+    # inviter (Q20) blanks this rather than cascading the row away. Losing the
+    # record of who admitted whom the moment they leave would defeat the point
+    # of keeping redeemed invites at all.
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -81,4 +87,4 @@ class HouseholdInvite(Base):
     )
 
     household: Mapped[Household] = relationship(lazy="selectin")
-    created_by: Mapped[User] = relationship(foreign_keys=[created_by_user_id], lazy="selectin")
+    created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_user_id], lazy="selectin")

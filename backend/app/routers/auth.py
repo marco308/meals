@@ -1,3 +1,4 @@
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -8,23 +9,30 @@ from app.config import get_settings
 from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit
 from app.models import AuthToken, Household, HouseholdInvite, User
 from app.schemas.auth import (
+    AcceptedOut,
+    AccountDeletedOut,
+    AccountDeleteIn,
     AuthOut,
     InviteCreatedOut,
     InviteCreateIn,
     InviteOut,
     LoginIn,
     PasswordChangeIn,
+    PasswordResetConfirmIn,
+    PasswordResetRequestIn,
     RegisterIn,
     TokenCreatedOut,
     TokenCreateIn,
     TokenOut,
     UserOut,
 )
+from app.services.accounts import delete_user
+from app.services.mailer import EmailNotConfigured, EmailSendFailed, password_reset_body, send_email
 from app.services.security import (
-    generate_invite_code,
+    generate_short_code,
     generate_token,
-    hash_invite_code,
     hash_password,
+    hash_short_code,
     verify_password,
 )
 
@@ -34,7 +42,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def _redeem_invite(db: DbSession, code: str) -> HouseholdInvite:
     """Resolve an invite code to its household, or raise. Single-use and
     time-limited; brute force is bounded by the /auth/register rate limit."""
-    result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == hash_invite_code(code)))
+    result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == hash_short_code(code)))
     invite = result.scalar_one_or_none()
     # One message for every failure mode: a caller probing codes learns only
     # "no", never "that one existed but was used".
@@ -150,9 +158,142 @@ async def change_password(
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
 
+@router.post("/password-reset", response_model=AcceptedOut, status_code=status.HTTP_202_ACCEPTED)
+async def request_password_reset(
+    payload: PasswordResetRequestIn, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> AcceptedOut:
+    """Email a single-use code that lets someone set a new password without
+    knowing the old one (decision Q20). `POST /auth/password/reset-confirm`
+    redeems it.
+
+    **Always returns 202**, whether or not an account exists with that address,
+    and whether or not the email actually went out. Any other behaviour turns
+    this endpoint into a way to ask "does this person have an account here?".
+    A delivery failure is logged for the operator instead.
+
+    The exception is a server with no SMTP configured at all, which returns 503:
+    that says something about the *server*, not about any account, and a
+    self-hoster needs to be told rather than left wondering.
+    """
+    settings = get_settings()
+    if not settings.email_configured:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "this server cannot send email, so password reset is unavailable — "
+                "the operator needs to set SMTP_HOST and SMTP_FROM (see README). "
+                "A signed-in user can still change their password with POST /auth/password."
+            ),
+        )
+
+    result = await db.execute(select(User).where(User.email == payload.email.lower()))
+    user = result.scalar_one_or_none()
+    accepted = AcceptedOut(
+        detail=(
+            "if that address has an account, a reset code is on its way — it expires in "
+            f"{settings.password_reset_ttl_minutes} minutes and can be used once"
+        )
+    )
+    if user is None:
+        return accepted
+
+    # Supersede any outstanding code: two live codes for one account is one more
+    # than anybody needs.
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "reset"))
+    code, code_hash = generate_short_code()
+    db.add(
+        AuthToken(
+            user_id=user.id,
+            token_hash=code_hash,
+            kind="reset",
+            expires_at=datetime.now(UTC) + timedelta(minutes=settings.password_reset_ttl_minutes),
+        )
+    )
+    # Commit before sending: a code that exists but wasn't delivered is a dead
+    # end the user can retry past, while a delivered code with no row behind it
+    # is one they cannot.
+    await db.commit()
+    # Suppressed, not ignored: mailer.py logs the reason. The response must not
+    # vary with delivery success or the endpoint becomes an account oracle.
+    with contextlib.suppress(EmailNotConfigured, EmailSendFailed):
+        await send_email(
+            to=user.email,
+            subject="Reset your Meals password",
+            body=password_reset_body(user.display_name, code, settings.password_reset_ttl_minutes),
+        )
+    return accepted
+
+
+@router.post("/password/reset-confirm", response_model=AuthOut)
+async def confirm_password_reset(
+    payload: PasswordResetConfirmIn, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> AuthOut:
+    """Redeem a reset code from `POST /auth/password-reset` and set a new
+    password. Returns a fresh session token, so the app is logged straight in.
+
+    Every existing session token is revoked, which is the point: if someone else
+    knew the old password, this is what evicts them. Personal API tokens survive,
+    matching `POST /auth/password` — rotating a password shouldn't silently break
+    every AI client."""
+    result = await db.execute(
+        select(AuthToken).where(AuthToken.token_hash == hash_short_code(payload.code), AuthToken.kind == "reset")
+    )
+    reset = result.scalar_one_or_none()
+    if reset is None or (reset.expires_at is not None and as_aware(reset.expires_at) <= datetime.now(UTC)):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "that reset code is not valid — it may have been used already or expired. "
+                "Request a fresh one from POST /auth/password-reset."
+            ),
+        )
+    user = reset.user
+    user.password_hash = hash_password(payload.new_password)
+    # Drop the reset code (single use) and every session token, then issue one.
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("reset", "session"))))
+    token = _session_token(user)
+    db.add(token)
+    await db.commit()
+    return AuthOut(token=token.plain, user=UserOut.model_validate(user))
+
+
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.delete("/me", response_model=AccountDeletedOut)
+async def delete_account(
+    payload: AccountDeleteIn, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> AccountDeletedOut:
+    """Delete your account permanently (decision Q20). **This cannot be undone**
+    and there is no grace period — confirm with the person before calling it.
+
+    The current password is required, which is also why this is rate-limited.
+
+    What happens to the household's data depends on who else is in it:
+
+    - **Last member** — the household goes too: its recipes, meals, plans,
+      shopping lists and cooked history are all deleted. Nobody could ever reach
+      them again, so keeping them would be hoarding rather than caretaking.
+    - **Someone else remains** — only this account is deleted. Recipes they
+      added and meals they cooked stay, because those belong to the household
+      rather than to the person; the records simply stop naming them.
+
+    Every token the account holds, session and API, stops working immediately.
+    """
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
+    household_deleted = await delete_user(db, user)
+    await db.commit()
+    return AccountDeletedOut(
+        household_deleted=household_deleted,
+        detail=(
+            "account deleted, and the household went with it — there were no other members"
+            if household_deleted
+            else "account deleted; the household's recipes, plans and history remain for its other members"
+        ),
+    )
 
 
 @router.post("/invites", response_model=InviteCreatedOut, status_code=status.HTTP_201_CREATED)
@@ -163,7 +304,7 @@ async def create_invite(payload: InviteCreateIn, user: CurrentUser, db: DbSessio
     The code is returned once and stored only as a hash — if it's lost, revoke
     it with `DELETE /auth/invites/{id}` and issue another. Anyone holding it can
     join, so send it the way you'd send a password."""
-    code, code_hash = generate_invite_code()
+    code, code_hash = generate_short_code()
     invite = HouseholdInvite(
         household_id=user.household_id,
         created_by_user_id=user.id,

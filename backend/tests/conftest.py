@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.database import Base, get_db  # noqa: E402
+from app.database import Base, enforce_sqlite_foreign_keys, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -28,6 +28,9 @@ def fixture_html(name: str) -> str:
 @pytest.fixture
 async def engine():
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    # Without this the suite runs with foreign keys unenforced while production
+    # enforces them — see the docstring on enforce_sqlite_foreign_keys.
+    enforce_sqlite_foreign_keys(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine

@@ -43,6 +43,29 @@ class Settings(BaseSettings):
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
 
+    # Outbound email, used only for password resets (Q20). Unset by default: the
+    # app has always run with no mail configured, so a self-hoster who doesn't
+    # set these gets a clear 503 from the reset endpoint rather than a silently
+    # broken feature. Plain SMTP rather than a provider SDK, so any relay works
+    # and nobody is pushed towards a paid account.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None  # falls back to smtp_username
+    smtp_start_tls: bool = True
+    # Reset codes are short-lived on purpose: emailed in plaintext, and holding
+    # one is enough to change a password.
+    password_reset_ttl_minutes: int = 30
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.smtp_host and (self.smtp_from or self.smtp_username))
+
+    @property
+    def email_sender(self) -> str:
+        return self.smtp_from or self.smtp_username or "meals@localhost"
+
     @model_validator(mode="after")
     def _client_floor_must_be_reachable(self) -> Self:
         # Requiring a build that was never shipped would lock every install out

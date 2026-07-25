@@ -15,6 +15,11 @@ from app.services.security import hash_token
 
 _bearer = HTTPBearer(auto_error=False)
 
+# Which `AuthToken.kind`s may stand in for a login. Deliberately an allow-list:
+# the table also holds password-reset tokens, and a new kind added later should
+# have to opt in rather than silently become a credential.
+AUTHENTICATING_KINDS = ("session", "api")
+
 
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
@@ -27,7 +32,9 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     token_hash = hash_token(credentials.credentials)
-    result = await db.execute(select(AuthToken).where(AuthToken.token_hash == token_hash))
+    result = await db.execute(
+        select(AuthToken).where(AuthToken.token_hash == token_hash, AuthToken.kind.in_(AUTHENTICATING_KINDS))
+    )
     token = result.scalar_one_or_none()
     if token is None:
         raise HTTPException(
