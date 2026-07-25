@@ -16,6 +16,11 @@ issues and pull requests are welcome.
   reviewed against.
 - **[BACKLOG.md](BACKLOG.md)** is the list of things known to be missing, in
   rough priority order. Anything there is fair game.
+- **`issue #N` in a comment refers to the original private tracker**, not to an
+  issue here — this repo was developed privately and republished, so those
+  numbers don't resolve. They're kept because they say *why* a piece of code
+  exists; the decisions log is the record you can actually read. New code should
+  cite a `Q` number rather than an issue.
 
 ## Two licences, and why it matters to you
 
