@@ -121,10 +121,18 @@ extension APIClient {
         try await send("GET", "/ingredients/\(id.uuidString.lowercased())", as: IngredientInfo.self)
     }
 
-    func updateIngredient(id: UUID, aisle: String? = nil, isStaple: Bool? = nil) async throws -> IngredientInfo {
+    func updateIngredient(
+        id: UUID,
+        aisle: String? = nil,
+        isStaple: Bool? = nil,
+        valueTier: ValueTier? = nil,
+        valueNote: String? = nil
+    ) async throws -> IngredientInfo {
         var payload: [String: Any?] = [:]
         if let aisle { payload["aisle"] = aisle }
         if let isStaple { payload["is_staple"] = isStaple }
+        if let valueTier { payload["value_tier"] = valueTier.rawValue }
+        if let valueNote { payload["value_note"] = valueNote }  // "" clears the note server-side
         return try await send(
             "PATCH", "/ingredients/\(id.uuidString.lowercased())", json: payload, as: IngredientInfo.self
         )

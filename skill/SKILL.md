@@ -68,6 +68,13 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   staples check: `get_shopping_list(include_staples=true)`, then
   `need_staple(name)` for anything the user is low on — just that staple
   joins the main list; the rest stay hidden. Undo with `needed=false`.
+- **Premium vs budget.** Each ingredient carries the household's verdict on
+  whether the posh version is worth it: ⭐ `premium`, 💷 `budget`, or `any`
+  (no opinion, the default). It shows on the list beside the item, which is
+  where the choice actually gets made. Record one with
+  `set_ingredient_value(name, tier, why)` — the `why` is what they'll read in
+  the aisle ("the cheap stuff goes bitter"). `list_ingredients_by_value`
+  reads the tagged set back.
 - After the shop: `finish_shop()` archives the list and starts fresh.
 
 ## When to ask vs act
@@ -76,6 +83,11 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   check-offs, ad-hoc adds the user stated.
 - Ask first: removing meals you weren't told to remove, archiving anything,
   changing servings/scaling, replacing a whole plan.
+- Premium/budget tags are the household's taste and budget, not yours. Record
+  what they tell you ("never skimp on parmesan" → premium, with their reason).
+  You can *suggest* a tier when asked "is the expensive one worth it?" — say
+  what the difference is and where it shows up in cooking — but only save it
+  once they agree.
 
 ## Worked examples
 
@@ -90,3 +102,7 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   grouped by aisle, offer to check things off as they shop.
 - *"Scratch the burgers, we're out Friday"* → `remove_meal_from_plan("burgers")`
   — the list decrements itself; ad-hoc items survive.
+- *"Blind tasting says supermarket own-brand tinned tomatoes are fine"* →
+  `set_ingredient_value("chopped tomatoes", "budget", "own-brand cook down
+  the same")`. Next shop the line reads "chopped tomatoes 💷 own-brand is
+  fine" and nobody re-litigates it in the aisle.

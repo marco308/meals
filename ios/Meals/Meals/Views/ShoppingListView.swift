@@ -154,6 +154,9 @@ struct ShoppingItemRow: View {
                                 .font(.caption2)
                                 .foregroundStyle(.indigo)
                         }
+                        if !item.tier.badge.isEmpty {
+                            Text(item.tier.badge).font(.caption2)  // ⭐ buy the good one · 💷 own-brand
+                        }
                     }
                     if !item.neededBy.isEmpty {
                         Text("for \(item.neededBy.joined(separator: ", "))")
@@ -290,11 +293,22 @@ struct ItemDetailSheet: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    if item.tier != .any || item.valueNote != nil {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label(
+                                "\(item.tier.badge) \(item.tier.label)".trimmingCharacters(in: .whitespaces),
+                                systemImage: "sterlingsign.circle"
+                            )
+                            if let note = item.valueNote, !note.isEmpty {
+                                Text(note).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                     NavigationLink {
                         IngredientEditorView(ingredientId: item.ingredientId)
                     } label: {
                         HStack {
-                            Label("Edit aisle & staple", systemImage: "tag")
+                            Label("Edit aisle, staple & value", systemImage: "tag")
                             if item.isStaple {
                                 Spacer()
                                 Text("staple").font(.caption).foregroundStyle(.secondary)

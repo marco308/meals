@@ -139,6 +139,118 @@ class TestShoppingList:
         result = await server.add_to_list("olive oil", 500, "ml")
         assert "need_staple" in result, "the reply must warn that the staple stays hidden"
 
+    @respx.mock
+    async def test_value_advice_shows_at_the_shelf(self):
+        respx.get(f"{API}/shopping-list").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "items": [
+                        _item(
+                            "olive oil",
+                            "🍝",
+                            "Dry goods & pasta",
+                            "500 ml",
+                            value_tier="premium",
+                            value_note="the cheap stuff goes bitter",
+                        ),
+                        _item("plain flour", "🍝", "Dry goods & pasta", "1 kg", value_tier="budget"),
+                        _item("onion", "🥬", "Fruit & veg", "×2", value_tier="any"),
+                    ],
+                    "hidden_staples": 0,
+                },
+            )
+        )
+        result = await server.get_shopping_list()
+        assert "⭐ worth paying up for — the cheap stuff goes bitter" in result
+        assert "💷 own-brand is fine" in result
+        assert result.rstrip().endswith("onion — ×2"), "untagged items stay unadorned"
+
+
+class TestValueTier:
+    def _ingredient(self, **extra):
+        return {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "olive oil",
+            "aisle": "🍝",
+            "aisle_label": "Dry goods & pasta",
+            "is_staple": True,
+            "value_tier": "any",
+            "value_tier_label": "No strong opinion",
+            "value_note": None,
+            **extra,
+        }
+
+    @respx.mock
+    async def test_sets_tier_and_reason(self):
+        respx.get(f"{API}/ingredients").mock(return_value=httpx.Response(200, json=[self._ingredient()]))
+        patch = respx.patch(f"{API}/ingredients/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(
+                200,
+                json=self._ingredient(
+                    value_tier="premium",
+                    value_tier_label="Worth paying up for",
+                    value_note="the cheap stuff goes bitter",
+                ),
+            )
+        )
+        result = await server.set_ingredient_value("Olive Oil", "premium", "the cheap stuff goes bitter")
+        import json
+
+        sent = json.loads(patch.calls.last.request.content)
+        assert sent == {"value_tier": "premium", "value_note": "the cheap stuff goes bitter"}
+        assert "⭐ worth paying up for — the cheap stuff goes bitter" in result
+
+    @respx.mock
+    async def test_clearing_the_tier_clears_the_reason(self):
+        respx.get(f"{API}/ingredients").mock(
+            return_value=httpx.Response(200, json=[self._ingredient(value_tier="premium", value_note="stale reason")])
+        )
+        patch = respx.patch(f"{API}/ingredients/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(200, json=self._ingredient())
+        )
+        result = await server.set_ingredient_value("olive oil", "any")
+        import json
+
+        assert json.loads(patch.calls.last.request.content) == {"value_tier": "any", "value_note": ""}
+        assert "no strong opinion" in result
+
+    @respx.mock
+    async def test_unknown_ingredient_suggests_near_misses(self):
+        respx.get(f"{API}/ingredients").mock(
+            return_value=httpx.Response(200, json=[self._ingredient(name="olive oil spray")])
+        )
+        result = await server.set_ingredient_value("olive oil", "premium")
+        assert "olive oil spray" in result
+
+    @respx.mock
+    async def test_invalid_tier_passes_the_api_hint_through(self):
+        respx.get(f"{API}/ingredients").mock(return_value=httpx.Response(200, json=[self._ingredient()]))
+        respx.patch(f"{API}/ingredients/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(422, json={"detail": "unknown value tier 'posh'; valid tiers: 'premium' ..."})
+        )
+        assert "valid tiers" in await server.set_ingredient_value("olive oil", "posh")
+
+    @respx.mock
+    async def test_list_by_tier(self):
+        respx.get(f"{API}/ingredients").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    self._ingredient(value_tier="premium", value_note="the cheap stuff goes bitter"),
+                    self._ingredient(name="parmesan", value_tier="premium"),
+                ],
+            )
+        )
+        result = await server.list_ingredients_by_value("premium")
+        assert "olive oil — the cheap stuff goes bitter" in result
+        assert "parmesan" in result
+
+    @respx.mock
+    async def test_list_by_tier_when_empty_says_how_to_tag(self):
+        respx.get(f"{API}/ingredients").mock(return_value=httpx.Response(200, json=[]))
+        assert "set_ingredient_value" in await server.list_ingredients_by_value("budget")
+
 
 class TestRecipes:
     @respx.mock

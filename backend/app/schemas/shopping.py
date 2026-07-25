@@ -30,6 +30,9 @@ class ListItemOut(BaseModel):
     aisle: str
     aisle_label: str
     is_staple: bool
+    value_tier: str  # premium | budget | any — decide at the shelf, not at home
+    value_tier_label: str
+    value_note: str | None
     quantity: float | None
     unit: str | None
     display: str

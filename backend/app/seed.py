@@ -93,6 +93,13 @@ def main() -> None:
     for staple in ("olive oil", "salt", "black pepper"):
         client.post("/ingredients", json={"name": staple, "is_staple": True}).raise_for_status()
 
+    # A couple of premium/budget verdicts so the demo list shows the ⭐/💷 advice
+    for name, tier, why in (
+        ("olive oil", "premium", "the cheap stuff tastes bitter"),
+        ("chopped tomatoes", "budget", "own-brand cook down the same in a ragu"),
+    ):
+        client.post("/ingredients", json={"name": name, "value_tier": tier, "value_note": why}).raise_for_status()
+
     # Recipes
     recipe_ids: dict[str, str] = {}
     for recipe in (SPAG_BOL, COTTAGE_PIE, STIR_FRY):
