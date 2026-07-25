@@ -100,6 +100,14 @@ def _fmt_qty(item: dict) -> str:
     return f" — {display}" if display else ""
 
 
+def _fmt_value(item: dict) -> str:
+    """Premium/budget buying advice, rendered where the choice is made."""
+    tier = item.get("value_tier") or "any"
+    badge = {"premium": "⭐ worth paying up for", "budget": "💷 own-brand is fine"}.get(tier, "")
+    bits = [bit for bit in (badge, item.get("value_note")) if bit]
+    return f"  [{' — '.join(bits)}]" if bits else ""
+
+
 def _fmt_recipe_summary(recipe: dict) -> str:
     time_bits = []
     if recipe.get("prep_minutes"):
@@ -316,7 +324,7 @@ async def get_shopping_list(include_staples: bool = False) -> str:
         tick = "✔ " if item["checked"] else ""
         needed_by = {s["meal_name"] for s in item["sources"] if s["meal_name"]}
         why = f"  (for: {', '.join(sorted(needed_by))})" if needed_by else ""
-        lines.append(f"  {tick}{item['name']}{_fmt_qty(item)}{why}")
+        lines.append(f"  {tick}{item['name']}{_fmt_qty(item)}{why}{_fmt_value(item)}")
     if data["hidden_staples"]:
         lines.append(
             f"\n({data['hidden_staples']} staples hidden — call with include_staples=true to check them, "
@@ -409,6 +417,15 @@ async def finish_shop() -> str:
     return f"Shop finished. List archived; fresh list started [id: {result['new_list_id']}]."
 
 
+async def _find_ingredient(name: str) -> dict:
+    ingredients = await _call("GET", "/ingredients", params={"search": name})
+    exact = [i for i in ingredients if i["name"] == name.lower().strip()]
+    if not exact:
+        names = ", ".join(i["name"] for i in ingredients) or "none like that"
+        raise ApiError(f"No ingredient '{name}' (similar: {names}).")
+    return exact[0]
+
+
 @mcp.tool()
 async def set_ingredient_aisle(ingredient_name: str, aisle_emoji: str, is_staple: bool | None = None) -> str:
     """Tag an ingredient's supermarket aisle (❓ items need this) and
@@ -416,19 +433,56 @@ async def set_ingredient_aisle(ingredient_name: str, aisle_emoji: str, is_staple
     🥩 meat & fish, 🥛 dairy & eggs, 🥫 tins & jars, 🍝 dry goods, 🌶️ herbs &
     spices, 🥤 drinks, 🍫 snacks, 🧊 frozen, 🧴 household."""
     try:
-        ingredients = await _call("GET", "/ingredients", params={"search": ingredient_name})
-        exact = [i for i in ingredients if i["name"] == ingredient_name.lower().strip()]
-        if not exact:
-            names = ", ".join(i["name"] for i in ingredients) or "none like that"
-            return f"No ingredient '{ingredient_name}' (similar: {names})."
+        ingredient = await _find_ingredient(ingredient_name)
         patch: dict[str, Any] = {"aisle": aisle_emoji}
         if is_staple is not None:
             patch["is_staple"] = is_staple
-        updated = await _call("PATCH", f"/ingredients/{exact[0]['id']}", json=patch)
+        updated = await _call("PATCH", f"/ingredients/{ingredient['id']}", json=patch)
     except ApiError as exc:
         return str(exc)
     staple = " (staple)" if updated["is_staple"] else ""
     return f"{updated['name']} → {updated['aisle']} {updated['aisle_label']}{staple}"
+
+
+@mcp.tool()
+async def set_ingredient_value(ingredient_name: str, tier: str, why: str | None = None) -> str:
+    """Record whether the premium version of an ingredient is worth the money,
+    so it shows up on the shopping list at the shelf. tier: 'premium' (worth
+    paying up for — olive oil, parmesan, chocolate), 'budget' (own-brand is
+    fine — plain flour, tinned tomatoes for a long braise), or 'any' (clears
+    the advice). `why` is a short reason shown with the item ("the cheap stuff
+    goes bitter"); pass "" to clear it. Only set this when the household has
+    said so or asked you to decide — don't guess on their behalf."""
+    try:
+        ingredient = await _find_ingredient(ingredient_name)
+        patch: dict[str, Any] = {"value_tier": tier}
+        if why is not None:
+            patch["value_note"] = why
+        elif tier == "any":
+            patch["value_note"] = ""  # clearing the tier clears the stale reason with it
+        updated = await _call("PATCH", f"/ingredients/{ingredient['id']}", json=patch)
+    except ApiError as exc:
+        return str(exc)
+    if updated["value_tier"] == "any":
+        return f"{updated['name']}: no strong opinion — buy whatever."
+    badge = "⭐" if updated["value_tier"] == "premium" else "💷"
+    note = f" — {updated['value_note']}" if updated.get("value_note") else ""
+    return f"{updated['name']} → {badge} {updated['value_tier_label'].lower()}{note}"
+
+
+@mcp.tool()
+async def list_ingredients_by_value(tier: str = "premium") -> str:
+    """The household's buying-advice list: which ingredients they've decided
+    are worth paying up for ('premium') and which to buy own-brand
+    ('budget')."""
+    try:
+        ingredients = await _call("GET", "/ingredients", params={"value_tier": tier})
+    except ApiError as exc:
+        return str(exc)
+    if not ingredients:
+        return f"Nothing tagged '{tier}' yet — set_ingredient_value(name, '{tier}') records one."
+    lines = [f"  {i['name']}" + (f" — {i['value_note']}" if i.get("value_note") else "") for i in ingredients]
+    return f"Tagged '{tier}':\n" + "\n".join(lines)
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

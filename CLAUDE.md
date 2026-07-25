@@ -86,6 +86,11 @@ from `deps.py`; every query filters on `user.household_id`.
   idempotency and id-remapping.
 - **Aisle order** (`services/aisles.py`) is the shopping-list sort order and
   its emoji vocabulary is published in the skill. Keep the two in sync.
+- **Premium vs budget** (`services/values.py`, Q17). An ingredient's
+  `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
+  household's own verdict — unlike an aisle it is **never guessed**, so no
+  keyword table. It rides along on list items and recipe lines so it shows up
+  at the shelf; the vocabulary is published in the skill.
 
 ### AI-facing surfaces
 

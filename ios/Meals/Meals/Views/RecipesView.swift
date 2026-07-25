@@ -138,6 +138,9 @@ struct RecipeDetailView: View {
                         HStack {
                             Text(line.aisle)
                             Text(line.name)
+                            if !line.tier.badge.isEmpty {
+                                Text(line.tier.badge).font(.caption2)
+                            }
                             Spacer()
                             Text(line.display)
                                 .foregroundStyle(.secondary)
@@ -148,7 +151,7 @@ struct RecipeDetailView: View {
             } header: {
                 Text("Ingredients")
             } footer: {
-                Text("Tap an ingredient to set its aisle or staple flag.")
+                Text("Tap an ingredient to set its aisle, staple flag, or whether the premium version is worth it.")
             }
 
             if let instructions = recipe.instructions, !instructions.isEmpty {
