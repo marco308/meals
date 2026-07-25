@@ -33,6 +33,9 @@ struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     let prepMinutes: Int?
     let cookMinutes: Int?
     let tags: [String]
+    /// Optional here as well as on `Recipe`: a backend that predates thumbnails
+    /// on the listing simply doesn't send it.
+    var imageUrl: String? = nil
     // Optional so the app still decodes against a backend that predates the
     // cooked-history fields.
     var timesCooked: Int? = nil

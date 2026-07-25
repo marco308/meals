@@ -25,6 +25,7 @@ struct RecipeEditorView: View {
     @State private var prepMinutes: String
     @State private var cookMinutes: String
     @State private var tags: String
+    @State private var imageUrl: String
     @State private var instructions: String
     @State private var lines: [LooseLine]
     @State private var editingLine: LooseLine?
@@ -40,6 +41,7 @@ struct RecipeEditorView: View {
         _prepMinutes = State(initialValue: recipe.prepMinutes.map(String.init) ?? "")
         _cookMinutes = State(initialValue: recipe.cookMinutes.map(String.init) ?? "")
         _tags = State(initialValue: recipe.tags.joined(separator: ", "))
+        _imageUrl = State(initialValue: recipe.imageUrl ?? "")
         _instructions = State(initialValue: recipe.instructions ?? "")
         _lines = State(
             initialValue: recipe.ingredients.map { LooseLine(name: $0.name, quantity: $0.quantity, unit: $0.unit) }
@@ -56,6 +58,17 @@ struct RecipeEditorView: View {
         lines.map { ($0.name, $0.quantity, $0.unit) }.elementsEqual(originalLines) { left, right in
             left.0 == right.0 && left.1 == right.1 && left.2 == right.2
         } == false
+    }
+
+    private var trimmedImageUrl: String { imageUrl.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// The field is fine empty (no photo); anything else has to be a URL the
+    /// app will actually load, so a typo is caught here rather than showing as
+    /// a permanently blank image.
+    private var imageUrlIsUsable: Bool { RecipeImageURL.parse(trimmedImageUrl) != nil }
+
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty && (trimmedImageUrl.isEmpty || imageUrlIsUsable)
     }
 
     var body: some View {
@@ -79,6 +92,35 @@ struct RecipeEditorView: View {
                 }
                 TextField("Tags, comma separated", text: $tags)
                     .textInputAutocapitalization(.never)
+            }
+
+            Section {
+                TextField("https://…", text: $imageUrl, axis: .vertical)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .lineLimit(1...3)
+                if !trimmedImageUrl.isEmpty {
+                    HStack(spacing: 12) {
+                        RecipeThumbnail(imageUrl: trimmedImageUrl, size: 64)
+                        if imageUrlIsUsable {
+                            Text("Preview")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Needs to start with http:// or https://")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                        Spacer()
+                        Button("Remove", role: .destructive) { imageUrl = "" }
+                            .font(.footnote)
+                    }
+                }
+            } header: {
+                Text("Photo")
+            } footer: {
+                Text("Ingested recipes usually bring their own photo. Paste a different image address to replace it, or clear the field for none.")
             }
 
             Section {
@@ -122,7 +164,7 @@ struct RecipeEditorView: View {
                         Text("Save changes").frame(maxWidth: .infinity).fontWeight(.semibold)
                     }
                 }
-                .disabled(isSaving || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(isSaving || !canSave)
             } footer: {
                 Text("Saved corrections are kept: re-ingesting the source URL won't overwrite them.")
             }
@@ -132,7 +174,7 @@ struct RecipeEditorView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
-                    .disabled(isSaving || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(isSaving || !canSave)
                     .fontWeight(.semibold)
             }
         }
@@ -166,6 +208,7 @@ struct RecipeEditorView: View {
                     servings: .some(Int(servings)),
                     prepMinutes: .some(Int(prepMinutes)),
                     cookMinutes: .some(Int(cookMinutes)),
+                    imageUrl: .some(trimmedImageUrl.isEmpty ? nil : trimmedImageUrl),
                     instructions: .some(instructions.isEmpty ? nil : instructions),
                     tags: parsedTags,
                     ingredients: ingredientsChanged ? lines : nil

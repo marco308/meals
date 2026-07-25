@@ -135,6 +135,25 @@ class TestBrowseAndEdit:
         quick = await auth_client.get("/recipes", params={"max_total_minutes": 30})
         assert [r["title"] for r in quick.json()] == ["Quick Stir-fry"]
 
+    async def test_listing_carries_the_photo(self, auth_client):
+        """The library listing shows thumbnails, so image_url rides along on
+        the summary — otherwise every row would need its own detail fetch."""
+        await create_recipe(auth_client, image_url="https://example.com/ragu.jpg")
+        listing = await auth_client.get("/recipes")
+        assert listing.json()[0]["image_url"] == "https://example.com/ragu.jpg"
+
+    async def test_edit_replaces_and_clears_the_photo(self, auth_client):
+        recipe = await create_recipe(auth_client, image_url="https://example.com/old.jpg")
+        swapped = await auth_client.patch(f"/recipes/{recipe['id']}", json={"image_url": "https://example.com/new.jpg"})
+        assert swapped.json()["image_url"] == "https://example.com/new.jpg"
+
+        # An untouched photo stays put: PATCH only writes what was sent.
+        kept = await auth_client.patch(f"/recipes/{recipe['id']}", json={"title": "Ragù"})
+        assert kept.json()["image_url"] == "https://example.com/new.jpg"
+
+        cleared = await auth_client.patch(f"/recipes/{recipe['id']}", json={"image_url": None})
+        assert cleared.json()["image_url"] is None
+
     async def test_get_unknown_recipe_404(self, auth_client):
         response = await auth_client.get("/recipes/00000000-0000-0000-0000-000000000000")
         assert response.status_code == 404

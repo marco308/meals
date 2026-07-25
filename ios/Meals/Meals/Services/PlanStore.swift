@@ -263,6 +263,7 @@ final class RecipeStore {
         servings: Int?? = nil,
         prepMinutes: Int?? = nil,
         cookMinutes: Int?? = nil,
+        imageUrl: String?? = nil,
         instructions: String?? = nil,
         tags: [String]? = nil,
         ingredients: [LooseLine]? = nil
@@ -273,6 +274,7 @@ final class RecipeStore {
             servings: servings,
             prepMinutes: prepMinutes,
             cookMinutes: cookMinutes,
+            imageUrl: imageUrl,
             instructions: instructions,
             tags: tags,
             ingredients: ingredients

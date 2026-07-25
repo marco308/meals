@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 5
+PLAYBOOK_VERSION = 6
 
 mcp = FastMCP(
     "meals",

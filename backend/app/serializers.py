@@ -74,6 +74,7 @@ def recipe_summary(recipe: Recipe) -> RecipeSummary:
         servings=recipe.servings,
         prep_minutes=recipe.prep_minutes,
         cook_minutes=recipe.cook_minutes,
+        image_url=recipe.image_url,
         tags=list(recipe.tags or []),
         times_cooked=recipe.times_cooked,
         last_cooked_at=recipe.last_cooked_at,

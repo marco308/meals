@@ -37,7 +37,7 @@ targets:
         # App Store Connect is the source of truth for what has shipped —
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`.
-        CFBundleVersion: "12"
+        CFBundleVersion: "13"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

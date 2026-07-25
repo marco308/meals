@@ -280,6 +280,47 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(updated.edited)
     }
 
+    /// Clearing the photo has to reach the server as an explicit null —
+    /// "no image_url key" means "leave it alone", which is the opposite.
+    func testUpdateRecipeSendsExplicitNullToClearThePhoto() async throws {
+        StubProtocol.handler = { request in
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertTrue(sent?.keys.contains("image_url") ?? false)
+            XCTAssertTrue(sent?["image_url"] is NSNull)
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "title": "Cottage Pie", "source_url": null, "servings": null, "prep_minutes": null, "cook_minutes": null, "image_url": null, "instructions": null, "tags": [], "parse_source": "jsonld", "edited": true, "ingredients": []}"#
+                    .utf8
+                )
+            )
+        }
+        let updated = try await client(protocolClass: StubProtocol.self).updateRecipe(
+            id: UUID(), imageUrl: .some(nil)
+        )
+        XCTAssertNil(updated.imageUrl)
+    }
+
+    func testUpdateRecipeSendsANewPhotoURL() async throws {
+        StubProtocol.handler = { request in
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["image_url"] as? String, "https://example.com/pie.jpg")
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "title": "Cottage Pie", "source_url": null, "servings": null, "prep_minutes": null, "cook_minutes": null, "image_url": "https://example.com/pie.jpg", "instructions": null, "tags": [], "parse_source": "jsonld", "edited": true, "ingredients": []}"#
+                    .utf8
+                )
+            )
+        }
+        let updated = try await client(protocolClass: StubProtocol.self).updateRecipe(
+            id: UUID(), imageUrl: .some("https://example.com/pie.jpg")
+        )
+        XCTAssertEqual(updated.imageUrl, "https://example.com/pie.jpg")
+    }
+
     func testUpdateRecipeSendsIngredientsWhenTheyChange() async throws {
         StubProtocol.handler = { request in
             let body = request.httpBody ?? request.streamedBody()

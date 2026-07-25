@@ -296,6 +296,11 @@ extension APIClient {
         return try await send("PATCH", "/meals/\(id.uuidString.lowercased())", json: payload, as: Meal.self)
     }
 
+    /// JSON `null` rather than "key absent" — see `updateRecipe`.
+    private static func nullable(_ value: (some Any)?) -> Any {
+        value ?? NSNull()
+    }
+
     /// Correct a parsed recipe (#29). Only the arguments passed are sent: the
     /// endpoint is a true PATCH, and sending an untouched field would mark the
     /// recipe edited for no reason. Passing `ingredients` replaces the whole
@@ -307,16 +312,23 @@ extension APIClient {
         servings: Int?? = nil,
         prepMinutes: Int?? = nil,
         cookMinutes: Int?? = nil,
+        imageUrl: String?? = nil,
         instructions: String?? = nil,
         tags: [String]? = nil,
         ingredients: [LooseLine]? = nil
     ) async throws -> Recipe {
+        // Each of these is doubly optional: the outer nil means "not touched,
+        // don't send it", the inner nil means "the user cleared it, send an
+        // explicit null". `nullable` keeps the second case alive — a plain nil
+        // in a `[String: Any?]` removes the key, which the server would read
+        // as "leave it as it was".
         var payload: [String: Any?] = [:]
         if let title { payload["title"] = title }
-        if let servings { payload["servings"] = servings }
-        if let prepMinutes { payload["prep_minutes"] = prepMinutes }
-        if let cookMinutes { payload["cook_minutes"] = cookMinutes }
-        if let instructions { payload["instructions"] = instructions }
+        if let servings { payload["servings"] = Self.nullable(servings) }
+        if let prepMinutes { payload["prep_minutes"] = Self.nullable(prepMinutes) }
+        if let cookMinutes { payload["cook_minutes"] = Self.nullable(cookMinutes) }
+        if let imageUrl { payload["image_url"] = Self.nullable(imageUrl) }
+        if let instructions { payload["instructions"] = Self.nullable(instructions) }
         if let tags { payload["tags"] = tags }
         if let ingredients { payload["ingredients"] = Self.linePayload(ingredients) }
         return try await send("PATCH", "/recipes/\(id.uuidString.lowercased())", json: payload, as: Recipe.self)

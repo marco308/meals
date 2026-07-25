@@ -60,6 +60,17 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(spag.totalMinutes, 60)
     }
 
+    /// The listing fixture predates thumbnails; a summary that does carry one
+    /// decodes it. Both shapes have to work — the app can outrun the server.
+    func testSummaryPhotoIsOptionalAndDecodedWhenSent() throws {
+        let recipes = try APIClient.decoder().decode([RecipeSummary].self, from: fixture("recipes"))
+        XCTAssertNil(recipes.first?.imageUrl)
+
+        let json = #"[{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "title": "Cottage Pie", "source_url": null, "servings": null, "prep_minutes": null, "cook_minutes": null, "image_url": "https://example.com/pie.jpg", "tags": []}]"#
+        let withPhoto = try APIClient.decoder().decode([RecipeSummary].self, from: Data(json.utf8))
+        XCTAssertEqual(withPhoto.first?.imageUrl, "https://example.com/pie.jpg")
+    }
+
     func testDecodesRecipeDetail() throws {
         let recipe = try APIClient.decoder().decode(Recipe.self, from: fixture("recipe_detail"))
         XCTAssertFalse(recipe.ingredients.isEmpty)

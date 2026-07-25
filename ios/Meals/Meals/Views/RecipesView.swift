@@ -116,14 +116,23 @@ struct RecipeRow: View {
     let recipe: RecipeSummary
 
     var body: some View {
+        HStack(spacing: 12) {
+            RecipeThumbnail(imageUrl: recipe.imageUrl)
+            details
+        }
+    }
+
+    private var details: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(recipe.title)
             HStack(spacing: 8) {
+                // Servings and time are the facts you scan the library for,
+                // so they keep their width and the tags truncate instead.
                 if let servings = recipe.servings {
-                    Label("\(servings)", systemImage: "person.2")
+                    Label("\(servings)", systemImage: "person.2").layoutPriority(1)
                 }
                 if let minutes = recipe.totalMinutes {
-                    Label("\(minutes) min", systemImage: "clock")
+                    Label("\(minutes) min", systemImage: "clock").layoutPriority(1)
                 }
                 ForEach(recipe.tags.prefix(2), id: \.self) { tag in
                     Text(tag)
@@ -134,6 +143,9 @@ struct RecipeRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            // The thumbnail costs the row real width: without this the times
+            // wrap mid-label ("80 / min") instead of the tags giving way.
+            .lineLimit(1)
             if let cooked = recipe.cookedSummary {
                 Text(cooked)
                     .font(.caption2)
@@ -180,6 +192,13 @@ struct RecipeDetailView: View {
 
     private func detail(_ recipe: Recipe) -> some View {
         List {
+            if RecipeImageURL.parse(recipe.imageUrl) != nil {
+                Section {
+                    RecipeHeroImage(imageUrl: recipe.imageUrl)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
+
             if planContext?.cookedAt != nil {
                 Section {
                     Label("Cooked", systemImage: "checkmark.circle.fill")

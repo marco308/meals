@@ -109,6 +109,9 @@ class RecipeSummary(BaseModel):
     servings: int | None
     prep_minutes: int | None
     cook_minutes: int | None
+    # Carried on the summary too so a library listing can show thumbnails
+    # without a detail fetch per row.
+    image_url: str | None
     tags: list[str]
     times_cooked: int
     last_cooked_at: datetime | None
