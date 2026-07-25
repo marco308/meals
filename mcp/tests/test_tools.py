@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
@@ -251,3 +254,21 @@ class TestAuthErrors:
         respx.get(f"{API}/plans/current").mock(return_value=httpx.Response(401, json={"detail": "nope"}))
         result = await server.get_plan()
         assert "MEALS_API_TOKEN" in result
+
+
+class TestPlaybookVersion:
+    """The instructions ship on every connection, so they are how an assistant
+    learns its installed (never self-updating) skill snapshot has gone stale."""
+
+    def test_matches_the_stamp_in_the_skill(self):
+        skill = Path(__file__).resolve().parents[2] / "skill" / "SKILL.md"
+        stamped = re.search(r"<!--\s*playbook-version:\s*(\d+)\s*-->", skill.read_text(encoding="utf-8"))
+        assert stamped, "SKILL.md lost its playbook-version stamp"
+        assert int(stamped.group(1)) == server.PLAYBOOK_VERSION, (
+            "bump PLAYBOOK_VERSION and both skill/*.md stamps together"
+        )
+
+    def test_instructions_announce_the_version_and_the_fix(self):
+        instructions = server.mcp.instructions or ""
+        assert f"Playbook v{server.PLAYBOOK_VERSION}" in instructions
+        assert "/skill" in instructions

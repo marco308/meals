@@ -119,6 +119,18 @@ Both are unauthenticated, ship inside the backend image, and are advertised
 from the API root (`GET /` returns a JSON landing for non-browser clients).
 The repo copies in [`skill/`](skill/) are the sources.
 
+**Version stamp.** An installed skill or a pasted prompt pack is a snapshot
+that never updates itself, so both carry a `<!-- playbook-version: N -->` marker
+and the live surfaces publish the current number: `GET /skill/version` (also on
+the root landing as `playbook_version`) and the MCP server's connection
+instructions, which every client re-reads on connect. An assistant that sees a
+higher number than its own copy knows to re-fetch and say so.
+
+When the playbook's guidance changes, bump all three together — the stamps in
+[`skill/SKILL.md`](skill/SKILL.md) and [`skill/prompt-pack.md`](skill/prompt-pack.md),
+and `PLAYBOOK_VERSION` in [`mcp/meals_mcp/server.py`](mcp/meals_mcp/server.py).
+Tests fail if they drift.
+
 ### The quantity convention (decision Q2)
 
 Every quantity is **metric** (g/kg/ml/l) or a **count of a natural unit**

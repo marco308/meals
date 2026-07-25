@@ -28,13 +28,20 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
+# Mirrors the <!-- playbook-version: N --> stamp in skill/SKILL.md (a test fails if
+# they drift). Instructions ship fresh on every connection, so this is the one
+# channel that can tell an assistant its installed skill snapshot has gone stale.
+PLAYBOOK_VERSION = 1
+
 mcp = FastMCP(
     "meals",
     instructions=(
-        "Meal planning and shopping tools. Quantities must be metric (g/kg/ml/l) "
-        "or a count of a natural unit ('2 tins', '3 cloves') — convert before "
-        "writing. The shopping list is aisle-sorted and knows which meal needs "
-        "every item."
+        f"Meal planning and shopping tools. Playbook v{PLAYBOOK_VERSION} is current: if "
+        "an installed meal-planner skill or prompt pack states a lower version, it is "
+        "stale — re-fetch /skill or /prompt-pack from this deployment and tell the user. "
+        "Quantities must be metric (g/kg/ml/l) or a count of a natural unit ('2 tins', "
+        "'3 cloves') — convert before writing. The shopping list is aisle-sorted and "
+        "knows which meal needs every item."
     ),
 )
 
