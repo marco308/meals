@@ -15,6 +15,9 @@ COPY backend/alembic ./alembic
 COPY backend/app ./app
 # The skill + prompt pack, served at /skill and /prompt-pack
 COPY skill ./skill
+# The App Store's privacy and support URLs point at /privacy and /support, which
+# render these. If they don't ship, those URLs 404 and the listing is broken.
+COPY PRIVACY.md SUPPORT.md ./
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8000

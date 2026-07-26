@@ -40,3 +40,9 @@ xcuserdata/
 ios/Meals/Meals.xcodeproj/
 ios/Meals/ExportOptions.plist
 ios/Meals/Meals/Info.plist
+
+# App Store screenshots: regenerated from scratch by `make ios-screenshots`, so
+# committing megabytes of them would be storing a build output. The recipe is
+# in ios/screenshots/capture.sh; the pictures are not the source.
+ios/screenshots/*/
+ios/screenshots/last-failure.log

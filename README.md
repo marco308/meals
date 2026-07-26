@@ -92,11 +92,19 @@ PASSWORD_RESET_TTL_MINUTES=30   # default
 
 `make ios-build` / `make ios-test` (needs Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen)),
 or open `ios/Meals/Meals.xcodeproj` after running `xcodegen generate` there.
-Log in with the seed's demo account against `http://localhost:8000` (editable
-on the login screen). Check-offs and quick adds work with no signal — the hard
-requirement from decision Q11: interactions render instantly from a cached
-list, queue to disk, survive relaunch, and replay in order (with idempotent
-client ids and id-remapping for server-side merges) when connectivity returns.
+The app ships pointing at `https://meals.marcuslab.uk`; put your own address in
+the Server field on the sign-in screen, or launch the simulator build with
+`-serverURL http://localhost:8000` and use the seed's demo account. Check-offs
+and quick adds work with no signal — the hard requirement from decision Q11:
+interactions render instantly from a cached list, queue to disk, survive
+relaunch, and replay in order (with idempotent client ids and id-remapping for
+server-side merges) when connectivity returns.
+
+`make ios-screenshots` regenerates the App Store screenshot set against a
+throwaway seeded API and a throwaway simulator
+([how](ios/screenshots/README.md)). What's shipped, and what is only built,
+is tracked in [ios/CHANGELOG.md](ios/CHANGELOG.md); submission material lives
+in [ios/AppStore/](ios/AppStore/).
 
 ## Trying the AI layer
 

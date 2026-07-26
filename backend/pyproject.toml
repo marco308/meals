@@ -16,6 +16,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "bcrypt>=4.1",
     "aiosmtplib>=3.0",
+    "markdown-it-py>=3.0",
 ]
 
 [dependency-groups]

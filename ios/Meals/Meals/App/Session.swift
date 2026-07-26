@@ -56,7 +56,10 @@ final class Session {
     var isAuthenticated: Bool { token != nil }
 
     init() {
-        serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? "http://localhost:8000"
+        // `-serverURL http://localhost:8000` as a launch argument lands in
+        // UserDefaults, which is how the simulator gets pointed at a local API
+        // without anyone typing into the field.
+        serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? AppLinks.defaultServerURL
         token = KeychainStore.loadToken()
         observeUpgradeNotices()
     }
@@ -66,7 +69,7 @@ final class Session {
     }
 
     var api: APIClient {
-        APIClient(baseURL: URL(string: serverURL) ?? URL(string: "http://localhost:8000")!, token: token)
+        APIClient(baseURL: URL(string: serverURL) ?? URL(string: AppLinks.defaultServerURL)!, token: token)
     }
 
     func logIn(email: String, password: String) async throws {

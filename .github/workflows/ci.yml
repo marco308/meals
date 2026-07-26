@@ -125,6 +125,13 @@ jobs:
           curl -fsS --max-time 10 http://localhost:8000/skill > skill.md
           grep -q 'http://localhost:8000' skill.md
           ! grep -q '{{API_URL}}' skill.md
+          # The App Store's privacy and support URLs point at these, and they
+          # render markdown that has to be COPYed into the image separately from
+          # app/. A build that forgets them breaks a live store listing, which
+          # is not something to discover from a rejection email.
+          curl -fsS --max-time 10 http://localhost:8000/privacy > privacy.html
+          grep -q '<h1' privacy.html
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/support
 
       - name: Verify the remote MCP initialize handshake
         run: |

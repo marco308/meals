@@ -27,6 +27,7 @@ iOS (needs Xcode + XcodeGen; `Meals.xcodeproj` is generated, never hand-edited):
 ```bash
 make ios-build    # xcodegen generate + xcodebuild for the iPhone simulator
 make ios-test     # XCTest suite
+make ios-screenshots  # App Store screenshot set: throwaway API + throwaway simulator
 make ios-testflight   # archive, export, upload (App Store Connect API key in ~/.appstoreconnect)
 ```
 
@@ -139,9 +140,16 @@ additive. The app sends `X-Meals-Client: ios/<version> (<build>)`; builds below
 Raising `MIN_IOS_BUILD` is a deploy-time decision that cuts off every install
 below it, so it stays at `0` until a change genuinely forces it; the config
 refuses a floor above `current_ios_build`. `GET /client-config` publishes both
-numbers and the app checks it at launch and on every foreground. When
-`CFBundleVersion` in `ios/project.yml` is bumped for an upload, move
-`current_ios_build` with it — that number is what drives the soft nudge.
+numbers and the app checks it at launch and on every foreground.
+
+**Bumping `CFBundleVersion` in `ios/Meals/project.yml` is four steps, not one**
+— the full ritual is at the top of [ios/CHANGELOG.md](ios/CHANGELOG.md), which
+is also the record of which builds actually reached TestFlight or the App Store.
+In short: bump above the highest build *in App Store Connect* (uploads have come
+from outside this repo), add a ledger row, upload, then move
+`current_ios_build` to match, or nobody is ever told a newer build exists.
+`CFBundleShortVersionString` is `1.0` and must match the App Store version
+record — builds 1–15 went up as `0.1` and can never attach to it.
 
 ### AI-facing surfaces
 
@@ -158,6 +166,12 @@ verbatim — never add a server-side token fallback in http mode.
 **repo root** as context, not `backend/`) and served unauthenticated with
 `{{API_URL}}` substituted from the request's forwarded-proto/host headers.
 Keep `SKILL.md`, `prompt-pack.md` and the API in step when endpoints change.
+
+`PRIVACY.md` and `SUPPORT.md` ship the same way and render at `/privacy` and
+`/support` (`routers/pages.py`). **These are the App Store's privacy and support
+URLs**, so a build that fails to COPY them takes down a live store listing —
+which is why CI curls both against the built image. They're also exempt from the
+client gate: someone stuck on the upgrade screen is exactly who needs them.
 
 ## Testing
 

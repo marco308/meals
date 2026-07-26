@@ -73,6 +73,8 @@ struct MainTabView: View {
                 .tabItem { Label("Recipes", systemImage: "book") }
             ShoppingListView()
                 .tabItem { Label("Shopping", systemImage: "cart") }
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
         }
     }
 }

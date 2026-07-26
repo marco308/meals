@@ -10,8 +10,11 @@ import sys
 import httpx
 
 API_URL = os.environ.get("SEED_API_URL", "http://localhost:8000")
-DEMO_EMAIL = "demo@example.com"  # .local/.test TLDs are rejected by email validation
-DEMO_PASSWORD = "demo-password-123"
+# Overridable so the same demo content can fill an account that already exists —
+# the Apple Review household, say, on a server where registration is closed and
+# `python -m app.provision` made the account instead.
+DEMO_EMAIL = os.environ.get("SEED_EMAIL", "demo@example.com")  # .local/.test TLDs fail email validation
+DEMO_PASSWORD = os.environ.get("SEED_PASSWORD", "demo-password-123")
 
 SPAG_BOL = {
     "title": "Spaghetti Bolognese",

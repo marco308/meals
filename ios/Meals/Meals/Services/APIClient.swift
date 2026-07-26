@@ -35,7 +35,10 @@ enum ClientIdentity {
 
     static var buildNumber: Int { Int(buildString) ?? 0 }
 
-    private static var shortVersion: String {
+    /// "1.0 (16)" — what Settings shows and what a bug report needs to be useful.
+    static var displayVersion: String { "\(shortVersion) (\(buildString))" }
+
+    static var shortVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
 
@@ -205,6 +208,13 @@ extension APIClient {
 
     func me() async throws -> UserProfile {
         try await send("GET", "/auth/me", as: UserProfile.self)
+    }
+
+    /// Mint a single-use code admitting one more person to this household.
+    /// Anyone holding it gets everything the household has — there are no roles
+    /// inside one — so the UI must present it like a password, not a link.
+    func createInvite(expiresInDays: Int = 7) async throws -> InviteCreated {
+        try await send("POST", "/auth/invites", json: ["expires_in_days": expiresInDays], as: InviteCreated.self)
     }
 
     /// Ask the server to email a reset code. Always succeeds if the server can
