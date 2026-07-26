@@ -40,7 +40,7 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
-| 16 | 1.0 | — | Local | First build aimed at App Review. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
+| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
 | 15 | 0.1 | 2026-07-25 | TestFlight | Password reset and account deletion flows in the app (decision Q20). |
 | 14 | 0.1 | 2026-07-25 | TestFlight | Invite-code field on the register screen, so a second household member can join without going through the API by hand (Q19). |
 | 13 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time — reconstructed from the upload date only. |

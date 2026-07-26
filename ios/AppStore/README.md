@@ -18,7 +18,8 @@ Current state, verified against the App Store Connect API on 2026-07-26:
 - Version **1.0** exists in `PREPARE_FOR_SUBMISSION` with **no metadata at all**:
   no description, no keywords, no URLs, no age rating, no screenshots.
 - Builds 1–15 are on TestFlight at marketing version **0.1**, so **none of them
-  can attach to the 1.0 record**. Build 16 is the first that can.
+  can attach to the 1.0 record**. **Build 16 is up** (uploaded 2026-07-26,
+  `VALID`) and is the first at version 1.0, so it is the one to attach.
 - Nothing has ever been submitted for review.
 
 ## Order of operations
@@ -43,15 +44,22 @@ submitted build shows the reviewer an upgrade wall instead of the app.
 See [review-notes.md](review-notes.md#provisioning). Keep the password; it goes
 in the form in step 5.
 
-### 3. Ship build 16
+### 3. Ship the build — ✅ done for build 16
 
 ```bash
 make ios-testflight
 ```
 
-Then move the build 16 row in [ios/CHANGELOG.md](../CHANGELOG.md) from **Local**
-to **TestFlight**, and confirm `current_ios_build` in `backend/app/config.py` is
-16 (it is) so older installs get the upgrade nudge.
+Build 16 was uploaded on 2026-07-26 and is `VALID`. `current_ios_build` in
+`backend/app/config.py` is already 16, so older installs get the upgrade nudge
+once step 1 deploys it.
+
+Next time: move the new row in [ios/CHANGELOG.md](../CHANGELOG.md) from
+**Local** to **TestFlight** and bump `current_ios_build` with it.
+
+> `make ios-testflight` needs `ios/.env` (`MEALS_DEVELOPMENT_TEAM`,
+> `ASC_KEY_ID`, `ASC_ISSUER`). It's gitignored, so a fresh clone — or a git
+> worktree — won't have it; copy it across from your main checkout.
 
 ### 4. Regenerate the screenshots
 
