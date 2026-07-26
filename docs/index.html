@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meals: a meal planner your own AI can drive</title>
+<meta name="description" content="Self-hosted recipe library, meal planner and aisle-sorted shopping list, with no LLM inside. It ships a REST API, an MCP server, and a playbook that teaches your assistant to use them.">
+<meta name="theme-color" content="#f2ede3">
+<meta property="og:title" content="Meals: a meal planner your own AI can drive">
+<meta property="og:description" content="Self-hosted. No built-in LLM. A REST API, an MCP server, and a playbook the server publishes about itself.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Instrument+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥬</text></svg>">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="masthead">
+  <a class="wordmark" href="#top">Meals<span class="dot">.</span></a>
+  <nav>
+    <a href="#different">Why it's different</a>
+    <a href="#ai">The AI layer</a>
+    <a href="#run">Run it</a>
+    <a class="ghost" href="https://github.com/marco308/meals">GitHub&nbsp;↗</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<!-- ───────────────────────────── hero ───────────────────────────── -->
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow"><span>Self-hosted</span><span>AGPL</span><span>No LLM inside</span></p>
+    <h1>Plan the week's meals by&nbsp;talking to <em>your own</em> AI.</h1>
+    <p class="lede">
+      A recipe library, a meal planner and an aisle-sorted shopping list that
+      you run yourself. It has no AI in it. Instead it ships a documented REST
+      API, an MCP server, and a playbook that teaches <em>your</em> assistant
+      how to drive the whole thing.
+    </p>
+    <div class="cta">
+      <a class="btn" href="#run">Run it in two commands</a>
+      <a class="btn ghost" href="https://github.com/marco308/meals">Read the source</a>
+    </div>
+    <p class="footnote">
+      One command starts the whole stack. There is nothing to sign up for, and
+      no account of mine in the middle.
+    </p>
+  </div>
+
+  <!-- The receipt: aisle order, provenance, unit convention, check-off, all in one object. -->
+  <div class="receipt-wrap" aria-label="Example shopping list">
+    <div class="receipt">
+      <p class="r-head">Meals · Shopping list</p>
+      <p class="r-sub">This week's options · 5 dinners, 2 lunches</p>
+      <hr>
+      <p class="r-aisle">🥬 &nbsp;Produce</p>
+      <p class="r-line done"><span class="tick">✓</span> Carrots <b>500 g</b></p>
+      <p class="r-why">cottage pie · katsu curry</p>
+      <p class="r-line"><span class="tick"></span> Garlic <b>4 cloves</b></p>
+      <p class="r-aisle">🥩 &nbsp;Meat</p>
+      <p class="r-line done"><span class="tick">✓</span> Beef mince <b>750 g</b></p>
+      <p class="r-why">cottage pie</p>
+      <p class="r-aisle">🥫 &nbsp;Tins &amp; jars</p>
+      <p class="r-line"><span class="tick"></span> Chopped tomatoes <b>2 tins</b></p>
+      <p class="r-why">ragù · shakshuka</p>
+      <p class="r-aisle">🍞 &nbsp;Bakery</p>
+      <p class="r-line"><span class="tick"></span> Sourdough <b>1 loaf</b></p>
+      <p class="r-line"><span class="tick"></span> Bin bags <b>1</b></p>
+      <p class="r-why">added in the shop</p>
+      <hr>
+      <p class="r-foot">14 items · 4 in the trolley · sorted the way you walk the shop</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── differences ─────────────────────────── -->
+<section id="different" class="band">
+  <p class="section-kicker">Four decisions everything else follows from</p>
+  <h2 class="section-title">Not another Monday-to-Sunday grid.</h2>
+
+  <div class="cards">
+    <article class="card">
+      <span class="num">01</span>
+      <h3>A plan is a pool, not a calendar</h3>
+      <p>
+        A week is a <em>set of options</em> grouped by slot: five dinners you'd
+        be happy to cook, in no particular order. No days, no dates. A takeaway
+        on Tuesday or an unexpected trip breaks precisely nothing, because
+        nothing was ever pinned to Tuesday.
+      </p>
+    </article>
+
+    <article class="card">
+      <span class="num">02</span>
+      <h3>The shopping list knows <em>why</em></h3>
+      <p>
+        Every line remembers which meals put it there. Add a second recipe that
+        needs carrots and the quantities merge; drop one meal and only its share
+        disappears, leaving the rest of the line intact, and leaving what's
+        already ticked, ticked. Units merge only on an exact match, so 500&nbsp;g
+        never silently becomes half a bag.
+      </p>
+    </article>
+
+    <article class="card">
+      <span class="num">03</span>
+      <h3>It works with no signal at all</h3>
+      <p>
+        Supermarkets eat phone reception. Check-offs and quick adds render
+        instantly from a cached list, queue to disk, survive a relaunch, and
+        replay in order when you're back outside, with idempotent client ids so
+        a replayed action is never a double. The queue always drains.
+      </p>
+    </article>
+
+    <article class="card">
+      <span class="num">04</span>
+      <h3>It remembers what you actually cooked</h3>
+      <p>
+        Marking a meal cooked is recorded permanently, per recipe as well as
+        per meal, and survives deleting the plan it came from. The library
+        shows <span class="mono">cooked 12× · last May</span> and sorts by
+        <em>most cooked</em> or <em>not had in a while</em>, which is the
+        question you're actually asking on a Sunday.
+      </p>
+    </article>
+  </div>
+</section>
+
+<!-- ──────────────────────────── the AI layer ──────────────────────────── -->
+<section id="ai" class="band dark">
+  <p class="section-kicker">The headline</p>
+  <h2 class="section-title">There is no AI in this app.<br>That's the feature.</h2>
+  <p class="band-lede">
+    Every meal-planning app is busy bolting on a chatbot you didn't choose,
+    billed by a company that isn't you. This one ships the other half: a
+    complete API and the instructions for using it. Point whatever assistant you
+    already pay for at your own server, and it plans, ingests and shops on your
+    behalf.
+  </p>
+
+  <div class="split">
+    <div class="chat">
+      <p class="chat-turn you"><span>you</span>Add the recipe on this page for Friday, then tell me what I still need to buy.</p>
+      <p class="chat-turn ai"><span>assistant</span>
+        <span class="tools">
+          <b>ingest_recipe</b> <b>add_meal_to_plan</b> <b>get_shopping_list</b>
+        </span>
+        Added it to Friday's dinner options. You already have the flour and
+        eggs. You need 250&nbsp;g butter, 2 tins of chopped tomatoes and a
+        bunch of coriander. Everything's in produce except the butter.
+      </p>
+    </div>
+
+    <div class="ai-points">
+      <div class="pt">
+        <h4>21 task-level MCP tools</h4>
+        <p>Not a thin CRUD wrapper. Tools shaped like the job: <span class="mono">ingest_recipe</span>, <span class="mono">check_off</span>, <span class="mono">get_shopping_list</span>.</p>
+      </div>
+      <div class="pt">
+        <h4>The server publishes its own manual</h4>
+        <p><span class="mono">/skill</span> and <span class="mono">/prompt-pack</span> are served live, with your server's own URL already filled in.</p>
+      </div>
+      <div class="pt">
+        <h4>A stale copy knows it's stale</h4>
+        <p>The playbook carries a version stamp pinned to a content digest, so guidance can't change without the number moving, and an assistant holding an old copy can tell.</p>
+      </div>
+      <div class="pt">
+        <h4>Parse once, keep forever</h4>
+        <p>A recipe URL is read from the page's own structured data (free, no model call) and cached. Re-posting it returns the stored copy instead of a duplicate.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="terminal" role="img" aria-label="Command to connect an MCP client">
+    <p class="t-bar"><i></i><i></i><i></i><span>connect your assistant</span></p>
+<pre><code><span class="c">$</span> claude mcp add --transport http meals https://your-server/mcp \
+      --header <span class="s">"Authorization: Bearer meals_…"</span>
+
+<span class="ok">✓</span> connected · 21 tools · playbook v6</code></pre>
+  </div>
+  <p class="band-foot">
+    The remote MCP server holds no credentials of its own: it forwards each
+    caller's own token to the API, so everyone connecting acts as themselves.
+    Prefer no MCP at all? <span class="mono">/prompt-pack</span> plus a token is
+    enough for any assistant that can make an HTTP request.
+  </p>
+</section>
+
+<!-- ───────────────────────────── run it ───────────────────────────── -->
+<section id="run" class="band">
+  <p class="section-kicker">Your kitchen, your server</p>
+  <h2 class="section-title">Two commands and a cup of tea.</h2>
+
+  <div class="terminal light">
+    <p class="t-bar"><i></i><i></i><i></i><span>quickstart</span></p>
+<pre><code><span class="c">$</span> make dev     <span class="cm"># Postgres + API on :8000, MCP on :8100</span>
+<span class="c">$</span> make seed    <span class="cm"># demo recipes, a plan, a ready-made list</span></code></pre>
+  </div>
+  <p class="run-note">
+    No Docker? <span class="mono">make run</span> starts the API on SQLite with
+    no services at all. The seed prints working credentials and an API token you
+    can hand straight to an assistant. There's an iPhone app in the repo too:
+    offline-first, built from source.
+  </p>
+
+  <div class="honest">
+    <p class="stamp">Read this bit</p>
+    <p>
+      <b>meals.marcuslab.uk is my household's private instance, not a free
+      public service.</b> Registration on it is closed, and it's someone's
+      actual dinner in there. Self-hosting is the supported way to use this.
+      It's AGPL, it costs nothing, and the two commands above get you the whole
+      stack. If you'd rather I hosted it for you, that's a paid arrangement:
+      open an issue and ask.
+    </p>
+    <p class="thin">
+      The <a href="https://meals.marcuslab.uk/skill">/skill</a> and
+      <a href="https://meals.marcuslab.uk/prompt-pack">/prompt-pack</a>
+      endpoints stay open to everyone, because they're documentation. Read mine
+      to see the shape of them.
+    </p>
+  </div>
+</section>
+
+<!-- ───────────────────────────── closing ───────────────────────────── -->
+<section class="band close">
+  <h2 class="section-title big">Built for one household.<br>Written so it works for yours.</h2>
+  <p class="band-lede centred">
+    Every decision has a number and a reason written down: why plans have no
+    days, why every quantity is metric or a count of a natural unit, why the
+    offline queue is exempt from the version gate. The decisions log is in the
+    repo, and the code cites it.
+  </p>
+  <div class="cta centred">
+    <a class="btn" href="https://github.com/marco308/meals">Read the source</a>
+    <a class="btn ghost" href="https://github.com/marco308/meals/blob/main/planning/04-open-questions.md">The decisions log</a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><b>Meals</b> · © 2026 Marcus Williams.</p>
+  <p>
+    Backend, MCP server and skill under
+    <a href="https://github.com/marco308/meals/blob/main/LICENSE">AGPL-3.0</a>.
+    The iOS app is source-available: read it, build it, run it on your own
+    devices.
+  </p>
+  <p class="thin">Issues and pull requests welcome. Vulnerabilities go through SECURITY.md, not a public issue.</p>
+</footer>
+
+</body>
+</html>
