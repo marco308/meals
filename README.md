@@ -51,9 +51,12 @@ make dev     # full stack in Docker: Postgres + API on http://localhost:8000
 make seed    # demo user, recipes, a plan, and a ready-made shopping list
 ```
 
-Interactive API docs: <http://localhost:8000/docs>. The seed prints demo
-credentials and an API token you can immediately use with `curl` or the MCP
-server.
+Interactive API docs: <http://localhost:8000/docs>. The seed's demo account is
+`demo@example.com` / `demo-password-123`, and it prints an API token you can
+use immediately with `curl` or the MCP server. (The password lives here rather
+than in the seed's output: `make seed` also fills real accounts on real servers
+— `SEED_EMAIL` / `SEED_PASSWORD` — and a password echoed to a terminal outlives
+the run.)
 
 No Docker? `make run` starts the API locally on SQLite (zero services), and
 `make test` runs the whole suite the same way.

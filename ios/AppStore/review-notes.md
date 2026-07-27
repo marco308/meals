@@ -76,10 +76,14 @@ It prints a generated password. Then fill the household with the demo data
 from anywhere that can reach the server:
 
 ```bash
-cd backend && SEED_API_URL=https://meals.marcuslab.uk \
-  SEED_EMAIL=apple.review@marcuslab.uk SEED_PASSWORD='<the password>' \
+cd backend && read -rs SEED_PASSWORD && export SEED_PASSWORD
+SEED_API_URL=https://meals.marcuslab.uk SEED_EMAIL=apple.review@marcuslab.uk \
   uv run python -m app.seed
 ```
+
+`read -rs` keeps the password out of your shell history. Given `SEED_EMAIL`,
+the seed prints no credentials back and mints no API token — that path assumes
+a real server.
 
 Re-running `app.provision` with the same email resets that account's password
 and creates nothing new, which is what a resubmission needs.

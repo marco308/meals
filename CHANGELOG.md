@@ -41,7 +41,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   not see a real household's data while doing it. An invite would have done the
   opposite.
 - `app.seed` now honours `SEED_EMAIL` / `SEED_PASSWORD`, so the demo content can
-  fill an account that already exists rather than only creating its own.
+  fill an account that already exists rather than only creating its own. When
+  credentials are supplied it prints no password and mints no API token: that
+  path is for real servers, and the first run against one put a live password
+  in a terminal and left a token that had to be revoked. CodeQL caught the
+  password half of it.
 - CI now checks `/privacy` and `/support` against the built image. They render
   markdown that is COPYed into the image separately from `app/`, so forgetting
   them is a live App Store listing pointing at a 404.
