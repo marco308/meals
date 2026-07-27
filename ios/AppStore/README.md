@@ -1,9 +1,14 @@
 # App Store submission
 
 Everything needed to put a build in front of App Review, and the order to do it
-in. Nothing here is automated on purpose — App Store Connect app records and
-metadata are UI-only, and the parts that *can* be scripted (the build, the
-screenshots, the review account) already are.
+in.
+
+Most of the listing **can** be set through the App Store Connect API, and was:
+name, subtitle, categories, age rating, description, keywords, promotional
+text, URLs, screenshots, copyright, content rights, the attached build and the
+release type. The app *record* itself can't be created that way, and two
+sections refuse an API key with these permissions — **App Privacy** and
+**Pricing** — so those are the web UI, always.
 
 | File | What it's for |
 |---|---|
@@ -11,15 +16,21 @@ screenshots, the review account) already are.
 | [review-notes.md](review-notes.md) | What App Review is told, the demo account, and how to provision it |
 | [app-privacy.md](app-privacy.md) | The App Privacy questionnaire, answer by answer, with the reasoning |
 
-Current state, verified against the App Store Connect API on 2026-07-26:
+Current state, verified against the App Store Connect API on 2026-07-27:
 
-- App record `com.marcuslab.meals` (id **6794266229**) exists, named
-  **"Meal Options Planner"** — needs renaming.
-- Version **1.0** exists in `PREPARE_FOR_SUBMISSION` with **no metadata at all**:
-  no description, no keywords, no URLs, no age rating, no screenshots.
+- App record `com.marcuslab.meals` (id **6794266229**), renamed to
+  **"Yet Another Meal Planner"**.
+- Version **1.0** in `PREPARE_FOR_SUBMISSION`, fully populated: subtitle,
+  Food & Drink / Productivity, 4+, description, keywords, promotional text,
+  privacy + support + marketing URLs, five 6.9" screenshots, copyright,
+  content rights, manual release.
+- **Outstanding:** App Privacy, Pricing, and the App Review contact phone
+  number.
 - Builds 1–15 are on TestFlight at marketing version **0.1**, so **none of them
-  can attach to the 1.0 record**. **Build 16 is up** (uploaded 2026-07-26,
-  `VALID`) and is the first at version 1.0, so it is the one to attach.
+  can attach to the 1.0 record**. **Build 17 is up** (uploaded 2026-07-27,
+  `VALID`, attached): the first at version 1.0 *and* the first that is really
+  iPhone-only. Build 16 claims iPad support and would oblige you to supply 13"
+  iPad screenshots.
 - Nothing has ever been submitted for review.
 
 ## Order of operations
@@ -44,15 +55,15 @@ submitted build shows the reviewer an upgrade wall instead of the app.
 See [review-notes.md](review-notes.md#provisioning). Keep the password; it goes
 in the form in step 5.
 
-### 3. Ship the build — ✅ done for build 16
+### 3. Ship the build — ✅ done for build 17
 
 ```bash
 make ios-testflight
 ```
 
-Build 16 was uploaded on 2026-07-26 and is `VALID`. `current_ios_build` in
-`backend/app/config.py` is already 16, so older installs get the upgrade nudge
-once step 1 deploys it.
+Build 17 was uploaded on 2026-07-27 and is `VALID`. `current_ios_build` in
+`backend/app/config.py` is 17, so older installs get the upgrade nudge — but
+that number only goes live on the next `make deploy`.
 
 Next time: move the new row in [ios/CHANGELOG.md](../CHANGELOG.md) from
 **Local** to **TestFlight** and bump `current_ios_build` with it.
@@ -72,21 +83,24 @@ stale screenshots are a rejection risk, so just run it.
 
 ### 5. Fill in App Store Connect
 
-In this order, because the form hides fields until earlier ones are set:
+Done by API, and re-runnable: App Information (name, subtitle, categories,
+content rights), age rating, the whole 1.0 version page, screenshots,
+copyright, the attached build, and manual release.
 
-1. **App Information** — rename to "Yet Another Meal Planner", set the
-   subtitle, categories (Food & Drink / Productivity), and the content rights
-   declaration.
-2. **Age rating** — answer every question "None"; the result is 4+.
-3. **Pricing** — Free.
-4. **1.0 version page** — description, keywords, promotional text, support and
-   marketing URLs, screenshots, "What's New", and attach build 16.
-5. **App Review Information** — tick "Sign-in required", paste the demo account
-   and the notes from [review-notes.md](review-notes.md).
-6. **App Privacy** — the answers in [app-privacy.md](app-privacy.md). This is a
-   separate section from the version page and is easy to miss; the submit
-   button stays disabled until it's complete.
-7. **Release** — "Manually release this version".
+Left in the web UI, because an API key with these permissions gets a 404 on
+both:
+
+1. **[App Privacy](https://appstoreconnect.apple.com/apps/6794266229/distribution/privacy)**
+   — the answers are in [app-privacy.md](app-privacy.md). A separate section
+   from the version page and easy to miss; the submit button stays disabled
+   until it's complete.
+2. **[Pricing](https://appstoreconnect.apple.com/apps/6794266229/distribution/pricing)**
+   — Free.
+
+And one field that needs a human: **App Review Information → contact phone
+number**. Apple requires it in international format and rejects the request
+without one. The rest of that section (contact name and email, the demo
+account, the notes) goes in with it.
 
 ### 6. Submit, then wait
 
@@ -98,7 +112,7 @@ queue.
 ### 7. After approval
 
 Delete the review household (see
-[review-notes.md](review-notes.md#after-approval)), and move build 16 in
+[review-notes.md](review-notes.md#after-approval)), and move build 17 in
 [ios/CHANGELOG.md](../CHANGELOG.md) to **App Store**.
 
 ## The rejections this app is most likely to get

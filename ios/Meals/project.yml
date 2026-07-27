@@ -14,6 +14,9 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    # NB: this is the *project* level and targets override it — xcodegen writes
+    # "1,2" onto every iOS target by default. The one that counts is on the
+    # Meals target below; see the comment there.
     TARGETED_DEVICE_FAMILY: "1"
 
 targets:
@@ -41,7 +44,7 @@ targets:
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`. Then add a
         # row to ios/CHANGELOG.md and move current_ios_build in the backend.
-        CFBundleVersion: "16"
+        CFBundleVersion: "17"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -55,6 +58,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.marcuslab.meals
         PRODUCT_NAME: Meals
+        # iPhone only, and it has to be said *here*: xcodegen defaults every
+        # iOS target to "1,2", and a target setting beats the project one. The
+        # project-level line above was silently doing nothing, so builds 1–16
+        # all shipped claiming iPad support they were never designed or tested
+        # for — which is what made App Store Connect demand 13" iPad
+        # screenshots, and why validation used to insist on the ~ipad
+        # orientation keys in the Info.plist above.
+        TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         # Your Apple Developer team. Simulator builds don't need it; archiving
         # for a device or TestFlight does. Set it in an untracked ios/.env

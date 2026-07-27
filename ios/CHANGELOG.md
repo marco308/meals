@@ -40,7 +40,8 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
-| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
+| 17 | 1.0 | 2026-07-27 | TestFlight | **The first genuinely iPhone-only build.** Builds 1–16 all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. |
+| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded by 17 before submission; **still claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
 | 15 | 0.1 | 2026-07-25 | TestFlight | Password reset and account deletion flows in the app (decision Q20). |
 | 14 | 0.1 | 2026-07-25 | TestFlight | Invite-code field on the register screen, so a second household member can join without going through the API by hand (Q19). |
 | 13 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time — reconstructed from the upload date only. |
@@ -67,5 +68,12 @@ onwards as recorded, and anything earlier as best effort.
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
 | Registered name | **Meal Options Planner** — to be renamed before submission (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | 1.0, `PREPARE_FOR_SUBMISSION` |
+| Version record | 1.0, `PREPARE_FOR_SUBMISSION`, build 17 attached |
 | Ever submitted? | No. Nothing has been through App Review. |
+
+The 1.0 listing metadata — name, subtitle, categories, age rating, description,
+keywords, URLs, screenshots, copyright, content rights — was set through the
+App Store Connect API and is reproducible from
+[AppStore/metadata.md](AppStore/metadata.md). Two things the API key can't
+reach, and which have to be done in the web UI: **App Privacy** and
+**Pricing**.

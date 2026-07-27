@@ -57,10 +57,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - Account settings (password, sign-out, deletion) moved out of the Plan tab's
   overflow menu into a Settings tab. App Review expects account deletion to be
   findable, and buried in a plan menu it was findable by neither them nor a user.
-- iOS marketing version 0.1 → **1.0**, build 15 → **16**, and
+- iOS marketing version 0.1 → **1.0**, build 15 → **17**, and
   `current_ios_build` with it. A build can only attach to an App Store version
   record whose version string it matches, which makes every 0.1 build
   TestFlight-only forever.
+
+### Fixed
+
+- **The app claimed to support iPad.** `TARGETED_DEVICE_FAMILY: "1"` was set at
+  the project level in `ios/Meals/project.yml`, but xcodegen writes `"1,2"`
+  onto every iOS target and a target setting beats a project one — so every
+  build up to and including 16 shipped `UIDeviceFamily = [1, 2]` for a UI never
+  designed or tested on an iPad. It surfaced as App Store Connect refusing the
+  submission until 13" iPad screenshots were supplied, and it is also why
+  validation used to insist on the `~ipad` orientation keys. Build 17 is the
+  first that is really iPhone-only.
 
 ## 2026-07-25 — multi-household tenancy, account lifecycle
 
