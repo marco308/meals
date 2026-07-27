@@ -11,14 +11,35 @@ Verify with the API rather than trusting a stale row:
 xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"
 ```
 
+## The numbers have diverged — read this before bumping
+
+`CFBundleVersion` and the build number App Store Connect shows are **no longer
+the same**. The build carrying `CFBundleVersion: 17` is listed there as **build
+18**, because a build numbered 17 that this repo did not produce got there
+first.
+
+Three consequences, all of which bite silently:
+
+- **The next upload must be `CFBundleVersion: 19` or higher.** 17 and 18 are
+  both taken in App Store Connect; uploading either is rejected.
+- **`current_ios_build` tracks `CFBundleVersion`, not the App Store Connect
+  number** — it is compared against the number *inside* the installed app. It
+  is `17`, and setting it to 18 would tell every correctly-updated user that a
+  newer build exists.
+- **Attach builds by id, not by number.** `ios/AppStore/` scripts identify the
+  build by the delivery UUID `altool` prints, because matching on the number
+  silently attached the wrong binary once already.
+
 ## The ritual when you bump a build
 
 `CFBundleVersion` in [Meals/project.yml](Meals/project.yml) is not the only
 number involved. All four steps, in order:
 
 1. Bump `CFBundleVersion` in `ios/Meals/project.yml` to one above the highest
-   build in App Store Connect (not one above the last row here — uploads have
-   come from outside this repo before).
+   build in App Store Connect — **not** one above the last row here. Uploads
+   have come from outside this repo before, which is exactly how the numbering
+   diverged. Check with:
+   `xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"`
 2. Add a row below with status **Local**, and write what's in it.
 3. `make ios-testflight`. When it lands, move the row to **TestFlight**.
 4. Move `current_ios_build` in `backend/app/config.py` to match, and deploy.
@@ -40,8 +61,9 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
-| 17 | 1.0 | 2026-07-27 | TestFlight | **The first genuinely iPhone-only build.** Builds 1–16 all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. |
-| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded by 17 before submission; **still claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
+| 17 → **ASC 18** | 1.0 | 2026-07-27 | TestFlight | **The first genuinely iPhone-only build**, and the one attached to the 1.0 record. Builds up to here all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. **Its `CFBundleVersion` is 17 but App Store Connect lists it as build 18** — see the numbering note below. |
+| — (ASC 17) | 1.0 | 2026-07-26 | TestFlight | **Not built from this repo**, and not accounted for here: it appeared six minutes after build 16 and matches no upload recorded in this session. It predates the iPad fix, so treat it as iPhone+iPad and do not submit it. |
+| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded before submission; **claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
 | 15 | 0.1 | 2026-07-25 | TestFlight | Password reset and account deletion flows in the app (decision Q20). |
 | 14 | 0.1 | 2026-07-25 | TestFlight | Invite-code field on the register screen, so a second household member can join without going through the API by hand (Q19). |
 | 13 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time — reconstructed from the upload date only. |

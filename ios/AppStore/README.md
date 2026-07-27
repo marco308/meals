@@ -27,10 +27,11 @@ Current state, verified against the App Store Connect API on 2026-07-27:
 - **Outstanding:** App Privacy, Pricing, and the App Review contact phone
   number.
 - Builds 1–15 are on TestFlight at marketing version **0.1**, so **none of them
-  can attach to the 1.0 record**. **Build 17 is up** (uploaded 2026-07-27,
-  `VALID`, attached): the first at version 1.0 *and* the first that is really
-  iPhone-only. Build 16 claims iPad support and would oblige you to supply 13"
-  iPad screenshots.
+  can attach to the 1.0 record**. The attached build is the one App Store
+  Connect calls **18** (uploaded 2026-07-27, `VALID`) — the first that is
+  really iPhone-only. Its `CFBundleVersion` is 17; the numbering diverged, see
+  [ios/CHANGELOG.md](../CHANGELOG.md). Builds 16 and 17 claim iPad support and
+  would oblige you to supply 13" iPad screenshots.
 - Nothing has ever been submitted for review.
 
 ## Order of operations
@@ -55,15 +56,17 @@ submitted build shows the reviewer an upgrade wall instead of the app.
 See [review-notes.md](review-notes.md#provisioning). Keep the password; it goes
 in the form in step 5.
 
-### 3. Ship the build — ✅ done for build 17
+### 3. Ship the build — ✅ done
 
 ```bash
 make ios-testflight
 ```
 
-Build 17 was uploaded on 2026-07-27 and is `VALID`. `current_ios_build` in
-`backend/app/config.py` is 17, so older installs get the upgrade nudge — but
-that number only goes live on the next `make deploy`.
+The iPhone-only build was uploaded on 2026-07-27, is `VALID`, and is attached.
+`current_ios_build` in `backend/app/config.py` is `17` — it is compared against
+the `CFBundleVersion` *inside* the installed app, so it tracks that number and
+not the one App Store Connect displays. It only goes live on the next
+`make deploy`.
 
 Next time: move the new row in [ios/CHANGELOG.md](../CHANGELOG.md) from
 **Local** to **TestFlight** and bump `current_ios_build` with it.
@@ -112,7 +115,7 @@ queue.
 ### 7. After approval
 
 Delete the review household (see
-[review-notes.md](review-notes.md#after-approval)), and move build 17 in
+[review-notes.md](review-notes.md#after-approval)), and move the shipped row in
 [ios/CHANGELOG.md](../CHANGELOG.md) to **App Store**.
 
 ## The rejections this app is most likely to get
