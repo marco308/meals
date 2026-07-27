@@ -90,6 +90,10 @@ ios-build: ## Build the iOS app for the simulator
 	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
 		-destination '$(IOS_DEST)' -derivedDataPath build build 2>&1 | grep -E "error:|warning:|BUILD" | tail -5
 
+.PHONY: ios-screenshots
+ios-screenshots: ## Capture the App Store screenshot set (throwaway API + throwaway simulator)
+	./ios/screenshots/capture.sh
+
 .PHONY: ios-test
 ios-test: ## Run the iOS unit tests
 	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \

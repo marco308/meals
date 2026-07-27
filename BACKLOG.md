@@ -9,15 +9,16 @@ tail plus engineering debt worth naming.
 - [x] ~~**Deploy to the homelab**~~ — ✅ live at `https://meals.marcuslab.uk` (2026-07-24; `make deploy`, stack in the gitignored local `deploy/`)
 - [x] ~~**Close registration**~~ — ✅ done twice over: decision Q19 means a registration creates its own household rather than joining this one, and `REGISTRATION_ENABLED=false` is set on the deployment as well, so new households are refused outright. Invite codes are still honoured, which is how the next household member gets in
 - [ ] **Postgres backups** — still no automation. A one-off `pg_dump` was taken before the Q19 deploy (2026-07-25) and sits in `~/backups` on the node running the database, which proves the command works but is not a backup strategy. Wants a nightly job plus a documented restore, and now that other people may self-host it's worth writing up rather than just doing
-- [ ] **Point the iOS app at the domain** — set the server field to `https://meals.marcuslab.uk`, register, re-test offline sync over the real network
+- [x] ~~**Point the iOS app at the domain**~~ — ✅ `https://meals.marcuslab.uk` is now the default a fresh install starts on (build 16), not `localhost`. Offline sync over the real network still wants a proper walk round a supermarket
+- [ ] **First App Store submission** — everything is staged: [ios/AppStore/](ios/AppStore/) has the listing copy, review notes and privacy answers, `make ios-screenshots` produces the shots, and `python -m app.provision` makes the isolated Apple Review household. What's left is Marcus-only: deploy the server so `/privacy` and `/support` are live, ship build 16, rename the app record (it's still "Meal Options Planner"), and fill the form
 - [x] ~~**Deploy Q19**~~ — ✅ deployed 2026-07-25; migration `d9e4b17c3a86` applied, and the existing account kept its household as intended (nothing migrated)
-- [ ] **Onboard the second household member** — needs an invite from `POST /auth/invites`. Note the ordering problem: the invite field only exists in the iOS app from build 14 onwards, so until that reaches TestFlight the second person has to redeem their code through the API once, then log in normally on any build
+- [ ] **Onboard the second household member** — no longer needs curl at either end: build 16 mints the code (Settings → Invite someone) and build 14 onwards can redeem it on the register screen. Both are on TestFlight, so this is now just a thing to do
 
 ## Account lifecycle
 
 - [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so. **Not yet set on the deployment**, so reset is unavailable in production until it is
 - [x] ~~**Account deletion**~~ — ✅ shipped (Q20): `DELETE /auth/me`, and in the app's account menu, which is what App Store review actually requires
-- [ ] **Household admin** — you can create a household and invite into it, and that's all: no rename after signup, no way to leave a household without deleting your account, no way to remove someone you invited by mistake, and the iOS register screen can't set `household_name` (it takes the "Home" default)
+- [ ] **Household admin** — inviting someone is now a button (Settings → Invite someone), but that's still all: no rename after signup, no way to leave a household without deleting your account, no way to remove someone you invited by mistake, no list of who's in it, and the iOS register screen can't set `household_name` (it takes the "Home" default)
 
 ## Next (product tail from the plan)
 

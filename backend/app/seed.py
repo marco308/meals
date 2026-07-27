@@ -10,8 +10,19 @@ import sys
 import httpx
 
 API_URL = os.environ.get("SEED_API_URL", "http://localhost:8000")
-DEMO_EMAIL = "demo@example.com"  # .local/.test TLDs are rejected by email validation
-DEMO_PASSWORD = "demo-password-123"
+# Overridable so the same demo content can fill an account that already exists —
+# the Apple Review household, say, on a server where registration is closed and
+# `python -m app.provision` made the account instead.
+DEMO_EMAIL = os.environ.get("SEED_EMAIL", "demo@example.com")  # .local/.test TLDs fail email validation
+DEMO_PASSWORD = os.environ.get("SEED_PASSWORD", "demo-password-123")
+
+# Whether the caller brought their own account. When they did, this is very
+# likely a real server and a real credential, so the summary at the end stays
+# quiet: it neither echoes the password (which would put it in a terminal
+# scrollback and any CI log) nor mints an API token nobody asked for. Both of
+# those happened for real while seeding the Apple Review household, and the
+# token had to be revoked afterwards.
+CREDENTIALS_SUPPLIED = bool(os.environ.get("SEED_EMAIL") or os.environ.get("SEED_PASSWORD"))
 
 SPAG_BOL = {
     "title": "Spaghetti Bolognese",
@@ -169,10 +180,17 @@ def main() -> None:
     shopping = client.get("/shopping-list").json()
     print(f"shopping list has {len(shopping['items'])} items ({shopping['hidden_staples']} staples hidden)")
 
-    # A PAT so an MCP/AI client can be pointed at the API immediately
+    if CREDENTIALS_SUPPLIED:
+        print(f"\nseeded {DEMO_EMAIL} — you supplied the credentials, so they aren't repeated here")
+        return
+
+    # Only for the built-in demo account on a throwaway server: a PAT so an
+    # MCP/AI client can be pointed at the API immediately. The password isn't
+    # printed at all — it's in the README, and a password echoed to a terminal
+    # outlives the run in scrollback and in CI logs.
     pat = client.post("/auth/tokens", json={"label": "demo AI client"})
     pat.raise_for_status()
-    print("\ndemo login:  ", DEMO_EMAIL, "/", DEMO_PASSWORD)
+    print(f"\ndemo login:   {DEMO_EMAIL} (password is in the README)")
     print("demo API PAT:", pat.json()["token"])
     print("\ntry:  curl -H 'Authorization: Bearer <PAT>' " + API_URL + "/shopping-list")
 

@@ -76,12 +76,28 @@ struct LoginView: View {
                     }
                 }
 
-                Section("Server") {
+                // Last, not first: most people never touch it, and a URL box
+                // above the password field reads as a wall rather than a
+                // setting. But it is the one thing nobody can guess, so it
+                // explains itself rather than sitting there unlabelled.
+                Section {
                     TextField("Server URL", text: $session.serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.callout.monospaced())
+                    Link(destination: AppLinks.support(server: session.serverURL)) {
+                        Label("How do I get a server?", systemImage: "questionmark.circle")
+                            .font(.callout)
+                    }
+                } header: {
+                    Text("Server")
+                } footer: {
+                    Text(
+                        "Meals has no cloud. Your recipes, plan and shopping list live on a "
+                            + "server you run — it's free, open source and one command to start. "
+                            + "Already in a household? Use its server's address and an invite code."
+                    )
                 }
             }
             .navigationTitle("Meals")

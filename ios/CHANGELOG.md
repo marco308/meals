@@ -1,0 +1,101 @@
+# iOS build ledger
+
+One row per `CFBundleVersion`, because a build that reaches TestFlight cannot
+be recalled — the only way to undo one is to ship another. This is the answer
+to "what have people actually got, and what is only on my laptop".
+
+**App Store Connect is the source of truth**; this file is the readable copy.
+Verify with the API rather than trusting a stale row:
+
+```bash
+xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"
+```
+
+## The numbers have diverged — read this before bumping
+
+`CFBundleVersion` and the build number App Store Connect shows are **no longer
+the same**. The build carrying `CFBundleVersion: 17` is listed there as **build
+18**, because a build numbered 17 that this repo did not produce got there
+first.
+
+Three consequences, all of which bite silently:
+
+- **The next upload must be `CFBundleVersion: 19` or higher.** 17 and 18 are
+  both taken in App Store Connect; uploading either is rejected.
+- **`current_ios_build` tracks `CFBundleVersion`, not the App Store Connect
+  number** — it is compared against the number *inside* the installed app. It
+  is `17`, and setting it to 18 would tell every correctly-updated user that a
+  newer build exists.
+- **Attach builds by id, not by number.** `ios/AppStore/` scripts identify the
+  build by the delivery UUID `altool` prints, because matching on the number
+  silently attached the wrong binary once already.
+
+## The ritual when you bump a build
+
+`CFBundleVersion` in [Meals/project.yml](Meals/project.yml) is not the only
+number involved. All four steps, in order:
+
+1. Bump `CFBundleVersion` in `ios/Meals/project.yml` to one above the highest
+   build in App Store Connect — **not** one above the last row here. Uploads
+   have come from outside this repo before, which is exactly how the numbering
+   diverged. Check with:
+   `xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"`
+2. Add a row below with status **Local**, and write what's in it.
+3. `make ios-testflight`. When it lands, move the row to **TestFlight**.
+4. Move `current_ios_build` in `backend/app/config.py` to match, and deploy.
+   That number drives the app's soft upgrade nudge; if it lags, nobody is ever
+   told a newer build exists. Leave `min_ios_build` at `0` unless a change
+   genuinely can't be made backwards compatible — raising it hard-blocks every
+   install below it.
+
+## Status vocabulary
+
+| Status | Means |
+|---|---|
+| **Local** | Built on a laptop. Nobody else has it. Freely rewritable. |
+| **TestFlight** | Uploaded. Testers can install it. Cannot be recalled. |
+| **In review** | Submitted to App Review, awaiting a verdict. |
+| **App Store** | Public. Cannot be recalled; only superseded. |
+
+## Builds
+
+| Build | Version | Uploaded | Status | What's in it |
+|---:|---|---|---|---|
+| 17 → **ASC 18** | 1.0 | 2026-07-27 | **In review** | **The first genuinely iPhone-only build**, submitted to App Review 2026-07-27 19:35 UTC. Builds up to here all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. **Its `CFBundleVersion` is 17 but App Store Connect lists it as build 18** — see the numbering note below. |
+| — (ASC 17) | 1.0 | 2026-07-26 | TestFlight | **Not built from this repo**, and not accounted for here: it appeared six minutes after build 16 and matches no upload recorded in this session. It predates the iPad fix, so treat it as iPhone+iPad and do not submit it. |
+| 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded before submission; **claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
+| 15 | 0.1 | 2026-07-25 | TestFlight | Password reset and account deletion flows in the app (decision Q20). |
+| 14 | 0.1 | 2026-07-25 | TestFlight | Invite-code field on the register screen, so a second household member can join without going through the API by hand (Q19). |
+| 13 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time — reconstructed from the upload date only. |
+| 12 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time. |
+| 11 | 0.1 | 2026-07-25 | TestFlight | Not recorded at the time. Around here: recipe photos, recipe editing, per-meal scaling, offline reads, and the client version gate. |
+| 6 | 0.1 | 2026-07-25 | TestFlight | Premium/budget ingredient verdicts (Q17). |
+| 5 | 0.1 | 2026-07-25 | TestFlight | Staple glyph sizing; fixed orphaned plan rows on meal delete. |
+| 4 | 0.1 | 2026-07-25 | TestFlight | Recipe usage counts, deletes, meal editing, staple markers. |
+| 2 | 0.1 | 2026-07-24 | TestFlight | Change-your-own-password flow. |
+| 1 | 0.1 | 2026-07-24 | TestFlight | First upload — icon, export options, and the `make ios-testflight` path. |
+
+Builds 3, 7, 8, 9 and 10 don't exist in App Store Connect. The commit
+"iOS: set the build counter clear of App Store Connect" suggests the counter was
+jumped past numbers already taken there, which is also why step 1 above says to
+check App Store Connect rather than this file.
+
+Rows above build 14 are reconstructed from upload dates and commit history —
+this ledger did not exist yet, which is the reason it does now. Treat build 14
+onwards as recorded, and anything earlier as best effort.
+
+## App Store status
+
+| | |
+|---|---|
+| App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
+| Registered name | **Meal Options Planner** — to be renamed before submission (see [AppStore/metadata.md](AppStore/metadata.md)) |
+| Version record | 1.0, `WAITING_FOR_REVIEW`, build ASC-18 attached |
+| Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC. |
+
+The 1.0 listing metadata — name, subtitle, categories, age rating, description,
+keywords, URLs, screenshots, copyright, content rights — was set through the
+App Store Connect API and is reproducible from
+[AppStore/metadata.md](AppStore/metadata.md). Two things the API key can't
+reach, and which have to be done in the web UI: **App Privacy** and
+**Pricing**.

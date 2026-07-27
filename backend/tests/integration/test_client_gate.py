@@ -96,6 +96,13 @@ class TestExemptions:
         for path in ("/", "/healthz", "/client-config", "/skill", "/prompt-pack", "/openapi.json"):
             assert (await client.get(path, headers=ios(1))).status_code == 200, path
 
+    async def test_the_support_and_privacy_pages_stay_open(self, client, min_build):
+        """Someone staring at the upgrade screen is exactly who needs to read
+        how to get help — gating those pages would close the only door left."""
+        min_build(99)
+        for path in ("/privacy", "/support"):
+            assert (await client.get(path, headers=ios(1))).status_code == 200, path
+
 
 class TestClientConfig:
     async def test_advertises_the_floor_and_the_current_build(self, client, min_build):

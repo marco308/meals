@@ -8,6 +8,38 @@ struct UserProfile: Codable, Equatable, Sendable {
     let id: UUID
     let email: String
     let displayName: String
+    /// The household this account is in (Q19: a server holds many). Optional
+    /// because a build can outlive the server it talks to, and a server from
+    /// before Q19 sends neither — a missing name must not be a decode error.
+    let householdId: UUID?
+    let householdName: String?
+}
+
+/// A single-use code that lets one more person register into this household
+/// (`POST /auth/invites`). `code` comes back exactly once and is never
+/// recoverable — the server stores only its hash.
+struct InviteCreated: Codable, Sendable {
+    let id: UUID
+    let code: String
+    /// A string, like every other timestamp here — the decoder has no date
+    /// strategy on purpose, so a server that changes its date format can't
+    /// turn a working screen into a decode failure.
+    let expiresAt: String
+
+    /// "2 August 2026", or nil if the timestamp isn't one we recognise — in
+    /// which case the sheet says the code is single-use and leaves it there.
+    var expiryLabel: String? {
+        guard expiresAt.count >= 10 else { return nil }
+        let parts = expiresAt.prefix(10).split(separator: "-")
+        guard parts.count == 3, let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
+              (1...12).contains(month)
+        else { return nil }
+        let names = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ]
+        return "\(day) \(names[month - 1]) \(year)"
+    }
 }
 
 struct AuthResponse: Codable, Sendable {

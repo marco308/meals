@@ -8,6 +8,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import AuthToken
+from app.routers import pages as pages_router
 from app.routers import skill as skill_router
 from tests.conftest import create_meal, create_plan
 
@@ -76,6 +77,56 @@ class TestSkillPublishing:
         response = await client.get("/skill")
         assert response.status_code == 404
         assert "not shipped" in response.json()["detail"]
+
+
+class TestPublicPages:
+    """The App Store's privacy and support URLs point here. If these 404, the
+    listing is broken — and a broken privacy URL is a rejection, not a warning."""
+
+    async def test_privacy_policy_renders_as_html(self, client):
+        response = await client.get("/privacy")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "<h1" in response.text
+        assert "Privacy policy" in response.text
+        # Rendered, not dumped: raw markdown would leave the source syntax behind.
+        assert "## The short version" not in response.text
+
+    async def test_support_page_renders_as_html(self, client):
+        response = await client.get("/support")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "server URL" in response.text
+
+    async def test_tables_survive_the_render(self, client):
+        """Most of what the privacy policy actually promises lives in its tables,
+        so plain commonmark (which has none) would drop the substance."""
+        response = await client.get("/privacy")
+        assert "<table>" in response.text
+        assert "Keychain" in response.text
+
+    async def test_headings_get_ids_so_in_document_links_work(self, client):
+        """GitHub anchors headings and markdown-it doesn't, so a link that works
+        in the repo would be silently dead here."""
+        response = await client.get("/privacy")
+        assert 'id="contact"' in response.text
+
+    async def test_pages_need_no_auth(self, client):
+        """`client` is unauthenticated — Apple's reviewer opens these in a browser."""
+        for path in ("/privacy", "/support"):
+            assert (await client.get(path)).status_code == 200, path
+
+    async def test_missing_documents_404_not_500(self, client, monkeypatch):
+        monkeypatch.setattr(pages_router, "_DOC_DIRS", (Path("/nonexistent"),))
+        response = await client.get("/privacy")
+        assert response.status_code == 404
+        assert "not shipped" in response.json()["detail"]
+
+    async def test_landing_advertises_them(self, client):
+        """One fetch of / should surface every public surface this server has."""
+        landing = (await client.get("/")).json()
+        assert landing["privacy"] == "http://test/privacy"
+        assert landing["support"] == "http://test/support"
 
 
 # The playbook's guidance, pinned to the version that announces it. The digest

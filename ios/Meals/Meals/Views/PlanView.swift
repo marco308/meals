@@ -4,14 +4,10 @@ import SwiftUI
 /// never a calendar (guiding principle 1).
 struct PlanView: View {
     @Environment(PlanStore.self) private var store
-    @Environment(RecipeStore.self) private var recipeStore
-    @Environment(Session.self) private var session
     @State private var showAddMeal = false
     @State private var showNewPlan = false
     @State private var showHistory = false
     @State private var showArchiveConfirm = false
-    @State private var showChangePassword = false
-    @State private var showDeleteAccount = false
 
     var body: some View {
         NavigationStack {
@@ -50,18 +46,9 @@ struct PlanView: View {
                                 showArchiveConfirm = true
                             }
                         }
-                        Divider()
-                        Button("Change password…", systemImage: "key") { showChangePassword = true }
-                        Button("Delete account…", systemImage: "person.crop.circle.badge.xmark", role: .destructive) {
-                            showDeleteAccount = true
-                        }
-                        Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
-                            // Cached reads are this session's data — a stale
-                            // plan must not outlive the login that fetched it.
-                            store.clearCache()
-                            recipeStore.clearCache()
-                            session.logOut()
-                        }
+                        // Account, household and app info live in the Settings
+                        // tab — buried in a plan menu, account deletion is
+                        // neither findable by a user nor by App Review.
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -70,13 +57,6 @@ struct PlanView: View {
             .sheet(isPresented: $showAddMeal) { AddMealSheet() }
             .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
             .sheet(isPresented: $showHistory) { PastPlansSheet() }
-            .sheet(isPresented: $showChangePassword) { ChangePasswordView() }
-            .sheet(isPresented: $showDeleteAccount) {
-                DeleteAccountView {
-                    store.clearCache()
-                    recipeStore.clearCache()
-                }
-            }
             .confirmationDialog(
                 "Archive '\(store.plan?.label ?? "")'? Its meals come off the shopping list; anything added by hand stays.",
                 isPresented: $showArchiveConfirm,

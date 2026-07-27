@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app import client_gate
 from app.config import get_settings
-from app.routers import auth, ingredients, meals, plans, recipes, shopping, skill
+from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill
 from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
@@ -68,6 +68,7 @@ app.include_router(meals.router)
 app.include_router(plans.router)
 app.include_router(shopping.router)
 app.include_router(skill.router)
+app.include_router(pages.router)
 
 
 @app.get("/", include_in_schema=False)
@@ -89,6 +90,8 @@ async def root(request: Request) -> Response:
             # Lets an assistant spot a stale installed copy without a second request.
             "playbook_version": playbook_version(),
             "health": f"{base}/healthz",
+            "privacy": f"{base}/privacy",
+            "support": f"{base}/support",
         }
     )
 

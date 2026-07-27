@@ -51,9 +51,12 @@ make dev     # full stack in Docker: Postgres + API on http://localhost:8000
 make seed    # demo user, recipes, a plan, and a ready-made shopping list
 ```
 
-Interactive API docs: <http://localhost:8000/docs>. The seed prints demo
-credentials and an API token you can immediately use with `curl` or the MCP
-server.
+Interactive API docs: <http://localhost:8000/docs>. The seed's demo account is
+`demo@example.com` / `demo-password-123`, and it prints an API token you can
+use immediately with `curl` or the MCP server. (The password lives here rather
+than in the seed's output: `make seed` also fills real accounts on real servers
+— `SEED_EMAIL` / `SEED_PASSWORD` — and a password echoed to a terminal outlives
+the run.)
 
 No Docker? `make run` starts the API locally on SQLite (zero services), and
 `make test` runs the whole suite the same way.
@@ -92,11 +95,19 @@ PASSWORD_RESET_TTL_MINUTES=30   # default
 
 `make ios-build` / `make ios-test` (needs Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen)),
 or open `ios/Meals/Meals.xcodeproj` after running `xcodegen generate` there.
-Log in with the seed's demo account against `http://localhost:8000` (editable
-on the login screen). Check-offs and quick adds work with no signal — the hard
-requirement from decision Q11: interactions render instantly from a cached
-list, queue to disk, survive relaunch, and replay in order (with idempotent
-client ids and id-remapping for server-side merges) when connectivity returns.
+The app ships pointing at `https://meals.marcuslab.uk`; put your own address in
+the Server field on the sign-in screen, or launch the simulator build with
+`-serverURL http://localhost:8000` and use the seed's demo account. Check-offs
+and quick adds work with no signal — the hard requirement from decision Q11:
+interactions render instantly from a cached list, queue to disk, survive
+relaunch, and replay in order (with idempotent client ids and id-remapping for
+server-side merges) when connectivity returns.
+
+`make ios-screenshots` regenerates the App Store screenshot set against a
+throwaway seeded API and a throwaway simulator
+([how](ios/screenshots/README.md)). What's shipped, and what is only built,
+is tracked in [ios/CHANGELOG.md](ios/CHANGELOG.md); submission material lives
+in [ios/AppStore/](ios/AppStore/).
 
 ## Trying the AI layer
 
