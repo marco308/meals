@@ -24,15 +24,14 @@ Current state, verified against the App Store Connect API on 2026-07-27:
   Food & Drink / Productivity, 4+, description, keywords, promotional text,
   privacy + support + marketing URLs, five 6.9" screenshots, copyright,
   content rights, manual release.
-- **Outstanding:** App Privacy, Pricing, and the App Review contact phone
-  number.
+- **Submitted 2026-07-27 19:35 UTC** — `WAITING_FOR_REVIEW`, with the
+  iPhone-only build attached.
 - Builds 1–15 are on TestFlight at marketing version **0.1**, so **none of them
   can attach to the 1.0 record**. The attached build is the one App Store
   Connect calls **18** (uploaded 2026-07-27, `VALID`) — the first that is
   really iPhone-only. Its `CFBundleVersion` is 17; the numbering diverged, see
   [ios/CHANGELOG.md](../CHANGELOG.md). Builds 16 and 17 claim iPad support and
   would oblige you to supply 13" iPad screenshots.
-- Nothing has ever been submitted for review.
 
 ## Order of operations
 
@@ -105,7 +104,7 @@ number**. Apple requires it in international format and rejects the request
 without one. The rest of that section (contact name and email, the demo
 account, the notes) goes in with it.
 
-### 6. Submit, then wait
+### 6. Submit, then wait — ✅ done 2026-07-27
 
 Typically 24–48 hours. If it's rejected, the reply arrives in Resolution
 Center; answer it there rather than resubmitting blind — a reply usually gets a
