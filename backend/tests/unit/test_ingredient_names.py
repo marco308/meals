@@ -4,6 +4,8 @@ The cases that matter are the ones this must *not* fold: a wrong merge changes
 what someone buys, a missed one only leaves two tidy lines next to each other.
 """
 
+import time
+
 import pytest
 
 from app.services.aisles import guess_aisle
@@ -124,6 +126,26 @@ class TestSingularizeFood:
     def test_plural_only_foods_stay_plural_from_either_spelling(self, word):
         assert singularize_food(word) == word
         assert singularize_food(word.rstrip("s")) == word
+
+
+class TestCleaning:
+    @pytest.mark.parametrize(
+        ("written", "folded"),
+        [
+            ("chicken (skinless)", "chicken"),
+            ("chicken (skinless) thighs", "chicken thigh"),
+            ("onions, finely chopped", "onion"),
+        ],
+    )
+    def test_notes_are_stripped_without_gluing_words_together(self, written, folded):
+        assert canonical_ingredient_name(written) == folded
+
+    def test_bracket_heavy_name_is_not_quadratic(self):
+        """The folding regex used to be a lazy dot, which an unbalanced bracket
+        made quadratic (CWE-1333)."""
+        started = time.perf_counter()
+        canonical_ingredient_name("beef " + "(" * 40_000)
+        assert time.perf_counter() - started < 1.0
 
 
 class TestAisleStillFound:

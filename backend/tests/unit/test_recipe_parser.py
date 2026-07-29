@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from app.services.recipe_parser import (
@@ -130,6 +132,19 @@ class TestParseIngredientLine:
         parsed = parse_ingredient_line("2 eggs (free range)")
         assert parsed.name == "eggs"
         assert parsed.quantity == 2
+
+    def test_note_inside_a_name_leaves_one_space(self):
+        parsed = parse_ingredient_line("2 chicken (skinless) thighs")
+        assert parsed.name == "chicken thighs"
+
+    def test_bracket_heavy_line_is_not_quadratic(self):
+        """A fetched page chooses this string, and its ingredient lines have no
+        length limit. The lazy-dot version of the bracket-stripping regex took
+        seven seconds on this input (CWE-1333)."""
+        line = "500g beef " + "(" * 40_000
+        started = time.perf_counter()
+        parse_ingredient_line(line)
+        assert time.perf_counter() - started < 1.0
 
 
 class TestTrailingUnitWord:

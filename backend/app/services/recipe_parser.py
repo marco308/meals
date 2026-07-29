@@ -6,9 +6,13 @@ message instructing the caller's AI to read the page and submit the structured
 recipe via POST /recipes instead.
 """
 
+import asyncio
+import ipaddress
 import json
 import re
+import socket
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -47,16 +51,99 @@ class ParsedRecipe:
     ingredients: list[ParsedIngredient] = field(default_factory=list)
 
 
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+_MAX_REDIRECTS = 5
+_READ_IT_YOURSELF = "read the page yourself and submit the structured recipe via POST /recipes"
+
+
+async def _resolve_host(host: str) -> list[str]:
+    """A/AAAA lookup for a hostname. Its own function so the test suite can
+    stub it — tests never touch the network, DNS included."""
+    infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
+
+
+def _is_public_address(raw: str) -> bool:
+    try:
+        # A link-local IPv6 literal can carry a zone id ("fe80::1%eth0").
+        ip = ipaddress.ip_address(raw.partition("%")[0])
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        # ::ffff:127.0.0.1 reaches loopback, so judge it as the v4 address.
+        ip = ip.ipv4_mapped
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
+
+
+async def _assert_public_url(url: str) -> None:
+    """Refuse to fetch anything but a plain http(s) page on a public host.
+
+    Ingestion fetches a URL the caller supplied, so without this the endpoint
+    is a request-forgery proxy (CWE-918): `POST /recipes/ingest` with
+    `http://192.168.1.1/`, `http://169.254.169.254/latest/meta-data/` or
+    `file:///etc/passwd` would have this server read the network it is
+    deployed on and hand the result back. Every redirect hop is checked
+    separately, because a public page is free to redirect to loopback.
+
+    Names are resolved and the addresses judged, which closes the interesting
+    cases; it does not close DNS rebinding (a record whose value changes
+    between this lookup and the connection), which would need the connection
+    pinned to the address checked here.
+    """
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in _ALLOWED_SCHEMES:
+        raise RecipeFetchError(
+            f"{parts.scheme or url!r} is not a scheme this server will fetch — recipe URLs must be "
+            f"http:// or https://; if the recipe is somewhere this server can't reach, {_READ_IT_YOURSELF}"
+        )
+    host = parts.hostname
+    if not host:
+        raise RecipeFetchError(f"{url} has no hostname; pass the full page URL, or {_READ_IT_YOURSELF}")
+
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            addresses = await _resolve_host(host)
+        except OSError as exc:
+            raise RecipeFetchError(
+                f"could not resolve {host} (DNS lookup failed); check the URL, or {_READ_IT_YOURSELF}"
+            ) from exc
+    else:
+        addresses = [host]
+
+    if not addresses or not all(_is_public_address(address) for address in addresses):
+        raise RecipeFetchError(
+            f"{host} is not a public address, and this server only fetches recipes from the public "
+            f"internet — private, loopback and link-local addresses are refused. If the page is on your "
+            f"own network, {_READ_IT_YOURSELF}"
+        )
+
+
 async def fetch_page(url: str) -> str:
     settings = get_settings()
     headers = {"User-Agent": "MealsBot/0.1 (+recipe ingestion; JSON-LD only)"}
+    await _assert_public_url(url)
     try:
+        # Redirects are followed by hand so each hop goes through the same
+        # public-address check as the URL the caller gave us.
         async with httpx.AsyncClient(
-            follow_redirects=True, timeout=settings.recipe_fetch_timeout_seconds, headers=headers
+            follow_redirects=False, timeout=settings.recipe_fetch_timeout_seconds, headers=headers
         ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.text
+            target = url
+            for _ in range(_MAX_REDIRECTS + 1):
+                response = await client.get(target)
+                if response.next_request is None:
+                    response.raise_for_status()
+                    return response.text
+                # next_request resolves a relative Location against the hop.
+                target = str(response.next_request.url)
+                await _assert_public_url(target)
+            raise RecipeFetchError(
+                f"fetching {url} gave up after {_MAX_REDIRECTS} redirects; check the URL, or {_READ_IT_YOURSELF}"
+            )
     except httpx.HTTPStatusError as exc:
         raise RecipeFetchError(
             f"fetching {url} failed with HTTP {exc.response.status_code}; "
@@ -401,5 +488,6 @@ def _clean_name(name: str) -> str:
     name = re.sub(r"^(of|de)\s+", "", name, flags=re.IGNORECASE)
     # Drop trailing prep notes: "onions, finely chopped" → "onions"
     name = name.split(",")[0]
-    name = re.sub(r"\s*\((.*?)\)\s*", " ", name).strip()
-    return name.lower().strip(" .")
+    # Bracket-matching kept non-backtracking, as in canonical_ingredient_name.
+    name = re.sub(r"\([^()]*\)", " ", name)
+    return " ".join(name.split()).lower().strip(" .")

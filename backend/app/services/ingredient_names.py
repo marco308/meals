@@ -187,7 +187,12 @@ def canonical_ingredient_name(name: str) -> str:
     # Prep notes after a comma ("onions, finely chopped") — the JSON-LD parser
     # already drops these, AI- and user-submitted names may not.
     cleaned = cleaned.split(",")[0].strip()
-    cleaned = re.sub(r"\s*\(.*?\)\s*", " ", cleaned)
+    # `[^()]*` rather than `.*?`: an unbalanced "(" makes a lazy dot restart
+    # its scan at every following character, so a long name of nothing but
+    # brackets costs quadratic time on a name a caller chose (CWE-1333). The
+    # whitespace around the brackets is collapsed on the next line instead of
+    # being matched here, for the same reason.
+    cleaned = re.sub(r"\([^()]*\)", " ", cleaned)
     cleaned = " ".join(cleaned.split()).strip(" .")
     if not cleaned:
         return cleaned
