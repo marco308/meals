@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.database import Base, enforce_sqlite_foreign_keys, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import recipe_parser  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -70,6 +71,20 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
     auth = await register(client)
     client.headers["Authorization"] = f"Bearer {auth['token']}"
     return client
+
+
+@pytest.fixture(autouse=True)
+def stub_dns(monkeypatch):
+    """No test resolves a real name. Ingestion checks that a URL points at a
+    public address before fetching it, so every hostname the suite hands to
+    `fetch_page` would otherwise be a live DNS lookup; here they all answer
+    with the same public address. Tests that care about the answer patch
+    `recipe_parser._resolve_host` themselves."""
+
+    async def resolve(host: str) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(recipe_parser, "_resolve_host", resolve)
 
 
 @pytest.fixture

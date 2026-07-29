@@ -36,10 +36,12 @@ def _sort_order(sort: str) -> tuple:
 async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession) -> IngestOut:
     """Submit a recipe URL. A URL already in the library returns the cached
     recipe instantly (parse once, reuse forever). New URLs are fetched and
-    parsed from their schema.org/Recipe JSON-LD — no LLM involved. Failure is
-    a 422 either way — the page has no usable JSON-LD, or this server couldn't
-    fetch it (bot-blocked, unreachable) — and the detail tells the calling AI
-    to read the page itself and submit the structured recipe via POST /recipes."""
+    parsed from their schema.org/Recipe JSON-LD — no LLM involved. Only public
+    http(s) pages are fetched: a private, loopback or link-local address is
+    refused rather than reached. Failure is a 422 either way — the page has no
+    usable JSON-LD, or this server couldn't fetch it (bot-blocked, unreachable,
+    not public) — and the detail tells the calling AI to read the page itself
+    and submit the structured recipe via POST /recipes."""
     url = payload.url.strip()
     cached = await _find_by_url(db, user.household_id, url)
     if cached is not None:

@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 9 -->
+<!-- playbook-version: 10 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v9, and this file is a snapshot** — once installed it never
+**This is playbook v10, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -37,9 +37,10 @@ conversation, and tell the user to replace their installed copy.
 
 1. `ingest_recipe(url)` for each link.
 2. If it succeeds — confirm the parse briefly (title, servings, anything odd).
-3. If it fails — no JSON-LD on the page, or the site blocked the server's
-   fetch (your own fetch may still work fine): read the page yourself, extract
-   the fields in **the parsing contract** below, and `submit_recipe(...)`.
+3. If it fails — no JSON-LD on the page, the site blocked the server's fetch
+   (your own fetch may still work fine), or the URL isn't a public http(s) page
+   the server will fetch: read the page yourself, extract the fields in **the
+   parsing contract** below, and `submit_recipe(...)`.
 4. Create a meal per recipe (`create_meal`) — ask about sides ("anything with
    it?") and attach them as loose ingredients, not fake recipes.
 5. Add the meals to the current plan (`add_meal_to_plan`); create the plan if
