@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 make dev          # full stack in Docker (Postgres + API on :8000, remote MCP on :8100)
+make up           # alias of dev — the self-hosting spelling the marketing site advertises
 make run          # API locally on SQLite, no Docker, with --reload
 make seed         # load demo data through the public API against a running server (idempotent)
 make test         # backend (pytest + coverage) then mcp tests — no Docker, no network
@@ -44,6 +45,7 @@ is what keeps the API complete and the views consistent.
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
 | `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q20 |
+| `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
 (domain logic, session-scoped, `flush` not `commit`) → `models/` (SQLAlchemy).

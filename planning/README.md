@@ -16,6 +16,7 @@ Planning docs for the app described in `../init.md`.
 | [03-ai-integration.md](03-ai-integration.md) | The BYO-AI strategy: MCP vs skill vs plain API, recipe parsing ownership |
 | [04-open-questions.md](04-open-questions.md) | **Decisions log** — all questions answered; Q16 implemented as assumed |
 | [05-status.md](05-status.md) | **Build status** — plan→implementation traceability with evidence |
+| [06-marketing.md](06-marketing.md) | **Marketing & monetisation** — YAMP positioning, pricing, launch plan; the strategy behind the landing page in `docs/` |
 
 ## Product one-liner
 
