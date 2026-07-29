@@ -252,6 +252,12 @@ labels, host aliases, which box has the free disk), so it's kept out and
 gitignored. [`docker-compose.yml`](docker-compose.yml) is the honest reference
 for the shape of the deployment, and it's what CI boots and smoke-tests.
 
+Being untracked, `deploy/` only exists in the checkout you put it in, so from a
+`git worktree` there is nothing to run. `make deploy` therefore falls back to
+the main worktree's copy of the script and passes the *current* tree as
+`MEALS_REPO_ROOT`, which is the source tree that gets synced and built — the
+script prints it first, so the deploy log says which tree went live.
+
 If you're deploying this yourself, the two things worth knowing, learned the
 hard way:
 
