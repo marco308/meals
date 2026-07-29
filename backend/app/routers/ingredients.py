@@ -2,10 +2,10 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.deps import CurrentUser, DbSession
-from app.models import Ingredient
+from app.models import Ingredient, ListItem, MealIngredient, RecipeIngredient
 from app.schemas.catalog import (
     DuplicateGroup,
     DuplicatesOut,
@@ -214,3 +214,43 @@ async def get_ingredient(ingredient_id: uuid.UUID, user: CurrentUser, db: DbSess
     if ingredient is None or ingredient.household_id != user.household_id:
         raise HTTPException(status_code=404, detail="ingredient not found; list ingredients via GET /ingredients")
     return ingredient_out(ingredient)
+
+
+@router.delete("/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_ingredient(ingredient_id: uuid.UUID, user: CurrentUser, db: DbSession) -> None:
+    """Remove an ingredient nothing references any more — junk a bad parse
+    left behind, a typo'd ad-hoc add (Q22).
+
+    Refused while any recipe line, meal or shopping-list line (current or
+    archived) still points at it: those rows are the record of why things are
+    on the list. For a misparse or a duplicate of a real food,
+    `POST /ingredients/{keeper_id}/merge` is usually the better tool — it
+    repoints every reference onto the right ingredient and deletes this row in
+    the same stroke. There is deliberately no automatic sweep of unreferenced
+    ingredients: an unused row still carries the household's aisle, staple and
+    value-tier curation (Q17), so deleting is always someone's decision."""
+    ingredient = await db.get(Ingredient, ingredient_id)
+    if ingredient is None or ingredient.household_id != user.household_id:
+        raise HTTPException(status_code=404, detail="ingredient not found; list ingredients via GET /ingredients")
+    references = []
+    for model, what in (
+        (RecipeIngredient, "recipe line(s)"),
+        (MealIngredient, "loose meal ingredient(s)"),
+        (ListItem, "shopping-list line(s)"),
+    ):
+        result = await db.execute(select(func.count()).select_from(model).where(model.ingredient_id == ingredient.id))
+        count = result.scalar_one()
+        if count:
+            references.append(f"{count} {what}")
+    if references:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"ingredient '{ingredient.name}' is still referenced by {', '.join(references)}. "
+                "If it is a misparse or a duplicate of another ingredient, POST /ingredients/{keeper_id}/merge "
+                "repoints those references and deletes it in one step; otherwise edit the recipes "
+                "(PATCH /recipes/{id}) and meals (PATCH /meals/{id}) that use it first."
+            ),
+        )
+    await db.delete(ingredient)
+    await db.commit()

@@ -215,3 +215,32 @@ and two lines that could never merge. Decisions:
   parsed correctly, so the same food arrived under two names *and* two units.
   The parser now lifts a trailing container word into the unit, except where
   it is load-bearing ("2 bay leaves" is not two leaves of bay).
+
+**Q22 — Removing junk ingredients: a guarded DELETE, not a garbage collector**
+(2026-07-29, prompted by BBC Food's dual-measure lines: "100g/3½oz vermicelli
+rice noodles" parsed to quantity 100 g but name "/3½oz vermicelli rice
+noodles" — the slash glued the imperial rendering onto the name — and the
+junk rows it created had no way out, because the API had no ingredient
+delete at all). Decisions:
+
+- **Fixed at the source first.** The parser drops the "/imperial" tail
+  (including compound "2lb 4oz" and triple "40g/1½oz/3 tbsp" forms) before any
+  other parsing, keeping the exact metric figure rather than an
+  `INGEST_CONVERSIONS` approximation of the rounded imperial one; the strip
+  requires a metric unit before the slash, so real fractions ("juice of 1/2
+  lemon") are untouched. The comma rule also stopped assuming prep notes only
+  trail: "300g/10½oz cooked, peeled king prawns" used to name the ingredient
+  "cooked"; the name is now the first comma segment that isn't purely
+  preparation words ("peeled king prawns").
+- **`DELETE /ingredients/{id}`, guarded like `DELETE /recipes`.** 404 for a
+  row this household doesn't own, 409 naming what still references it (recipe
+  lines, loose meal ingredients, shopping-list lines — archived ones too)
+  while anything does. The 409 points at the merge endpoint (Q21), which is
+  usually the better fix for a misparse of a real food: it repoints every
+  reference onto the right ingredient and deletes the junk in the same stroke.
+  Delete is for the leftovers nothing references.
+- **No unreferenced-ingredient GC**, considered and rejected: "unreferenced"
+  is not "worthless". An ingredient between uses still carries the household's
+  aisle, staple flag and value tier — curation that is never guessed (Q17) and
+  so must never be silently destroyed. Cleanup stays a decision someone makes,
+  with the guard rails saying what it would break.
