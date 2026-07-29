@@ -18,8 +18,15 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import get_settings
-from app.services.ingredient_names import is_protected_name
-from app.services.units import _UNIT_SYNONYMS, INGEST_CONVERSIONS, METRIC_UNITS, parse_number, singularize
+from app.services.ingredient_names import _MODIFIERS, is_protected_name
+from app.services.units import (
+    _UNIT_SYNONYMS,
+    BANNED_UNITS,
+    INGEST_CONVERSIONS,
+    METRIC_UNITS,
+    parse_number,
+    singularize,
+)
 
 
 class RecipeFetchError(Exception):
@@ -323,6 +330,30 @@ def parse_iso8601_duration(value: str | None) -> int | None:
 # ---------------------------------------------------------------- ingredient lines
 
 _NUMBER_TOKEN = r"\d+(?:[./]\d+)?|[½⅓⅔¼¾⅕⅛]|\d+\s*[½⅓⅔¼¾⅕⅛]|\d+\s+\d/\d|\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?"
+
+# Dual-measure lines state the same amount twice around a slash, metric first —
+# BBC Food does it on every ingredient: "100g/3½oz vermicelli rice noodles",
+# "1kg/2lb 4oz potatoes" (compound imperial), "40g/1½oz/3 tbsp butter" and
+# "75g/2½oz/generous ½ cup sugar" (three renderings, possibly qualified). The
+# whole imperial tail is dropped before any other parsing: the metric figure
+# is the exact one (the imperial side is its rounding), so this also keeps
+# ingestion off the INGEST_CONVERSIONS approximations when a precise number is
+# right there. Requiring a metric unit before the slash is what keeps real
+# fractions ("juice of 1/2 lemon") intact.
+_METRIC_MEASURES = sorted(set(METRIC_UNITS) | {"mm", "cm"}, key=len, reverse=True)
+_IMPERIAL_MEASURES = sorted(
+    set(BANNED_UNITS) | set(INGEST_CONVERSIONS) | {"in", "inch", "inches"}, key=len, reverse=True
+)
+_IMPERIAL_AMOUNT = (
+    rf"(?:(?:generous|scant|heaped|heaping|level|about|around)\s+)?(?:{_NUMBER_TOKEN})\s*"
+    rf"(?:{'|'.join(re.escape(u) for u in _IMPERIAL_MEASURES)})\b"
+)
+_DUAL_MEASURE_RE = re.compile(
+    rf"(?P<metric>(?:{_NUMBER_TOKEN})\s*(?:{'|'.join(re.escape(u) for u in _METRIC_MEASURES)}))"
+    rf"\s*/\s*{_IMPERIAL_AMOUNT}(?:\s*/\s*{_IMPERIAL_AMOUNT}|\s+{_IMPERIAL_AMOUNT})*",
+    re.IGNORECASE,
+)
+
 _NATURAL_UNIT_WORDS = {
     "tin",
     "tins",
@@ -402,6 +433,7 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
     """
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
+    cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
 
     multiplier = _MULTIPLIER_RE.match(cleaned)
     if multiplier:
@@ -483,11 +515,26 @@ def _lift_trailing_unit(name: str) -> tuple[str, str | None]:
     return " ".join(words[:-1]), singularize(_UNIT_SYNONYMS.get(token, token))
 
 
+# Comma segments that are only preparation, never a food: the lead-in of
+# "cooked, peeled king prawns". Q21's modifier vocabulary plus the states a
+# recipe writes before the food but nobody ever shops for on their own.
+_PREP_ONLY_WORDS = _MODIFIERS | {"and", "then", "cooked", "raw", "defrosted", "thawed", "boiled", "toasted", "cooled"}
+
+
+def _is_prep_segment(segment: str) -> bool:
+    words = [word.strip("()") for word in segment.lower().split()]
+    return bool(words) and all(word in _PREP_ONLY_WORDS for word in words)
+
+
 def _clean_name(name: str) -> str:
     name = name.strip()
     name = re.sub(r"^(of|de)\s+", "", name, flags=re.IGNORECASE)
-    # Drop trailing prep notes: "onions, finely chopped" → "onions"
-    name = name.split(",")[0]
+    # Drop prep notes around the food. Usually they trail ("onions, finely
+    # chopped" → "onions"), but they lead too ("cooked, peeled king prawns"),
+    # so the name is the first comma segment that isn't purely preparation
+    # words — not blindly the first one.
+    segments = [segment.strip() for segment in name.split(",")]
+    name = next((segment for segment in segments if segment and not _is_prep_segment(segment)), segments[0])
     # Bracket-matching kept non-backtracking, as in canonical_ingredient_name.
     name = re.sub(r"\([^()]*\)", " ", name)
     return " ".join(name.split()).lower().strip(" .")

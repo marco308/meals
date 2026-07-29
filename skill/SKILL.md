@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 9 -->
+<!-- playbook-version: 10 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v9, and this file is a snapshot** — once installed it never
+**This is playbook v10, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -77,6 +77,11 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   `find_duplicate_ingredients()` reports same-food-two-names rows and
   `merge_ingredients(keep, duplicates=[...])` folds them — irreversible, so
   confirm anything you aren't sure is the same thing to buy.
+  `delete_ingredient(name)` removes a junk row outright — a bad parse, a
+  typo'd add — once nothing references it (refused, with what still does,
+  while anything points at it). For a misparse of a real food, merging is
+  usually the better fix: it repoints the references and deletes the junk
+  in one move.
 - Staples (olive oil, salt…) are hidden by default. Before a shop, offer a
   staples check: `get_shopping_list(include_staples=true)`, then
   `need_staple(name)` for anything the user is low on — just that staple
@@ -131,8 +136,8 @@ something cooked that the user only mentioned in passing.
 - Act without asking: ingesting shared links, adding requested meals,
   check-offs, ad-hoc adds the user stated.
 - Ask first: removing meals you weren't told to remove, archiving anything,
-  deleting recipes or meals, marking cooked (it can't be undone), changing
-  servings/scaling, replacing a whole plan.
+  deleting recipes, meals or ingredients, marking cooked (it can't be undone),
+  changing servings/scaling, replacing a whole plan.
 - Premium/budget tags are the household's taste and budget, not yours. Record
   what they tell you ("never skimp on parmesan" → premium, with their reason).
   You can *suggest* a tier when asked "is the expensive one worth it?" — say

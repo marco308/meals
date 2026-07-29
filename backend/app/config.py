@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     registration_enabled: bool = True
     session_token_ttl_days: int = 30
 
+    # Where a *browser* hitting the API root lands. Unset, it falls back to
+    # the interactive docs, which is the right default for a self-hosted
+    # instance; the reference deployment sets the YAMP marketing site so the
+    # bare domain has a public face. Machine clients never see this — the
+    # JSON landing at `/` is unaffected.
+    marketing_url: str | None = None
+
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
 

@@ -24,6 +24,28 @@ class TestMeta:
         assert response.status_code == 307
         assert response.headers["location"] == "/docs"
 
+    async def test_root_redirects_browsers_to_the_marketing_site_when_set(self, client, monkeypatch):
+        """A deployment with a public face sends browsers there instead of the docs."""
+        # Patch the instance the route actually reads: `app.main` binds the
+        # settings object at import, and other tests clear the lru_cache, so
+        # get_settings() here can be a different object entirely.
+        from app import main as app_main
+
+        monkeypatch.setattr(app_main.settings, "marketing_url", "https://example.test/yamp/")
+
+        response = await client.get("/", headers={"accept": "text/html,application/xhtml+xml"})
+        assert response.status_code == 307
+        assert response.headers["location"] == "https://example.test/yamp/"
+
+        # The JSON landing is a machine surface: unchanged shape, plus an
+        # additive pointer so assistants can cite the website too.
+        landing = (await client.get("/")).json()
+        assert landing["website"] == "https://example.test/yamp/"
+        assert landing["skill"] == "http://test/skill"
+
+    async def test_root_landing_has_no_website_field_by_default(self, client):
+        assert "website" not in (await client.get("/")).json()
+
     async def test_root_landing_advertises_the_ai_surfaces(self, client):
         """Assistants pointed at the server discover the skill from the root (issue #5)."""
         response = await client.get("/")  # httpx sends Accept: */* — the non-browser path
@@ -136,8 +158,8 @@ class TestPublicPages:
 # Without this, guidance can ship under an unchanged number — which is exactly
 # what happened when the premium/budget tools landed on v1: a stale v1 copy
 # compared v1 to v1, found no drift, and never learned the tools existed.
-PINNED_PLAYBOOK_VERSION = 9
-PINNED_PLAYBOOK_DIGEST = "cb42e7d16392d16daaab98e8bd58bec45c8056cc3b254a9f2464fa13c2756f6d"
+PINNED_PLAYBOOK_VERSION = 10
+PINNED_PLAYBOOK_DIGEST = "003d883256e2f752ba436a4b5d987233ef4073be2c0fcd8c4b642090a0ea0b87"
 
 _VERSION_STAMP = re.compile(r"<!--\s*playbook-version:\s*\d+\s*-->\n?")
 _VERSION_PROSE = re.compile(r"playbook v\d+", re.IGNORECASE)

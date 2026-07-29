@@ -147,6 +147,66 @@ class TestParseIngredientLine:
         assert time.perf_counter() - started < 1.0
 
 
+class TestDualMeasureLines:
+    """BBC Food writes every ingredient as "<metric>/<imperial> <food>". The
+    slash form used to bleed into the name ("/3½oz vermicelli rice noodles");
+    the parenthesised form ("1 bunch (30g/1oz) mint") always parsed fine. The
+    strings here are verbatim from bbc.co.uk/food (summer_rolls_15105 et al)."""
+
+    @pytest.mark.parametrize(
+        "line,name,quantity,unit",
+        [
+            ("100g/3½oz vermicelli rice noodles (2 nests)", "vermicelli rice noodles", 100, "g"),
+            ("300g/10½oz cooked, peeled king prawns", "peeled king prawns", 300, "g"),
+            ("150g/5½oz frozen edamame (soya beans), defrosted", "frozen edamame", 150, "g"),
+            ("150g/5½oz radishes, finely sliced", "radishes", 150, "g"),
+            ("1 bunch (30g/1oz) mint, leaves only", "mint", 1, "bunch"),
+            ("500ml/18fl oz vegetable stock", "vegetable stock", 500, "ml"),
+            ("1 litre/1¾ pints hot vegetable stock", "hot vegetable stock", 1000, "ml"),
+            # compound imperial ("2lb 4oz") and triple renderings both go
+            ("1kg/2lb 4oz floury potatoes", "floury potatoes", 1000, "g"),
+            ("40g/1½oz/3 tbsp butter", "butter", 40, "g"),
+            ("75g/2½oz/generous ½ cup caster sugar", "caster sugar", 75, "g"),
+            ("2 x 400g/14oz tins chopped tomatoes", "chopped tomatoes", 800, "g"),
+        ],
+    )
+    def test_bbc_dual_measure_lines(self, line, name, quantity, unit):
+        parsed = parse_ingredient_line(line)
+        assert parsed.name == name
+        assert parsed.quantity == pytest.approx(quantity)
+        assert parsed.unit == unit
+        assert parsed.raw == line
+
+    def test_the_exact_metric_figure_wins(self):
+        """100 g as written, not the 98 g that INGEST_CONVERSIONS would make of
+        the rounded imperial side (3½ × 28) — the conversions stay for lines
+        that offer no metric at all."""
+        parsed = parse_ingredient_line("100g/3½oz vermicelli rice noodles")
+        assert (parsed.quantity, parsed.unit) == (100, "g")
+
+    def test_imperial_only_lines_still_convert(self):
+        parsed = parse_ingredient_line("5fl oz single cream")
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("single cream", 140, "ml")
+
+    def test_a_real_fraction_keeps_its_slash(self):
+        """The strip needs a metric unit before the slash, so a bare fraction
+        is not mistaken for a dual measure."""
+        parsed = parse_ingredient_line("juice of 1/2 lemon")
+        assert parsed.quantity is None
+        assert parsed.name == "juice of 1/2 lemon"
+
+    def test_length_dual_measures_strip_too(self):
+        parsed = parse_ingredient_line("2.5cm/1in piece of fresh root ginger")
+        assert parsed.name == "2.5cm piece of fresh root ginger"
+        assert parsed.quantity is None
+
+    def test_leading_prep_segment_is_not_the_name(self):
+        """The comma rule used to keep whatever came first; "cooked" is prep,
+        not the shop."""
+        parsed = parse_ingredient_line("200g cooked, peeled king prawns")
+        assert parsed.name == "peeled king prawns"
+
+
 class TestTrailingUnitWord:
     """'<n> <food> <unit>' lines — the shape that used to leave the container
     word in the name and count the food as items (decision Q21)."""

@@ -364,3 +364,75 @@ class TestDuplicates:
             json={"duplicate_ids": ["00000000-0000-0000-0000-000000000001"]},
         )
         assert response.status_code == 404
+
+
+class TestDeleteIngredient:
+    """Junk rows (a misparse, a typo'd add) can be removed once nothing points
+    at them — and only then, mirroring DELETE /recipes (Q22). There is no
+    automatic sweep: an unused ingredient still carries curation (Q17)."""
+
+    async def test_deletes_an_unreferenced_ingredient(self, auth_client):
+        created = (await auth_client.post("/ingredients", json={"name": "unobtainium"})).json()
+        response = await auth_client.delete(f"/ingredients/{created['id']}")
+        assert response.status_code == 204
+        assert (await auth_client.get(f"/ingredients/{created['id']}")).status_code == 404
+
+    async def test_refuses_while_a_recipe_references_it(self, auth_client):
+        recipe = await create_recipe(
+            auth_client, title="Junk parse", ingredients=[{"name": "unobtainium", "quantity": 100, "unit": "g"}]
+        )
+        ingredient_id = recipe["ingredients"][0]["ingredient_id"]
+        response = await auth_client.delete(f"/ingredients/{ingredient_id}")
+        assert response.status_code == 409
+        assert "1 recipe line" in response.json()["detail"]
+        assert "merge" in response.json()["detail"]  # the 409 teaches the better tool
+        assert (await auth_client.get(f"/ingredients/{ingredient_id}")).status_code == 200
+
+    async def test_refuses_while_a_meal_references_it(self, auth_client):
+        await create_meal(
+            auth_client, name="Sides", loose_ingredients=[{"name": "unobtainium", "quantity": 1, "unit": "item"}]
+        )
+        ingredient = (await auth_client.get("/ingredients", params={"name": "unobtainium"})).json()[0]
+        response = await auth_client.delete(f"/ingredients/{ingredient['id']}")
+        assert response.status_code == 409
+        assert "loose meal ingredient" in response.json()["detail"]
+
+    async def test_refuses_while_a_list_line_references_it(self, auth_client):
+        item = (
+            await auth_client.post("/shopping-list/items", json={"name": "batteries", "quantity": 1, "unit": "pack"})
+        ).json()
+        response = await auth_client.delete(f"/ingredients/{item['ingredient_id']}")
+        assert response.status_code == 409
+        assert "shopping-list line" in response.json()["detail"]
+
+    async def test_deleting_the_recipe_frees_its_junk_ingredients(self, auth_client):
+        """The cleanup arc for a bad parse: delete (or fix) the recipe, then
+        the stranded ingredient row."""
+        recipe = await create_recipe(
+            auth_client,
+            title="Bad parse",
+            ingredients=[{"name": "/3½oz vermicelli rice noodles", "quantity": 100, "unit": "g"}],
+        )
+        ingredient_id = recipe["ingredients"][0]["ingredient_id"]
+        assert (await auth_client.delete(f"/ingredients/{ingredient_id}")).status_code == 409
+        assert (await auth_client.delete(f"/recipes/{recipe['id']}")).status_code == 204
+        assert (await auth_client.delete(f"/ingredients/{ingredient_id}")).status_code == 204
+
+    async def test_unknown_ingredient_404(self, auth_client):
+        response = await auth_client.delete("/ingredients/00000000-0000-0000-0000-000000000000")
+        assert response.status_code == 404
+
+    async def test_refuses_another_households_ingredient(self, auth_client, client):
+        """household_id is the only thing between two families' data."""
+        from tests.conftest import register
+
+        other = await register(client, email="someone@example.com", name="Someone")
+        outsider = await client.post(
+            "/ingredients", json={"name": "saffron"}, headers={"Authorization": f"Bearer {other['token']}"}
+        )
+        response = await auth_client.delete(f"/ingredients/{outsider.json()['id']}")
+        assert response.status_code == 404
+        seen = await client.get(
+            f"/ingredients/{outsider.json()['id']}", headers={"Authorization": f"Bearer {other['token']}"}
+        )
+        assert seen.status_code == 200  # and it survives for its owner
