@@ -108,12 +108,14 @@ final class ShoppingListStoreTests: XCTestCase {
         store.toggleChecked(onion)
 
         XCTAssertEqual(store.pending.count, 1)
-        XCTAssertTrue(store.displayItems.first!.checked, "check-off must render instantly with no network")
+        XCTAssertTrue(store.displayItems.isEmpty, "check-off must render instantly with no network")
+        XCTAssertTrue(store.checkedItems.first!.checked)
 
         await store.sync()
         XCTAssertTrue(store.isOffline)
         XCTAssertEqual(store.pending.count, 1, "op stays queued while offline")
-        XCTAssertTrue(store.displayItems.first!.checked)
+        XCTAssertTrue(store.displayItems.isEmpty)
+        XCTAssertEqual(store.checkedItems.map(\.name), ["onion"])
     }
 
     func testAdhocAddWorksOfflineAndMergesInProjection() async {
@@ -161,7 +163,7 @@ final class ShoppingListStoreTests: XCTestCase {
         let second = makeStore(api)
         XCTAssertEqual(second.pending.count, 2, "queued ops persist across launches")
         XCTAssertEqual(second.cache?.payload.items.count, 1, "cached list persists across launches")
-        XCTAssertTrue(second.displayItems.first { $0.name == "onion" }!.checked, "projection applies after relaunch")
+        XCTAssertTrue(second.checkedItems.first { $0.name == "onion" }!.checked, "projection applies after relaunch")
     }
 
     // MARK: Sync / replay
@@ -365,6 +367,51 @@ final class ShoppingListStoreTests: XCTestCase {
         api.failWith = .offline
         store.addAdhoc(name: "milk", quantity: 1000, unit: "ml")
         XCTAssertFalse(store.displayItems.first { $0.name == "milk" }!.checked, "fresh need un-checks the line")
+        XCTAssertTrue(store.checkedItems.isEmpty, "and it comes back out of the basket")
+    }
+
+    // MARK: Checked-off items
+
+    func testCheckedItemsLeaveTheAislesButStayVisibleInTheBasket() async {
+        let onion = TestData.item(name: "onion", aisle: "🥬")
+        let beef = TestData.item(name: "minced beef", aisle: "🥩")
+        let api = FakeShoppingAPI(list: TestData.payload([onion, beef]))
+        let store = makeStore(api)
+        await store.sync()
+
+        store.toggleChecked(onion)
+
+        XCTAssertEqual(store.displayItems.map(\.name), ["minced beef"], "checked items drop out of the aisles")
+        XCTAssertFalse(store.sections.contains { $0.aisle == "🥬" }, "and take their empty section with them")
+        XCTAssertEqual(store.checkedItems.map(\.name), ["onion"], "but stay reachable in the basket")
+    }
+
+    func testUncheckingReturnsTheItemToItsAisle() async {
+        let onion = TestData.item(name: "onion", checked: true)
+        let api = FakeShoppingAPI(list: TestData.payload([onion]))
+        let store = makeStore(api)
+        await store.sync()
+        XCTAssertEqual(store.checkedItems.count, 1)
+
+        api.failWith = .offline
+        store.toggleChecked(store.checkedItems.first!)
+
+        XCTAssertEqual(store.displayItems.map(\.name), ["onion"], "un-check puts it back, even offline")
+        XCTAssertTrue(store.checkedItems.isEmpty)
+    }
+
+    func testHiddenItemsStayOutOfTheBasket() async {
+        let salt = TestData.item(name: "salt", isStaple: true, checked: true)
+        let onion = TestData.item(name: "onion", checked: true, excluded: true)
+        let milk = TestData.item(name: "milk", checked: true)
+        let api = FakeShoppingAPI(list: TestData.payload([salt, onion, milk]))
+        let store = makeStore(api)
+        await store.sync()
+
+        XCTAssertEqual(
+            store.checkedItems.map(\.name), ["milk"],
+            "the basket counts only what dropped out of the list — not hidden staples or already-have lines"
+        )
     }
 }
 
