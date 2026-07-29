@@ -129,3 +129,30 @@ def item_by_name(shopping_list: dict, name: str, unit: str | None = "any") -> di
         if item["name"] == name and (unit == "any" or item["unit"] == unit):
             return item
     return None
+
+
+@pytest.fixture
+async def legacy_ingredient(engine, auth_client):
+    """Insert an ingredient under a name the folding rules would no longer
+    produce (decision Q21).
+
+    The API canonicalises on the way in, so a pre-folding catalogue can only be
+    reproduced by writing the row directly — which is exactly what
+    `GET /ingredients/duplicates` exists to clean up.
+    """
+    from sqlalchemy import select
+
+    from app.models import Ingredient, User
+    from app.services.aisles import guess_aisle
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def insert(name: str) -> Ingredient:
+        async with maker() as session:
+            user = (await session.execute(select(User))).scalars().first()
+            ingredient = Ingredient(household_id=user.household_id, name=name, aisle=guess_aisle(name))
+            session.add(ingredient)
+            await session.commit()
+            return ingredient
+
+    return insert

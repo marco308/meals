@@ -46,6 +46,34 @@ class IngredientUpdate(BaseModel):
         return _check_value_tier(value)
 
 
+class MergeIn(BaseModel):
+    duplicate_ids: list[uuid.UUID] = Field(min_length=1, max_length=50)
+
+
+class MergeOut(BaseModel):
+    ingredient: IngredientOut  # the survivor
+    merged: int  # how many duplicates were folded into it
+
+
+class DuplicateGroup(BaseModel):
+    canonical_name: str
+    keeper: IngredientOut  # the suggested survivor — merge the rest into this one
+    duplicates: list[IngredientOut]
+
+
+class UnfoldedIngredient(BaseModel):
+    """One ingredient whose stored name is not its canonical form, with no
+    twin to merge it with."""
+
+    ingredient: IngredientOut
+    canonical_name: str
+
+
+class DuplicatesOut(BaseModel):
+    groups: list[DuplicateGroup]
+    unfolded: list[UnfoldedIngredient]
+
+
 class RecipeLineOut(BaseModel):
     ingredient_id: uuid.UUID
     name: str

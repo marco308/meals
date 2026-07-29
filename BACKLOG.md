@@ -27,6 +27,8 @@ tail plus engineering debt worth naming.
 - [ ] **Servings scaling** — scale a recipe's quantities when adding to a meal ("×2 for batch cooking"); skill/prompt pack tells AIs to confirm scaling, the API has no first-class support
 - [ ] **Archived shopping lists in iOS** — API has `GET /shopping-list/archived`; no screen for "what did we buy last week"
 - [ ] **Re-parse endpoint** — refresh a cached recipe from its URL on demand (edits win; needs an explicit force flag)
+- [ ] **Duplicate ingredients in iOS** — `GET /ingredients/duplicates` and the merge endpoint clean the catalogue up (Q21), and the MCP exposes both, but the app has no screen for it: today the tidy-up only happens if you ask an AI
+- [ ] **One ingredient, two units on the list** — folding names (Q21) makes "mint" one ingredient, but "1 bunch" and "10 g" are still two lines, because merging is exact-unit-only by design (Q2). Converting bunches to grams means guessing at densities, which is the wrong fix; grouping an ingredient's lines together in the iOS list is the right one
 - [ ] **Premium/budget browse screen in iOS** — `GET /ingredients?value_tier=premium` and the MCP `list_ingredients_by_value` read the tagged set back (Q17); the app only shows a tier on ingredients you happen to open
 - [ ] **iOS offline breadth** — plan and recipe library are online-only by design (Q11); cache read-only copies so the whole app opens signal-less
 - [x] ~~**Remote MCP multi-user auth**~~ — ✅ shipped (issue #6): the stack serves streamable HTTP at `https://meals.marcuslab.uk/mcp` and forwards each caller's own bearer PAT per request; stdio stays for local dev
@@ -47,5 +49,6 @@ tail plus engineering debt worth naming.
 - [ ] **CD** — deploys are still `make deploy` from a laptop. GitHub-hosted runners can't reach the homelab, so this needs either a self-hosted runner on the swarm or a Tailscale OAuth step in the workflow
 - [ ] **Image pipeline** — images are built on the swarm node by hand; a registry (or at least a pinned tag scheme) would make rollbacks sane
 - [ ] **Rate limiting is per-process in-memory** — fine for one replica; revisit if the API ever scales out
-- [ ] **Ingredient-line parser tail** — "1 garlic clove crushed" style lines parse with the container word in the name; the AI-cleanup path covers it, but the regex could learn the `<n> <food> <unit>` shape
+- [x] ~~**Ingredient-line parser tail**~~ — ✅ the regex learned the `<n> <food> <unit>` shape (Q21): "3 garlic cloves" is now 3 cloves of garlic rather than ×3 of an ingredient called "garlic cloves", except where the last word is load-bearing ("2 bay leaves")
+- [ ] **Flaky provision password test** — `test_generated_passwords_are_typeable_and_not_guessable` asserts no `8` in the password while `_generate_password`'s alphabet contains one, so it fails roughly one run in four. Either drop `8` from the alphabet or from the ambiguous set; predates Q21 and is unrelated to it
 - [ ] **Demo/test data hygiene in prod** — if a smoke-test account was used during deploy verification, remove it (single shared household means it sees real data)

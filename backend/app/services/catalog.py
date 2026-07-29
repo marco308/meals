@@ -9,14 +9,22 @@ from app.models import Ingredient, Recipe, RecipeIngredient
 from app.schemas.catalog import RecipeCreate
 from app.schemas.common import IngredientLineIn
 from app.services.aisles import guess_aisle
+from app.services.ingredient_names import canonical_ingredient_name
 from app.services.recipe_parser import ParsedRecipe
 
 
 async def get_or_create_ingredient(db: AsyncSession, household_id: uuid.UUID, name: str) -> Ingredient:
     """Ingredient names are the canonical key: 'chopped tomatoes' from two
     recipes resolves to one ingredient. New ingredients get a best-effort
-    aisle from the built-in lookup table."""
-    canonical = " ".join(name.lower().split())
+    aisle from the built-in lookup table.
+
+    Every write path — JSON-LD ingest, an AI's POST /recipes, a loose meal
+    ingredient, an ad-hoc list add — lands here, which is why the name folding
+    (Q21) belongs here and nowhere else: 'mint leaves' and 'mint' resolve to
+    one ingredient however they arrived."""
+    # The fallback matters for names that fold to nothing (","): a punctuation
+    # ingredient is bad data, an unnamed one breaks every client that shows it.
+    canonical = canonical_ingredient_name(name) or " ".join(name.lower().split())
     result = await db.execute(
         select(Ingredient).where(Ingredient.household_id == household_id, Ingredient.name == canonical)
     )

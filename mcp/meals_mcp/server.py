@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 6
+PLAYBOOK_VERSION = 7
 
 mcp = FastMCP(
     "meals",
@@ -587,6 +587,12 @@ async def finish_shop() -> str:
 
 
 async def _find_ingredient(name: str) -> dict:
+    # Names are stored folded — "mint leaves" is filed under "mint" — so ask
+    # the API to apply the same folding to the lookup rather than guessing at
+    # a near miss here ("olive oil" must not resolve to "olive oil spray").
+    resolved = await _call("GET", "/ingredients", params={"name": name})
+    if resolved:
+        return resolved[0]
     ingredients = await _call("GET", "/ingredients", params={"search": name})
     exact = [i for i in ingredients if i["name"] == name.lower().strip()]
     if not exact:
@@ -653,6 +659,65 @@ async def list_ingredients_by_value(tier: str = "premium") -> str:
         return f"Nothing tagged '{tier}' yet — set_ingredient_value(name, '{tier}') records one."
     lines = [f"  {i['name']}" + (f" — {i['value_note']}" if i.get("value_note") else "") for i in ingredients]
     return f"Tagged '{tier}':\n" + "\n".join(lines)
+
+
+@mcp.tool()
+async def find_duplicate_ingredients() -> str:
+    """Find ingredients in the household's catalogue that are the same food
+    filed under two names — "mint" and "mint leaves", "garlic" and "garlic
+    cloves" — which is why the shopping list shows them as two lines.
+
+    New recipes and list additions are folded to one name automatically, so
+    this reports what was written before that, and anything the folding rules
+    are too cautious to claim. Fold a group with `merge_ingredients`. Worth
+    running before a big shop, or when the user says the list looks
+    repetitive."""
+    try:
+        report = await _call("GET", "/ingredients/duplicates")
+    except ApiError as exc:
+        return str(exc)
+    lines = []
+    for group in report["groups"]:
+        others = ", ".join(f"'{d['name']}'" for d in group["duplicates"])
+        lines.append(f"  '{group['keeper']['name']}' ← {others}")
+    for entry in report["unfolded"]:
+        lines.append(f"  '{entry['ingredient']['name']}' would now be filed as '{entry['canonical_name']}'")
+    if not lines:
+        return "No duplicate ingredients — every food in the catalogue is filed under one name."
+    return (
+        "Same food, more than one name:\n"
+        + "\n".join(lines)
+        + "\n\nmerge_ingredients(keep, duplicates=[...]) folds them together. Check with the "
+        "user before merging anything you are not sure is the same thing to buy."
+    )
+
+
+@mcp.tool()
+async def merge_ingredients(keep: str, duplicates: list[str]) -> str:
+    """Fold duplicate ingredients into one. `keep` is the name to keep — it
+    does not have to exist yet, which is how you also rename a lone badly-named
+    ingredient ("garlic cloves" → keep="garlic", duplicates=["garlic cloves"]).
+
+    Recipe lines, meals and shopping-list lines all follow the merge, and list
+    lines in the same unit are combined. The kept ingredient's aisle, staple
+    flag and buying advice are left alone.
+
+    This is not reversible, so only merge things that are the same thing to
+    buy. "beef mince" and "minced beef", yes. "garlic" and "garlic bread", no.
+    When the user has not asked for a specific merge, confirm it first."""
+    try:
+        keeper = await _call("POST", "/ingredients", json={"name": keep})
+        duplicate_ids = []
+        for name in duplicates:
+            found = await _find_ingredient(name)
+            if found["id"] != keeper["id"]:
+                duplicate_ids.append(found["id"])
+        if not duplicate_ids:
+            return f"Nothing to merge — '{keeper['name']}' is already the only name for it."
+        result = await _call("POST", f"/ingredients/{keeper['id']}/merge", json={"duplicate_ids": duplicate_ids})
+    except ApiError as exc:
+        return str(exc)
+    return f"Merged {result['merged']} into '{result['ingredient']['name']}' — one line on the list from now on."
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

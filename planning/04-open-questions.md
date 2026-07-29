@@ -163,3 +163,55 @@ requirements for an app that creates accounts, and neither existed. Decisions:
 - **Redeeming revokes every session token and returns a fresh one**, matching
   `POST /auth/password`. API tokens survive: rotating a password shouldn't
   silently break every AI client.
+
+**Q21 — Ingredient names are folded to one identity: yes** (2026-07-29,
+prompted by a shopping list showing "garlic" and "garlic cloves", "mint" and
+"mint leaves" as separate lines). An ingredient's *name* is its identity key,
+so two recipes describing the same food differently produced two ingredients
+and two lines that could never merge. Decisions:
+
+- **Fold at `get_or_create_ingredient`, not per client.** Every write path —
+  JSON-LD ingest, an AI's `POST /recipes`, a meal's loose ingredient, an ad-hoc
+  list add — already funnels through it. One place to fold means the answer is
+  the same however the food arrived, and no client has to know the rules.
+- **Fold only what doesn't change the shop.** Prep and size adjectives
+  ("fresh", "grated", "large"), the "how much of the plant" nouns ("mint
+  *leaves*", "garlic *cloves*", "*root* ginger") and plurals. Anything that
+  changes which product you buy stays: "ground" coriander, "dried" oregano,
+  "smoked" paprika, "minced" beef, "red" onion, "whole" milk. **A missed merge
+  is a cosmetic annoyance; a wrong merge silently changes someone's
+  shopping** — so when in doubt, the word stays.
+- **This is Q13's hybrid, not Q17's abstention.** Unlike "is the posh one worth
+  it", a plural is not a matter of household taste, so a table can settle it.
+  What the table won't claim ("beef mince" vs "minced beef") goes to the AI via
+  `GET /ingredients/duplicates` and `POST /ingredients/{id}/merge`, the same
+  shape as an ❓ aisle.
+- **Protected compounds keep the spelling they are bought under.** "chopped
+  tomatoes" is a tin, not a tomato, and folding it to the singular would fix a
+  duplicate while ruining the list ("2 tins chopped tomato"). Both spellings
+  key to one row and it is stored plural. The protected list is seeded from the
+  multi-word entries in the aisle table — an ingredient specific enough to have
+  earned its own aisle is by definition its own product.
+- **Detection reports facts, not guesses.** `GET /ingredients/duplicates` only
+  groups names that fold to the same string. Looser heuristics were considered
+  and rejected: "garlic" is a subset of "garlic bread", and same-aisle
+  proximity would have proposed exactly the merges that lose someone's dinner.
+- **Merging repoints, it does not recompute.** Recipe lines, loose meal
+  ingredients and list lines all move to the survivor, carrying their
+  `ListItemSource` rows, so a merged line still knows why it is there
+  (principle 3) and its quantity is still the sum of its sources. Colliding
+  lines combine their shop state pessimistically — ticked off only if *both*
+  halves were, so an outstanding need resurfaces rather than being quietly
+  bought.
+- **The survivor's curation is untouched.** Aisle, staple flag and value tier
+  are the household's decisions (Q17); a merge has no opinion about them.
+- **No migration, and no backfill on deploy.** Existing rows keep their names
+  and ids: a rewrite would change the identity of rows that iOS may hold
+  queued offline operations against (Q11). The catalogue is cleaned up
+  deliberately, through the merge endpoint, by someone who can see what they
+  are merging.
+- **Also fixed at the source: `<n> <food> <unit>`.** "3 garlic cloves" parsed
+  as `×3` of an ingredient called "garlic cloves" while "2 cloves garlic"
+  parsed correctly, so the same food arrived under two names *and* two units.
+  The parser now lifts a trailing container word into the unit, except where
+  it is load-bearing ("2 bay leaves" is not two leaves of bay).
