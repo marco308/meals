@@ -33,7 +33,6 @@ final class ShoppingListStore {
     var errorMessage: String?
 
     var includeStaples = false
-    var includeChecked = true
     var includeExcluded = false
 
     private let api: () -> any ShoppingAPI
@@ -62,15 +61,28 @@ final class ShoppingListStore {
         return items
     }
 
-    /// Items as the user should see them right now, offline or not. A staple
-    /// marked "I'm low" in the staples check stays visible in its aisle.
+    /// Still to buy: what the user should see right now, offline or not. A
+    /// staple marked "I'm low" in the staples check stays visible in its aisle.
+    /// Checking something off takes it out of here — the basket is what's left,
+    /// so the aisle you're standing in only ever shows what you still need.
     var displayItems: [ListItem] {
-        aisleSorted(projectedItems.filter { item in
+        aisleSorted(visibleItems.filter { !$0.checked })
+    }
+
+    /// Already in the basket. Same visibility rules as `displayItems`, so the
+    /// count under the list is exactly what dropped out of it.
+    var checkedItems: [ListItem] {
+        aisleSorted(visibleItems.filter(\.checked))
+    }
+
+    /// Everything on this shop, checked or not, minus what's deliberately
+    /// hidden (unneeded staples, "already have it" lines).
+    private var visibleItems: [ListItem] {
+        projectedItems.filter { item in
             if item.isStaple && !includeStaples && !item.isNeededStaple { return false }
             if item.excluded && !includeExcluded { return false }
-            if item.checked && !includeChecked { return false }
             return true
-        })
+        }
     }
 
     /// The pre-shop staples check: every staple on the list (minus "already

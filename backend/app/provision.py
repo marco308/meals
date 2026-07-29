@@ -33,12 +33,18 @@ from app.database import SessionLocal
 from app.models import Household, User
 from app.services.security import hash_password
 
+# Look-alikes off a screen, dropped in whole pairs so neither half can turn up:
+# i/l/1, o/O/0, B/8. Keeping one half of a pair is no better than keeping both,
+# because the reader still can't tell which character they are looking at.
+AMBIGUOUS_CHARACTERS = "Il1O0oB8"
+
+# Long enough to be safe, typeable enough to go in App Review notes and be
+# retyped on a phone by someone who did not choose to be here.
+PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ2345679"
+
 
 def _generate_password() -> str:
-    # Long enough to be safe, typeable enough to go in App Review notes and be
-    # retyped on a phone by someone who did not choose to be here.
-    alphabet = "abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789"
-    return "-".join("".join(secrets.choice(alphabet) for _ in range(5)) for _ in range(3))
+    return "-".join("".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(5)) for _ in range(3))
 
 
 async def provision(

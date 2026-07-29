@@ -73,27 +73,29 @@ app.include_router(pages.router)
 
 @app.get("/", include_in_schema=False)
 async def root(request: Request) -> Response:
-    # Browsers get the interactive docs; assistants and curl get a JSON landing
+    # Browsers get the marketing site when this deployment has one, the
+    # interactive docs otherwise; assistants and curl get a JSON landing
     # advertising every machine-readable surface (issue #5).
     if "text/html" in request.headers.get("accept", ""):
-        return RedirectResponse("/docs")
+        return RedirectResponse(settings.marketing_url or "/docs")
     base = base_url(request)
-    return JSONResponse(
-        {
-            "name": settings.app_name,
-            "version": app.version,
-            "description": "Meal options planner with an AI-first API — fetch the skill for the workflow guide.",
-            "openapi": f"{base}/openapi.json",
-            "docs": f"{base}/docs",
-            "skill": f"{base}/skill",
-            "prompt_pack": f"{base}/prompt-pack",
-            # Lets an assistant spot a stale installed copy without a second request.
-            "playbook_version": playbook_version(),
-            "health": f"{base}/healthz",
-            "privacy": f"{base}/privacy",
-            "support": f"{base}/support",
-        }
-    )
+    landing = {
+        "name": settings.app_name,
+        "version": app.version,
+        "description": "Meal options planner with an AI-first API — fetch the skill for the workflow guide.",
+        "openapi": f"{base}/openapi.json",
+        "docs": f"{base}/docs",
+        "skill": f"{base}/skill",
+        "prompt_pack": f"{base}/prompt-pack",
+        # Lets an assistant spot a stale installed copy without a second request.
+        "playbook_version": playbook_version(),
+        "health": f"{base}/healthz",
+        "privacy": f"{base}/privacy",
+        "support": f"{base}/support",
+    }
+    if settings.marketing_url:
+        landing["website"] = settings.marketing_url
+    return JSONResponse(landing)
 
 
 @app.get("/healthz", tags=["meta"])

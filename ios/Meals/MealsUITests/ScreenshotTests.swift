@@ -48,8 +48,11 @@ final class ScreenshotTests: XCTestCase {
 
         // 2 — the shopping list, mid-shop. Ticking a few first is the honest
         // picture: aisle order only earns its keep once you're walking a shop.
+        // Waiting for "Shopping" here proved nothing: the tab bar's own label
+        // matches it from any screen, which is how this shot once shipped as a
+        // second copy of the plan. A seeded row is proof the list rendered.
         tab("Shopping")
-        waitForText("Shopping")
+        waitForText("carrot")
         tickOffAFew()
         capture("02-shopping-list")
 
@@ -129,6 +132,21 @@ final class ScreenshotTests: XCTestCase {
         let button = app.tabBars.buttons[name]
         XCTAssertTrue(button.waitForExistence(timeout: 15), "no \(name) tab")
         button.tap()
+        // A tap can land while the bar is still settling and switch nothing.
+        // Selection state is the only proof the switch happened; retry once.
+        if !waitUntilSelected(button) {
+            button.tap()
+            XCTAssertTrue(waitUntilSelected(button), "the \(name) tab never became selected")
+        }
+    }
+
+    private func waitUntilSelected(_ button: XCUIElement, timeout: TimeInterval = 4) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if button.isSelected { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return button.isSelected
     }
 
     private func waitForText(_ text: String) {

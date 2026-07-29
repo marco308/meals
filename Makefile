@@ -21,6 +21,9 @@ setup: ## Install backend + mcp deps into local .venvs (uses uv)
 
 # ------------------------------------------------------------------ full dev stack (Docker: Postgres + API)
 
+.PHONY: up
+up: dev ## Self-host the whole stack (Postgres + API + MCP) in Docker — alias the site advertises
+
 .PHONY: dev
 dev: ## Start the full dev stack (Postgres + API) in Docker
 	docker compose up --build -d

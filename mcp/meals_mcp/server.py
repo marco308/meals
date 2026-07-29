@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 8
+PLAYBOOK_VERSION = 9
 
 mcp = FastMCP(
     "meals",
@@ -173,8 +173,9 @@ async def _resolve_recipes(terms: list[str]) -> list[dict]:
 @mcp.tool()
 async def ingest_recipe(url: str) -> str:
     """Add a recipe from a URL. Cached recipes return instantly; new pages are
-    parsed from their JSON-LD. If the page has no structured data, this tool
-    tells you to read the page yourself and call submit_recipe instead."""
+    parsed from their JSON-LD. If the page has no structured data, or the site
+    blocks the server's fetch, this tool tells you to read the page yourself
+    and call submit_recipe instead."""
     try:
         result = await _call("POST", "/recipes/ingest", json={"url": url})
     except ApiError as exc:
