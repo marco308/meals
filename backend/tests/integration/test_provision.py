@@ -9,7 +9,12 @@ shopping list.
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.provision import _generate_password, provision
+from app.provision import (
+    AMBIGUOUS_CHARACTERS,
+    PASSWORD_ALPHABET,
+    _generate_password,
+    provision,
+)
 from tests.conftest import create_recipe
 
 
@@ -86,5 +91,8 @@ class TestProvision:
         password = _generate_password()
         assert len(password) >= 16
         assert password != _generate_password()
-        # No characters that are ambiguous read off a screen.
-        assert not set(password) & set("Il1O0oB8")
+        # Assert on the alphabet, not on a sample of it: a password only *usually*
+        # contains any given character, so checking one draw fails a fraction of
+        # runs and lets a re-introduced look-alike through the rest of the time.
+        assert not set(PASSWORD_ALPHABET) & set(AMBIGUOUS_CHARACTERS)
+        assert all(set(_generate_password()) <= set(PASSWORD_ALPHABET + "-") for _ in range(50))
