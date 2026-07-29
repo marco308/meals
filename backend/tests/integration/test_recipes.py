@@ -104,7 +104,10 @@ class TestIngest:
         assert response.status_code == 422
         assert "POST /recipes" in response.json()["detail"]
 
-    async def test_fetch_failure_502_with_hint(self, auth_client, monkeypatch):
+    async def test_fetch_failure_422_keeps_the_hint(self, auth_client, monkeypatch):
+        """A 4xx, never a 5xx: proxies (Cloudflare) replace origin 5xx bodies
+        with their own page, so a 502's read-it-yourself hint never arrives."""
+
         async def failing_fetch(url: str) -> str:
             raise recipe_parser.RecipeFetchError(
                 f"fetching {url} failed with HTTP 403; if you can read the page yourself, "
@@ -113,7 +116,7 @@ class TestIngest:
 
         monkeypatch.setattr(recipe_parser, "fetch_page", failing_fetch)
         response = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/blocked"})
-        assert response.status_code == 502
+        assert response.status_code == 422
         assert "POST /recipes" in response.json()["detail"]
 
     async def test_non_http_url_rejected(self, auth_client):

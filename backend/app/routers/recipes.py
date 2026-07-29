@@ -36,9 +36,10 @@ def _sort_order(sort: str) -> tuple:
 async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession) -> IngestOut:
     """Submit a recipe URL. A URL already in the library returns the cached
     recipe instantly (parse once, reuse forever). New URLs are fetched and
-    parsed from their schema.org/Recipe JSON-LD — no LLM involved. Pages
-    without usable JSON-LD return 422 telling the calling AI to read the page
-    itself and submit the structured recipe via POST /recipes."""
+    parsed from their schema.org/Recipe JSON-LD — no LLM involved. Failure is
+    a 422 either way — the page has no usable JSON-LD, or this server couldn't
+    fetch it (bot-blocked, unreachable) — and the detail tells the calling AI
+    to read the page itself and submit the structured recipe via POST /recipes."""
     url = payload.url.strip()
     cached = await _find_by_url(db, user.household_id, url)
     if cached is not None:
@@ -47,7 +48,10 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     try:
         html = await recipe_parser.fetch_page(url)
     except RecipeFetchError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # 422, not 502: proxies in front of a deployment (Cloudflare) replace
+        # origin 5xx bodies with their own error page, which would strip the
+        # read-the-page-yourself guidance — and that guidance is the product.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         parsed = recipe_parser.extract_recipe(html, url)
     except NoRecipeFound as exc:
