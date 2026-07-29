@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YAMP · Yet Another Meal Planner</title>
+<meta name="description" content="Yet Another Meal Planner: a self-hosted recipe library, meal-options planner and aisle-sorted shopping list, driven by whichever AI assistant you already use. AGPL, no LLM inside, free to run yourself, hosted if you'd rather.">
+<meta name="theme-color" content="#fbf5e9">
+<meta property="og:title" content="YAMP · Yet Another Meal Planner">
+<meta property="og:description" content="Self-hosted. No LLM inside. Plans without days, a shopping list that knows why, and an API your own AI can drive.">
+<meta property="og:type" content="website">
+<!-- bump ?v= whenever site.css changes: the HTML is always revalidated,
+     so a new query string forces every browser past its cached stylesheet -->
+<link rel="stylesheet" href="assets/site.css?v=2">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="wordmark" href="#top">yamp<span class="dot">.</span></a>
+  <nav aria-label="Sections">
+    <a href="#why">Why</a>
+    <a href="#ai">Your AI</a>
+    <a href="#app">The app</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#run">Run it</a>
+    <a class="ghost" href="https://github.com/marco308/meals">GitHub&nbsp;↗</a>
+  </nav>
+</header>
+<div class="awning" aria-hidden="true"></div>
+
+<main id="top">
+
+<!-- ═══════════════════════════ hero ═══════════════════════════ -->
+<section class="hero">
+  <div class="hero-copy">
+    <h1>Yet another <br>meal planner.</h1>
+    <p class="punch">Unfortunately, this one is good.</p>
+    <p class="lede">
+      A recipe library, a pool of dinner options and an aisle-sorted shopping
+      list, running on <em>your</em> server, driven by whichever AI assistant
+      you already talk to. There is no LLM inside. That is the point.
+    </p>
+    <div class="cta">
+      <a class="btn" href="#run">Self-host it in two commands</a>
+      <a class="btn ghost" href="https://github.com/marco308/meals">Read the source</a>
+    </div>
+    <p class="footnote">
+      No account with us, because there is no us.
+    </p>
+  </div>
+
+  <figure class="menu-card" aria-label="A weekly plan: five dinner options with no days attached">
+    <div class="menu-awning" aria-hidden="true"></div>
+    <p class="menu-title">This week</p>
+    <p class="menu-sub">five dinners · no days attached</p>
+    <ul class="menu-list">
+      <li><span class="m-emoji">🍛</span><span class="m-name">Katsu curry</span><i class="tag red">cooked 12×</i></li>
+      <li><span class="m-emoji">🥧</span><span class="m-name">Cottage pie</span><i class="tag plain">the usual</i></li>
+      <li><span class="m-emoji">🍅</span><span class="m-name">Harissa tray bake</span><i class="tag green">new · from a URL</i></li>
+      <li><span class="m-emoji">🌯</span><span class="m-name">Fajitas</span><i class="tag plain">quick</i></li>
+      <li><span class="m-emoji">🥘</span><span class="m-name">Lamb kofte</span><i class="tag butter">not had in a while</i></li>
+    </ul>
+    <p class="menu-foot">cook them in any order, or don't</p>
+  </figure>
+</section>
+
+<!-- ═══════════════════════ why another one ═══════════════════════ -->
+<section id="why" class="band">
+  <p class="kicker"><span class="k-tag red">Why another one</span></p>
+  <h2>Because the other ones <br>plan <mark>Tuesdays</mark>.</h2>
+  <p class="band-lede">
+    Meal planners keep failing the same way: they assume you know what Tuesday
+    looks like. YAMP makes a different set of bets.
+  </p>
+
+  <div class="cards">
+    <article class="card">
+      <span class="c-emoji tint-red">🍲</span>
+      <h3>Plans are pools, not calendars</h3>
+      <p>
+        A plan is five dinners you would be happy to cook, in no particular
+        order. No days, no dates, no guilt. A surprise trip breaks nothing,
+        because nothing was ever pinned to Tuesday.
+      </p>
+    </article>
+    <article class="card">
+      <span class="c-emoji tint-green">🥕</span>
+      <h3>The list knows why</h3>
+      <p>
+        Every line remembers which meals put it there. A second recipe that
+        needs carrots merges its share in; dropping a meal takes only its share
+        out, without un-ticking what is already in the trolley. Units merge
+        only on an exact match, so 500&nbsp;g never quietly becomes half a bag.
+      </p>
+    </article>
+    <article class="card">
+      <span class="c-emoji tint-butter">🛒</span>
+      <h3>Offline is not an edge case</h3>
+      <p>
+        Supermarkets eat phone signal. The iPhone app renders from a cached
+        list, queues every tick and quick-add to disk, survives a relaunch,
+        and replays in order once you are back outside. Idempotent client ids
+        mean a replayed action is never a double.
+      </p>
+    </article>
+    <article class="card">
+      <span class="c-emoji tint-red">🍳</span>
+      <h3>It remembers what you cooked</h3>
+      <p>
+        Marking a meal cooked is recorded for good, per recipe as well as per
+        meal, and survives deleting the plan it came from. The library shows
+        "cooked 12×, last May" and sorts by most cooked or not had in a
+        while, which is the actual Sunday question.
+      </p>
+    </article>
+  </div>
+
+  <div class="staples">
+    <div class="staples-mock" role="img" aria-label="The staples check: each staple with a button to say you are low on it">
+      <p class="st-title">Staples check</p>
+      <p class="st-sub">the boring essentials</p>
+      <div class="st-row"><span class="st-emoji">🫒</span><span class="st-name">Olive oil</span><i class="st-btn">I'm low</i></div>
+      <div class="st-row"><span class="st-emoji">🍚</span><span class="st-name">Rice</span><i class="st-btn added">✓ on the list</i></div>
+      <div class="st-row"><span class="st-emoji">🧻</span><span class="st-name">Kitchen roll</span><i class="st-btn">I'm low</i></div>
+      <div class="st-row"><span class="st-emoji">🧂</span><span class="st-name">Stock cubes</span><i class="st-btn">I'm low</i></div>
+    </div>
+    <div class="staples-copy">
+      <h3>The thirty-second check before you leave</h3>
+      <p>
+        Every recipe wants ten millilitres of olive oil, and you almost always
+        have olive oil. Flag it once as a staple and it stops landing on the
+        list every week, along with the rice, the stock cubes and the rest of
+        the things you nearly always have. Nearly: occasionally you do run
+        out. The staples check is one screen that walks the cupboard for you
+        before a shop. Tap the ones you are actually low on and they join the
+        list, already in aisle order. No lap of the kitchen with a notepad,
+        and no discovering mid-recipe that the olive oil ran out last week.
+      </p>
+    </div>
+  </div>
+
+  <div class="staples rev">
+    <div class="staples-copy">
+      <h3>Where quality matters, on the record</h3>
+      <p>
+        Some ingredients deserve the good version and some honestly do not.
+        Your household records its own verdict per ingredient, premium or
+        budget, with a one-line note on why. Nothing is guessed from a keyword
+        table; it is your accumulated opinion. The verdict rides along to the
+        shelf, on list items and recipe lines, so whoever is doing the shop
+        buys the right bottle. Your AI reads it too, so "plan a cheap week"
+        economises only where you said it could.
+      </p>
+    </div>
+    <div class="staples-mock" role="img" aria-label="Ingredient verdicts: each ingredient marked premium or budget with the household's note">
+      <p class="st-title">Ingredient verdicts</p>
+      <p class="st-sub">yours, not an algorithm's</p>
+      <div class="st-row">
+        <span class="st-emoji">🫒</span>
+        <span class="st-item"><span class="st-name">Olive oil</span><span class="st-note">the good bottle finishes salads</span></span>
+        <i class="tag butter">premium</i>
+      </div>
+      <div class="st-row">
+        <span class="st-emoji">🥫</span>
+        <span class="st-item"><span class="st-name">Chopped tomatoes</span><span class="st-note">own brand vanishes into a ragù</span></span>
+        <i class="tag green">budget</i>
+      </div>
+      <div class="st-row">
+        <span class="st-emoji">🧀</span>
+        <span class="st-item"><span class="st-name">Parmesan</span><span class="st-note">never the pre-grated tub</span></span>
+        <i class="tag butter">premium</i>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ your ai ═══════════════════════ -->
+<section id="ai" class="band alt">
+  <p class="kicker"><span class="k-tag green">Your AI</span></p>
+  <h2>There is no AI inside. <br>Bring the one you <mark>already pay for</mark>.</h2>
+  <p class="band-lede">
+    Everyone else is bolting a chatbot onto their app and renting it back to
+    you monthly. YAMP ships the opposite half: a complete, documented API and
+    the instructions your assistant needs to drive it. Claude, ChatGPT, a
+    local model, whatever you already use: point it at your server and it
+    plans, ingests and shops as you.
+  </p>
+
+  <div class="split">
+    <div class="chat" role="img" aria-label="Example conversation between a user and their AI assistant">
+      <p class="turn you"><span>You</span>Plan next week: two of the usuals, the tray bake from this URL, and something we've not had in a while.</p>
+      <p class="turn ai"><span>Your assistant</span>
+        <span class="tools"><b>submit_recipe</b><b>create_plan</b><b>get_shopping_list</b></span>
+        Done. Katsu curry and cottage pie, the harissa tray bake from that
+        page, and lamb kofte, which you last cooked in February. The list is
+        19 items in shop order; you already had rice and chopped tomatoes.
+      </p>
+    </div>
+
+    <div class="facts">
+      <div class="fact">
+        <h4>21 task-level MCP tools</h4>
+        <p>Shaped like the job, not the database: <span class="mono">ingest_recipe</span>, <span class="mono">check_off</span>, <span class="mono">plan_meals</span>.</p>
+      </div>
+      <div class="fact">
+        <h4>The server publishes its own manual</h4>
+        <p><span class="mono">/skill</span> and <span class="mono">/prompt-pack</span> are served live by your instance, with its own URL already filled in. An assistant learns the whole system from one GET.</p>
+      </div>
+      <div class="fact">
+        <h4>Free parsing first</h4>
+        <p>Recipe URLs are read from the page's own schema.org data. No model call, cached forever. Only messy pages get handed to your AI.</p>
+      </div>
+      <div class="fact">
+        <h4>No MCP? Still fine</h4>
+        <p>The prompt pack plus an API token works for any assistant that can make an HTTP request.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="steps one">
+    <div class="step">
+      <span class="s-num">1</span>
+      <div>
+        <p class="s-label">Connect your assistant, once</p>
+        <p class="s-cmd">claude mcp add --transport http yamp https://your-server/mcp</p>
+        <p class="s-note"><span class="tag green">connected · 21 tools</span> and it fetches the playbook from /skill by itself.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ the app ═══════════════════════ -->
+<section id="app" class="band">
+  <p class="kicker"><span class="k-tag butter">In the shop</span></p>
+  <h2>Built for the supermarket <mark>basement</mark>.</h2>
+
+  <div class="split reverse">
+    <div class="app-copy">
+      <p class="band-lede left">
+        A native iPhone app, offline first, because the shop is where signal
+        goes to die. It renders instantly from local truth and syncs when the
+        world returns.
+      </p>
+      <ul class="ticks">
+        <li>Aisle order matches how you walk the shop, produce to freezer.</li>
+        <li>"Already have it" hides a line without deleting why it exists.</li>
+        <li>Premium or budget is your household's own verdict per ingredient, shown at the shelf, never guessed by a keyword table.</li>
+        <li>In the repo today, built from source; App Store release on the way.</li>
+      </ul>
+    </div>
+
+    <figure class="shot-wrap">
+      <div class="bezel">
+        <img src="assets/app-shopping-list.png" width="660" height="1434"
+             alt="The shopping list mid-shop: items grouped by aisle, a few already ticked, and under each item the meals that need it">
+      </div>
+      <figcaption>A real screenshot, straight from the same scripted run that makes the App&nbsp;Store set.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ═══════════════════════ pricing ═══════════════════════ -->
+<section id="pricing" class="band alt">
+  <p class="kicker"><span class="k-tag red">Money</span></p>
+  <h2>Free where it should be. <br>Paid where it <mark>costs something</mark>.</h2>
+  <p class="band-lede">
+    The software is complete and AGPL. Nothing in the repo is held back,
+    rate-limited or trial-shaped. Money enters only where real costs live:
+    servers, backups and time.
+  </p>
+
+  <div class="tiers">
+    <article class="tier">
+      <h3>Self-host</h3>
+      <p class="price">£0 <span>forever</span></p>
+      <p class="tier-lede">Not a free tier. The whole thing.</p>
+      <ul>
+        <li>Every feature, no exceptions</li>
+        <li>Full API, MCP server, iPhone app</li>
+        <li>Invite codes for your household</li>
+        <li>Your hardware, your data, your rules</li>
+      </ul>
+      <a class="btn" href="#run">Run it in two commands</a>
+    </article>
+
+    <article class="tier featured">
+      <p class="flag">waitlist open</p>
+      <h3>Hosted</h3>
+      <p class="price">TBA <span>per household, per year</span></p>
+      <p class="tier-lede">We run the server. You get a URL and your evenings back.</p>
+      <ul>
+        <li>Same software, zero Docker</li>
+        <li>Upgrades, nightly off-site backups</li>
+        <li>Founding households lock the launch price for life</li>
+        <li>Full export any time; moving to self-host is a supported path, not a betrayal</li>
+      </ul>
+      <a class="btn hot" href="https://github.com/marco308/meals/issues/new?title=Hosted%20YAMP%3A%20waitlist&amp;body=Add%20me%20to%20the%20hosted%20waitlist.%20Household%20size%3A%20">Join the waitlist</a>
+      <p class="small">Opens slowly, in order, once the boring parts are provably boring.</p>
+    </article>
+
+    <article class="tier">
+      <h3>Supporter</h3>
+      <p class="price">£<em>n</em> <span>you pick n</span></p>
+      <p class="tier-lede">Keep the free thing free.</p>
+      <ul>
+        <li>A name in SUPPORTERS.md, if you want it</li>
+        <li>First crack at TestFlight builds</li>
+        <li>Warm glow, genuine gratitude</li>
+      </ul>
+      <!-- Goes live once GitHub Sponsors is enabled for the account.
+           See planning/06-marketing.md, launch checklist. -->
+      <a class="btn" href="https://github.com/sponsors/marco308">Sponsor on GitHub</a>
+    </article>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════ run it ═══════════════════════ -->
+<section id="run" class="band">
+  <p class="kicker"><span class="k-tag green">Run it</span></p>
+  <h2>Two commands. <mark>Yours</mark> forever.</h2>
+
+  <div class="steps">
+    <div class="step">
+      <span class="s-num">1</span>
+      <div>
+        <p class="s-label">Start the whole stack</p>
+        <p class="s-cmd">make up</p>
+        <p class="s-note">Postgres and the API on :8000, the MCP server on :8100, all in Docker.</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="s-num">2</span>
+      <div>
+        <p class="s-label">Give yourself something to look at</p>
+        <p class="s-cmd">make seed</p>
+        <p class="s-note">Demo recipes, a plan, a ready-made shopping list, and an API token to hand to an assistant.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="run-notes">
+    <p>
+      No Docker? <span class="mono">make run</span> starts the API on SQLite
+      with no services at all. It runs happily on a Pi-class box or the
+      cheapest VPS money rents.
+    </p>
+    <p class="honest">
+      <b>An honest note on demos.</b> YAMP is built and run for one real
+      household first; the reference instance is that family's actual dinner,
+      so registration on it is closed. The demo is <span class="mono">make
+      seed</span> on your own machine: recipes, a plan and a ready-made
+      shopping list in under a minute.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ faq ═══════════════════════ -->
+<section id="faq" class="band alt">
+  <p class="kicker"><span class="k-tag butter">Questions</span></p>
+  <h2>Asked often <mark>enough</mark>.</h2>
+
+  <div class="faq">
+    <details>
+      <summary>Is it actually free?</summary>
+      <p>
+        Yes. AGPL-3.0, the whole application. The hosted tier exists because
+        some people would rather pay than run Docker, not because the free
+        one is crippled.
+      </p>
+    </details>
+    <details>
+      <summary>Why the silly name?</summary>
+      <p>
+        Because the world did not need another meal planner, and yet the
+        existing ones kept planning Tuesdays. The name keeps us honest about
+        what this is: the meal planner you end up writing after the others
+        annoy you.
+      </p>
+    </details>
+    <details>
+      <summary>How is this different from Mealie or Tandoor?</summary>
+      <p>
+        They are excellent recipe managers with big communities; if you want a
+        recipe wiki, use them happily. YAMP is a planning and shopping tool
+        first: plans without days, a provenance-aware list that works in a
+        basement, and an API designed to be driven by an AI rather than
+        browsed by a human. Run it next to Mealie. It will not be offended.
+      </p>
+    </details>
+    <details>
+      <summary>Which AIs work with it?</summary>
+      <p>
+        Anything that speaks MCP connects in one command. Anything that can
+        make an HTTP request works with the prompt pack and a token. The
+        server itself has no LLM and never calls one, so there is no model
+        bill hiding in your grocery list.
+      </p>
+    </details>
+    <details>
+      <summary>Android? Web?</summary>
+      <p>
+        The API is open and documented; the iPhone app is one client of it.
+        An Android or web client is a pull request we would take seriously,
+        and your AI can already drive everything from any platform today.
+      </p>
+    </details>
+    <details>
+      <summary>What happens to my data if you get bored?</summary>
+      <p>
+        Self-hosters: nothing, which is the point. Hosted households: full
+        export at any time, and the exact same software runs at home. The bus
+        factor is documented rather than denied.
+      </p>
+    </details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><b>YAMP</b> · Yet Another Meal Planner · © 2026 Marcus Williams.</p>
+  <p>
+    Backend, MCP server and skill under
+    <a href="https://github.com/marco308/meals/blob/main/LICENSE">AGPL-3.0</a>.
+    The iPhone app is in the repo: read it, build it, run it on your own devices.
+  </p>
+  <p class="thin">
+    Issues and pull requests welcome. Vulnerabilities go through SECURITY.md,
+    not a public issue.
+  </p>
+</footer>
+
+</body>
+</html>
