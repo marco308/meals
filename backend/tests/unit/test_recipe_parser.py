@@ -130,3 +130,43 @@ class TestParseIngredientLine:
         parsed = parse_ingredient_line("2 eggs (free range)")
         assert parsed.name == "eggs"
         assert parsed.quantity == 2
+
+
+class TestTrailingUnitWord:
+    """'<n> <food> <unit>' lines — the shape that used to leave the container
+    word in the name and count the food as items (decision Q21)."""
+
+    def test_lifts_the_unit_out_of_the_name(self):
+        parsed = parse_ingredient_line("3 garlic cloves, crushed")
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("garlic", 3, "clove")
+
+    def test_both_orderings_now_agree(self):
+        """'2 cloves garlic' and '3 garlic cloves' are the same shop, so they
+        have to reach the list in the same unit or they can never merge (Q2)."""
+        before = parse_ingredient_line("2 cloves garlic")
+        after = parse_ingredient_line("3 garlic cloves")
+        assert (before.name, before.unit) == (after.name, after.unit) == ("garlic", "clove")
+
+    @pytest.mark.parametrize(
+        ("line", "name", "unit"),
+        [
+            ("6 basil leaves", "basil", "leaf"),
+            ("2 celery sticks", "celery", "stick"),
+            ("2 lemon wedges", "lemon", "wedge"),
+            ("1 large garlic clove", "large garlic", "clove"),
+        ],
+    )
+    def test_lifts_other_container_words(self, line, name, unit):
+        parsed = parse_ingredient_line(line)
+        assert (parsed.name, parsed.unit) == (name, unit)
+
+    @pytest.mark.parametrize("line", ["2 bay leaves", "4 lasagne sheets", "2 stock cubes"])
+    def test_never_lifts_a_load_bearing_last_word(self, line):
+        """Two bay leaves, not two leaves of bay."""
+        parsed = parse_ingredient_line(line)
+        assert parsed.unit == "item"
+        assert parsed.name == line.split(" ", 1)[1]
+
+    def test_leaves_a_stated_unit_alone(self):
+        parsed = parse_ingredient_line("10g mint leaves")
+        assert (parsed.quantity, parsed.unit) == (10, "g")

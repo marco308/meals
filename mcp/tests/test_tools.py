@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -217,11 +218,26 @@ class TestValueTier:
 
     @respx.mock
     async def test_unknown_ingredient_suggests_near_misses(self):
-        respx.get(f"{API}/ingredients").mock(
+        """A substring hit is not a match: 'olive oil spray' is a different
+        thing to buy, so the tool asks rather than tagging the wrong one."""
+        respx.get(f"{API}/ingredients", params={"name": "olive oil"}).mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{API}/ingredients", params={"search": "olive oil"}).mock(
             return_value=httpx.Response(200, json=[self._ingredient(name="olive oil spray")])
         )
         result = await server.set_ingredient_value("olive oil", "premium")
         assert "olive oil spray" in result
+
+    @respx.mock
+    async def test_a_name_the_ingredient_is_filed_under_resolves(self):
+        """Names are stored folded, so 'mint leaves' has to find 'mint'."""
+        respx.get(f"{API}/ingredients", params={"name": "mint leaves"}).mock(
+            return_value=httpx.Response(200, json=[self._ingredient(name="mint")])
+        )
+        patch = respx.patch(f"{API}/ingredients/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(200, json=self._ingredient(name="mint", value_tier="premium"))
+        )
+        await server.set_ingredient_value("mint leaves", "premium")
+        assert patch.called
 
     @respx.mock
     async def test_invalid_tier_passes_the_api_hint_through(self):
@@ -575,3 +591,71 @@ class TestPlaybookVersion:
         instructions = server.mcp.instructions or ""
         assert f"Playbook v{server.PLAYBOOK_VERSION}" in instructions
         assert "/skill" in instructions
+
+
+class TestDuplicateIngredients:
+    """Finding and folding same-food-two-names rows (decision Q21)."""
+
+    def _ingredient(self, name: str, ingredient_id: str):
+        return {
+            "id": ingredient_id,
+            "name": name,
+            "aisle": "🥬",
+            "aisle_label": "Fruit & veg",
+            "is_staple": False,
+            "value_tier": "any",
+            "value_tier_label": "No strong opinion",
+            "value_note": None,
+        }
+
+    @respx.mock
+    async def test_reports_groups_and_unfolded_names(self):
+        respx.get(f"{API}/ingredients/duplicates").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "groups": [
+                        {
+                            "canonical_name": "garlic",
+                            "keeper": self._ingredient("garlic", "1" * 32),
+                            "duplicates": [self._ingredient("garlic cloves", "2" * 32)],
+                        }
+                    ],
+                    "unfolded": [{"ingredient": self._ingredient("mint leaves", "3" * 32), "canonical_name": "mint"}],
+                },
+            )
+        )
+        result = await server.find_duplicate_ingredients()
+        assert "'garlic' ← 'garlic cloves'" in result
+        assert "'mint leaves' would now be filed as 'mint'" in result
+
+    @respx.mock
+    async def test_says_so_when_the_catalogue_is_clean(self):
+        respx.get(f"{API}/ingredients/duplicates").mock(
+            return_value=httpx.Response(200, json={"groups": [], "unfolded": []})
+        )
+        assert "No duplicate ingredients" in await server.find_duplicate_ingredients()
+
+    @respx.mock
+    async def test_merge_resolves_names_then_folds(self):
+        keeper = self._ingredient("garlic", "1" * 32)
+        respx.post(f"{API}/ingredients").mock(return_value=httpx.Response(201, json=keeper))
+        respx.get(f"{API}/ingredients", params={"name": "garlic cloves"}).mock(
+            return_value=httpx.Response(200, json=[self._ingredient("garlic cloves", "2" * 32)])
+        )
+        merge = respx.post(f"{API}/ingredients/{'1' * 32}/merge").mock(
+            return_value=httpx.Response(200, json={"ingredient": keeper, "merged": 1})
+        )
+        result = await server.merge_ingredients("garlic", ["garlic cloves"])
+        assert json.loads(merge.calls.last.request.content) == {"duplicate_ids": ["2" * 32]}
+        assert "Merged 1 into 'garlic'" in result
+
+    @respx.mock
+    async def test_merging_a_name_into_itself_says_so_without_calling_merge(self):
+        keeper = self._ingredient("garlic", "1" * 32)
+        respx.post(f"{API}/ingredients").mock(return_value=httpx.Response(201, json=keeper))
+        respx.get(f"{API}/ingredients", params={"name": "garlic cloves"}).mock(
+            return_value=httpx.Response(200, json=[keeper])
+        )
+        result = await server.merge_ingredients("garlic", ["garlic cloves"])
+        assert "Nothing to merge" in result

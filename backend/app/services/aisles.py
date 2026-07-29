@@ -5,6 +5,8 @@ get ❓ and the user's AI (or the user) assigns a tag via PATCH /ingredients.
 The emoji vocabulary is part of the published skill, so AIs use the same tags.
 """
 
+from app.services.wordforms import singularize_food
+
 # Store-walking order — the shopping list sorts by this.
 AISLES: list[tuple[str, str]] = [
     ("🥬", "Fruit & veg"),
@@ -360,16 +362,32 @@ _KEYWORDS: dict[str, str] = {
 }
 
 
+def _fold(text: str) -> str:
+    return " ".join(singularize_food(word) for word in text.lower().split())
+
+
+# Every keyword in its canonical word-form as well as as written, so a name
+# that has been through `canonical_ingredient_name` ("chopped tomato",
+# "bay leaf", "mixed berry") still finds the aisle its plural spelling would.
+_FOLDED_KEYWORDS: dict[str, str] = {_fold(keyword): emoji for keyword, emoji in _KEYWORDS.items()}
+
+
 def guess_aisle(ingredient_name: str) -> str:
     """Best-effort aisle for an ingredient name; ❓ when we don't know."""
     name = ingredient_name.lower().strip()
     if name in _KEYWORDS:
         return _KEYWORDS[name]
-    words = set(name.split())
+    folded = _fold(name)
+    if folded in _FOLDED_KEYWORDS:
+        return _FOLDED_KEYWORDS[folded]
+    words = set(name.split()) | set(folded.split())
     best: tuple[int, str] | None = None
     for keyword, emoji in _KEYWORDS.items():
         # multi-word keywords match as substrings, single words whole-word only
-        matched = keyword in name if " " in keyword else (keyword in words or singular_match(keyword, words))
+        if " " in keyword:
+            matched = keyword in name or _fold(keyword) in folded
+        else:
+            matched = keyword in words or singular_match(keyword, words) or singularize_food(keyword) in words
         if matched and (best is None or len(keyword) > best[0]):
             best = (len(keyword), emoji)
     return best[1] if best else UNKNOWN_AISLE

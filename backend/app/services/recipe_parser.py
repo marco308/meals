@@ -14,6 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import get_settings
+from app.services.ingredient_names import is_protected_name
 from app.services.units import _UNIT_SYNONYMS, INGEST_CONVERSIONS, METRIC_UNITS, parse_number, singularize
 
 
@@ -235,60 +236,58 @@ def parse_iso8601_duration(value: str | None) -> int | None:
 # ---------------------------------------------------------------- ingredient lines
 
 _NUMBER_TOKEN = r"\d+(?:[./]\d+)?|[½⅓⅔¼¾⅕⅛]|\d+\s*[½⅓⅔¼¾⅕⅛]|\d+\s+\d/\d|\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?"
+_NATURAL_UNIT_WORDS = {
+    "tin",
+    "tins",
+    "clove",
+    "cloves",
+    "bunch",
+    "bunches",
+    "sprig",
+    "sprigs",
+    "stick",
+    "sticks",
+    "slice",
+    "slices",
+    "rasher",
+    "rashers",
+    "fillet",
+    "fillets",
+    "leaf",
+    "leaves",
+    "pinch",
+    "pinches",
+    "dash",
+    "handful",
+    "handfuls",
+    "knob",
+    "sheet",
+    "sheets",
+    "ball",
+    "balls",
+    "sachet",
+    "sachets",
+    "jar",
+    "jars",
+    "pack",
+    "packs",
+    "packet",
+    "packets",
+    "block",
+    "blocks",
+    "head",
+    "heads",
+    "stalk",
+    "stalks",
+    "wedge",
+    "wedges",
+    "nest",
+    "nests",
+    "cube",
+    "cubes",
+}
 _UNIT_WORDS = sorted(
-    set(METRIC_UNITS)
-    | set(INGEST_CONVERSIONS)
-    | set(_UNIT_SYNONYMS)
-    | {
-        "tin",
-        "tins",
-        "clove",
-        "cloves",
-        "bunch",
-        "bunches",
-        "sprig",
-        "sprigs",
-        "stick",
-        "sticks",
-        "slice",
-        "slices",
-        "rasher",
-        "rashers",
-        "fillet",
-        "fillets",
-        "leaf",
-        "leaves",
-        "pinch",
-        "pinches",
-        "dash",
-        "handful",
-        "handfuls",
-        "knob",
-        "sheet",
-        "sheets",
-        "ball",
-        "balls",
-        "sachet",
-        "sachets",
-        "jar",
-        "jars",
-        "pack",
-        "packs",
-        "packet",
-        "packets",
-        "block",
-        "blocks",
-        "head",
-        "heads",
-        "stalk",
-        "stalks",
-        "wedge",
-        "wedges",
-        "nest",
-        "nests",
-        "cube",
-        "cubes",
-    },
+    set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(_UNIT_SYNONYMS) | _NATURAL_UNIT_WORDS,
     key=len,
     reverse=True,
 )
@@ -345,11 +344,13 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
         unit_token = (match.group("unit") or "").lower()
         rest = match.group("rest")
         if quantity is not None:
+            name = _clean_name(rest)
             if unit_token:
                 quantity, unit = _convert_unit(quantity, unit_token)
             else:
-                unit = "item"
-            return ParsedIngredient(raw=raw, name=_clean_name(rest), quantity=quantity, unit=unit)
+                name, lifted = _lift_trailing_unit(name)
+                unit = lifted or "item"
+            return ParsedIngredient(raw=raw, name=name, quantity=quantity, unit=unit)
 
     # Glued metric quantities: "500g beef" with no space
     glued = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\b\.?\s*(?:of\s+)?(?P<rest>.+)$", cleaned, re.IGNORECASE)
@@ -370,6 +371,29 @@ def _convert_unit(quantity: float, unit_token: str) -> tuple[float, str]:
         return round(quantity * factor, 3), canonical
     folded = _UNIT_SYNONYMS.get(unit_token, unit_token)
     return quantity, singularize(folded)
+
+
+def _lift_trailing_unit(name: str) -> tuple[str, str | None]:
+    """'garlic cloves' → ('garlic', 'clove'); returns (name, None) when there
+    is nothing to lift.
+
+    Recipe lines write the unit on either side of the food — "2 cloves garlic"
+    and "3 garlic cloves" mean the same shop. Only the first shape was
+    recognised, so the second stranded the container word in the *name* and
+    counted the food as `×3 items`. That is how one household ends up with
+    both "garlic" and "garlic cloves" on the same list, in units that can
+    never merge (decision Q2).
+
+    Never applied to a name whose last word is load-bearing: "2 bay leaves"
+    is two bay leaves, not two leaves of bay.
+    """
+    words = name.split()
+    if len(words) < 2:
+        return name, None
+    token = words[-1].lower()
+    if token not in _NATURAL_UNIT_WORDS or is_protected_name(name):
+        return name, None
+    return " ".join(words[:-1]), singularize(_UNIT_SYNONYMS.get(token, token))
 
 
 def _clean_name(name: str) -> str:
