@@ -8,6 +8,7 @@ struct ShoppingListView: View {
     @State private var showStaplesCheck = false
     @State private var showFinishConfirm = false
     @State private var finishError: String?
+    @State private var showChecked = false
 
     var body: some View {
         @Bindable var store = store
@@ -42,10 +43,26 @@ struct ShoppingListView: View {
 
                 if store.displayItems.isEmpty {
                     ContentUnavailableView(
-                        "Nothing to buy",
-                        systemImage: "cart",
+                        store.checkedItems.isEmpty ? "Nothing to buy" : "All checked off",
+                        systemImage: store.checkedItems.isEmpty ? "cart" : "checkmark.circle",
                         description: Text(emptyHint)
                     )
+                }
+
+                // Checked-off items leave their aisle rather than the list —
+                // collapsed out of the way, one tap to see or undo them.
+                if !store.checkedItems.isEmpty {
+                    Section {
+                        DisclosureGroup(isExpanded: $showChecked) {
+                            ForEach(store.checkedItems) { item in
+                                ShoppingItemRow(item: item, showsAisle: true)
+                            }
+                        } label: {
+                            Label("In the basket (\(store.checkedItems.count))", systemImage: "checkmark.circle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 if !store.stapleCheckItems.isEmpty && !store.includeStaples {
@@ -64,7 +81,6 @@ struct ShoppingListView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Toggle("Show staples", isOn: $store.includeStaples)
-                        Toggle("Show checked-off", isOn: $store.includeChecked)
                         Toggle("Show 'already have' (\(store.excludedCount))", isOn: $store.includeExcluded)
                         Button("Finish shop", systemImage: "checkmark.seal") {
                             showFinishConfirm = true
@@ -106,6 +122,9 @@ struct ShoppingListView: View {
         if store.cache == nil {
             return "Pull to refresh once you're online — after that the list works offline."
         }
+        if !store.checkedItems.isEmpty {
+            return "Everything's in the basket. Finish the shop from the menu, or open the basket below to undo one."
+        }
         return "Add meals to the plan or quick-add items above."
     }
 
@@ -128,17 +147,22 @@ struct ShoppingListView: View {
 struct ShoppingItemRow: View {
     @Environment(ShoppingListStore.self) private var store
     let item: ListItem
+    /// Basket rows sit outside their aisle section, so they carry the emoji.
+    var showsAisle = false
     @State private var showDetail = false
 
     var body: some View {
         Button {
-            store.toggleChecked(item)
+            withAnimation { store.toggleChecked(item) }
         } label: {
             HStack {
                 Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(item.checked ? .green : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
+                        if showsAisle {
+                            Text(item.aisle)
+                        }
                         Text(item.name)
                             .strikethrough(item.checked, color: .secondary)
                             .foregroundStyle(item.checked || item.excluded ? .secondary : .primary)
@@ -169,6 +193,9 @@ struct ShoppingItemRow: View {
                 }
                 .buttonStyle(.borderless)  // keep the row tap = check-off
             }
+            // A one-handed tap in a supermarket lands anywhere on the row, gaps
+            // included — without this only the text and the circle count.
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {

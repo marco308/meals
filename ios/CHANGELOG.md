@@ -5,30 +5,36 @@ be recalled — the only way to undo one is to ship another. This is the answer
 to "what have people actually got, and what is only on my laptop".
 
 **App Store Connect is the source of truth**; this file is the readable copy.
-Verify with the API rather than trusting a stale row:
+Verify with the API rather than trusting a stale row. `altool` has no
+`--list-builds` (it only uploads and lists *apps*), so ask the App Store
+Connect API directly — `scripts/asc-builds.py` signs the ES256 JWT and prints
+every build plus the version record's review state:
 
 ```bash
-xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"
+set -a; . ios/.env; set +a
+uv run --with cryptography python ios/scripts/asc-builds.py
 ```
 
-## The numbers have diverged — read this before bumping
+## The numbers diverged once — read this before bumping
 
-`CFBundleVersion` and the build number App Store Connect shows are **no longer
-the same**. The build carrying `CFBundleVersion: 17` is listed there as **build
-18**, because a build numbered 17 that this repo did not produce got there
-first.
+`CFBundleVersion` and the build number App Store Connect shows are **back in
+step as of build 19**, but they were not for builds 17–18: the build carrying
+`CFBundleVersion: 17` is listed there as **build 18**, because a build numbered
+17 that this repo did not produce got there first. Skipping 18 entirely closed
+the gap — 19 uploaded as 19 and lists as 19.
 
-Three consequences, all of which bite silently:
+What that leaves standing:
 
-- **The next upload must be `CFBundleVersion: 19` or higher.** 17 and 18 are
-  both taken in App Store Connect; uploading either is rejected.
+- **Never bump from the last row here.** Bump from what App Store Connect
+  actually holds (step 1 below). That is how the gap opened, and skipping a
+  number to close it is cheap — build numbers are free.
 - **`current_ios_build` tracks `CFBundleVersion`, not the App Store Connect
-  number** — it is compared against the number *inside* the installed app. It
-  is `17`, and setting it to 18 would tell every correctly-updated user that a
-  newer build exists.
+  number** — it is compared against the number *inside* the installed app. For
+  17 vs ASC-18 those differed; from 19 on they agree, but the rule stands.
 - **Attach builds by id, not by number.** `ios/AppStore/` scripts identify the
   build by the delivery UUID `altool` prints, because matching on the number
-  silently attached the wrong binary once already.
+  silently attached the wrong binary once already. The UUIDs are in the rows
+  below from build 19 onward.
 
 ## The ritual when you bump a build
 
@@ -38,8 +44,7 @@ number involved. All four steps, in order:
 1. Bump `CFBundleVersion` in `ios/Meals/project.yml` to one above the highest
    build in App Store Connect — **not** one above the last row here. Uploads
    have come from outside this repo before, which is exactly how the numbering
-   diverged. Check with:
-   `xcrun altool --list-builds --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER"`
+   diverged. Check with `ios/scripts/asc-builds.py` (see the top of this file).
 2. Add a row below with status **Local**, and write what's in it.
 3. `make ios-testflight`. When it lands, move the row to **TestFlight**.
 4. Move `current_ios_build` in `backend/app/config.py` to match, and deploy.
@@ -61,6 +66,7 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
+| 19 | 1.0 | 2026-07-29 | TestFlight | **Shopping list: checked-off items leave the aisle.** Ticking something off used to leave it in place with a strikethrough, so the aisle you were standing in kept showing what was already in the trolley. It now drops out of the list into a collapsed "In the basket (N)" section at the foot of it, and one tap there puts it back in its aisle. The "Show checked-off" menu toggle is gone, replaced by that section. Also: the whole row is tappable now (the gap between the name and the quantity used to be dead space), and check-offs animate out. **18 is taken in App Store Connect, so this is 19, not 18** — the `CFBundleVersion`/ASC divergence closes here: it uploaded as 19 and App Store Connect lists it as 19. Delivery UUID `a9d80ccf-84a5-4089-91a4-023adfa9e39d`. TestFlight only — it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 17 → **ASC 18** | 1.0 | 2026-07-27 | **In review** | **The first genuinely iPhone-only build**, submitted to App Review 2026-07-27 19:35 UTC. Builds up to here all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. **Its `CFBundleVersion` is 17 but App Store Connect lists it as build 18** — see the numbering note below. |
 | — (ASC 17) | 1.0 | 2026-07-26 | TestFlight | **Not built from this repo**, and not accounted for here: it appeared six minutes after build 16 and matches no upload recorded in this session. It predates the iPad fix, so treat it as iPhone+iPad and do not submit it. |
 | 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded before submission; **claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
@@ -92,6 +98,7 @@ onwards as recorded, and anything earlier as best effort.
 | Registered name | **Meal Options Planner** — to be renamed before submission (see [AppStore/metadata.md](AppStore/metadata.md)) |
 | Version record | 1.0, `WAITING_FOR_REVIEW`, build ASC-18 attached |
 | Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC. |
+| Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record is still waiting on review with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and submits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
 
 The 1.0 listing metadata — name, subtitle, categories, age rating, description,
 keywords, URLs, screenshots, copyright, content rights — was set through the
