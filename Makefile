@@ -170,11 +170,21 @@ seed: ## Load demo data (into the Docker stack's API by default)
 # deploy/ is gitignored: a swarm stack file describes one specific set of
 # machines, which isn't much use to anyone else and tells the internet more about
 # them than it needs to know. docker-compose.yml is the reference deployment.
+#
+# Untracked also means it exists only in the checkout it was created in: a
+# `git worktree` tree gets a clean copy of tracked files and no deploy/ at all,
+# so `make deploy` from a worktree used to fail. Fall back to the main
+# worktree's copy, and hand the script *this* tree as the sources to sync
+# (MEALS_REPO_ROOT) — otherwise deploying from a worktree would quietly ship
+# main's code while claiming success.
+MAIN_WORKTREE := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
+DEPLOY_SH := $(firstword $(wildcard deploy/deploy.sh $(MAIN_WORKTREE)/deploy/deploy.sh))
+
 .PHONY: deploy
 deploy: ## Deploy to your swarm (needs an untracked deploy/deploy.sh)
-	@test -x ./deploy/deploy.sh || \
+	@test -n "$(DEPLOY_SH)" && test -x "$(DEPLOY_SH)" || \
 		{ echo "no deploy/deploy.sh — it's gitignored and environment-specific; see 'Deployment notes' in README.md"; exit 1; }
-	./deploy/deploy.sh
+	MEALS_REPO_ROOT="$(CURDIR)" "$(DEPLOY_SH)"
 
 # ------------------------------------------------------------------ cleanup
 

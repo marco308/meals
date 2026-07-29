@@ -208,6 +208,11 @@ backed up under `~/meals-local-deploy/`. Don't re-add it to git; if the deploy
 needs changing, change it in place. `docker-compose.yml` is the public reference
 deployment and the one CI boots.
 
+Because it is untracked, `deploy/` is absent from every git worktree. `make
+deploy` falls back to the main worktree's script and hands it the current tree
+via `MEALS_REPO_ROOT` — so a deploy from a worktree ships *that* branch, not
+main. Keep those two in step if either moves.
+
 `deploy/deploy.sh` syncs sources to the swarm manager, builds images on the node
 that will run them (no registry, so a task only starts where its image already
 exists), forces a service update (locally built `:latest` tags don't roll out
