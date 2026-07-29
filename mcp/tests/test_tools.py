@@ -659,3 +659,42 @@ class TestDuplicateIngredients:
         )
         result = await server.merge_ingredients("garlic", ["garlic cloves"])
         assert "Nothing to merge" in result
+
+
+class TestDeleteIngredient:
+    """Removing the junk rows a bad parse leaves behind (decision Q22)."""
+
+    _junk = {"id": "9" * 32, "name": "/3½oz vermicelli rice noodles"}
+
+    @respx.mock
+    async def test_deletes_by_name(self):
+        respx.get(f"{API}/ingredients", params={"name": self._junk["name"]}).mock(
+            return_value=httpx.Response(200, json=[self._junk])
+        )
+        delete = respx.delete(f"{API}/ingredients/{self._junk['id']}").mock(return_value=httpx.Response(204))
+        result = await server.delete_ingredient(self._junk["name"])
+        assert delete.called
+        assert "Deleted '/3½oz vermicelli rice noodles'" in result
+
+    @respx.mock
+    async def test_still_referenced_passes_the_409_back(self):
+        respx.get(f"{API}/ingredients", params={"name": self._junk["name"]}).mock(
+            return_value=httpx.Response(200, json=[self._junk])
+        )
+        respx.delete(f"{API}/ingredients/{self._junk['id']}").mock(
+            return_value=httpx.Response(
+                409, json={"detail": "still referenced by 1 recipe line(s). POST /ingredients/{keeper_id}/merge"}
+            )
+        )
+        result = await server.delete_ingredient(self._junk["name"])
+        assert "still referenced" in result
+        assert "merge" in result  # the API's what-to-do-instead reaches the assistant
+
+    @respx.mock
+    async def test_unknown_ingredient_lists_similar(self):
+        respx.get(f"{API}/ingredients", params={"name": "unobtainium"}).mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{API}/ingredients", params={"search": "unobtainium"}).mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        result = await server.delete_ingredient("unobtainium")
+        assert "No ingredient 'unobtainium'" in result

@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 8
+PLAYBOOK_VERSION = 9
 
 mcp = FastMCP(
     "meals",
@@ -719,6 +719,25 @@ async def merge_ingredients(keep: str, duplicates: list[str]) -> str:
     except ApiError as exc:
         return str(exc)
     return f"Merged {result['merged']} into '{result['ingredient']['name']}' — one line on the list from now on."
+
+
+@mcp.tool()
+async def delete_ingredient(name: str) -> str:
+    """Remove an ingredient from the household's catalogue — junk a bad parse
+    left behind ("/3½oz vermicelli rice noodles"), a typo'd add, an experiment.
+
+    Refused while any recipe, meal or shopping-list line still references it;
+    the error says what does. For a misparse or duplicate of a real food,
+    merge_ingredients(keep=..., duplicates=[...]) is usually the better tool —
+    it repoints those references at the right ingredient and deletes the junk
+    row in one move. Deleting also discards the row's aisle and buying advice,
+    so don't use it to tidy an ingredient the household may buy again."""
+    try:
+        ingredient = await _find_ingredient(name)
+        await _call("DELETE", f"/ingredients/{ingredient['id']}")
+    except ApiError as exc:
+        return str(exc)
+    return f"Deleted '{ingredient['name']}' from the catalogue."
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

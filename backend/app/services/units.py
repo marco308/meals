@@ -53,6 +53,7 @@ BANNED_UNITS: dict[str, str] = {
     "pint": "convert to ml first (1 UK pint = 568 ml)",
     "pints": "convert to ml first (1 UK pint = 568 ml)",
     "fl oz": "convert to ml first (1 fl oz = 28 ml)",
+    "floz": "convert to ml first (1 fl oz = 28 ml)",
     "quart": "convert to ml first (1 quart = 946 ml)",
     "gallon": "convert to ml first (1 gallon = 3785 ml)",
     "stick": "convert to g first (1 stick of butter = 113 g)",
@@ -80,6 +81,8 @@ INGEST_CONVERSIONS: dict[str, tuple[str, float]] = {
     "pounds": ("g", 454),
     "pint": ("ml", 568),
     "pints": ("ml", 568),
+    "fl oz": ("ml", 28),
+    "floz": ("ml", 28),
 }
 
 # Irregular plural → singular for natural units.

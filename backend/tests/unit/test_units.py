@@ -47,6 +47,8 @@ class TestNormalizeQuantity:
             ("oz", "28 g"),
             ("lb", "454 g"),
             ("pints", "568 ml"),
+            ("fl oz", "28 ml"),
+            ("floz", "28 ml"),
         ],
     )
     def test_banned_units_carry_conversion_hint(self, unit, hint):
