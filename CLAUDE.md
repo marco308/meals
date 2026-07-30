@@ -220,4 +220,40 @@ otherwise), and verifies `/healthz`, `/skill`, `/prompt-pack` and an MCP
 initialize handshake through Traefik. In that script, keep every check a bare
 command — `curl … && echo` is exempt from `set -e`.
 
+**Rollouts are zero-downtime and it takes two settings, not one** (both in the
+gitignored stack file, which is why they're restated here). api and mcp run one
+replica each, and `make deploy` used to drop every request for a few seconds.
+It needed:
+
+1. `order: start-first` on api and mcp. Swarm's stop-first default killed the
+   only task before starting its replacement.
+2. `traefik.docker.lbswarm=true` on both. With start-first alone the deploy
+   still failed requests for ~9.5s, because Traefik was picking task IPs
+   itself: swarm reports a container Running the moment it starts, but api
+   waits for Postgres and runs `alembic upgrade head` before uvicorn binds, so
+   Traefik sent traffic to a port nothing was listening on (502) and to the
+   retired task's overlay address after it vanished (hangs until timeout).
+   Routing to the swarm VIP instead means ingress only reaches tasks that pass
+   their healthcheck. Traefik here is v2; v3 renames the label to
+   `traefik.swarm.lbswarm`.
+
+Verified by polling `/healthz` every 200ms through Traefik across a full
+`make deploy`: 468/468 requests 200, worst response 366ms.
+
+Two things follow from the fix and they constrain what you may deploy:
+
+- The container healthcheck is now the cutover gate *and* what admits a task
+  to the VIP, so its interval bounds the rollout. It's 5s with a generous
+  `start_period`, not the 30s Docker suggests. Don't raise it back.
+- Old and new tasks overlap for a few seconds, and the new one runs
+  `alembic upgrade head` **while the old code is still serving**. Additive
+  migrations are safe; one that drops or renames something the old code still
+  reads will break the outgoing task for that window, so split it
+  expand/contract across two deploys. This is the same additive-only
+  discipline the iOS client contract already demands, now applying to the
+  schema during a rollout.
+
+Postgres stays stop-first on purpose — one replica on one local volume can't
+have two tasks at once.
+
 Open items and deferred work live in `BACKLOG.md`.

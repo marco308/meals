@@ -22,5 +22,9 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 
-# Apply migrations, then serve
-CMD ["sh", "-c", ".venv/bin/alembic upgrade head && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Apply migrations, then serve. `exec` makes uvicorn PID 1 so it receives
+# SIGTERM directly and drains in-flight requests on shutdown; without it the
+# signal stops at `sh` and uvicorn is killed mid-response. The swarm stack
+# overrides this command (it waits for Postgres first) and execs for the same
+# reason.
+CMD ["sh", "-c", ".venv/bin/alembic upgrade head && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
