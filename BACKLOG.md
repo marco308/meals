@@ -51,5 +51,6 @@ tail plus engineering debt worth naming.
 - [ ] **Image pipeline** — images are built on the swarm node by hand; a registry (or at least a pinned tag scheme) would make rollbacks sane
 - [ ] **Rate limiting is per-process in-memory** — fine for one replica; revisit if the API ever scales out
 - [x] ~~**Ingredient-line parser tail**~~ — ✅ the regex learned the `<n> <food> <unit>` shape (Q21): "3 garlic cloves" is now 3 cloves of garlic rather than ×3 of an ingredient called "garlic cloves", except where the last word is load-bearing ("2 bay leaves")
+- [ ] **Ingestion has no response-size cap** — `fetch_page` reads the whole body into memory with only the 15s timeout as a bound; a pathological page is a memory spike. Wants a streamed read with a byte ceiling (a few MB covers any real recipe page)
 - [ ] **Flaky provision password test** — `test_generated_passwords_are_typeable_and_not_guessable` asserts no `8` in the password while `_generate_password`'s alphabet contains one, so it fails roughly one run in four. Either drop `8` from the alphabet or from the ambiguous set; predates Q21 and is unrelated to it
 - [ ] **Demo/test data hygiene in prod** — if a smoke-test account was used during deploy verification, remove it (single shared household means it sees real data)

@@ -1,3 +1,4 @@
+import httpcore
 import httpx
 import pytest
 import respx
@@ -48,6 +49,8 @@ async def test_network_error_becomes_actionable_message():
         "http://[::1]/",
         "http://[::ffff:127.0.0.1]/",  # loopback wearing an IPv6 hat
         "http://0.0.0.0/",
+        "http://100.100.1.1/",  # carrier-grade NAT — where a tailnet lives
+        "http://[64:ff9b::7f00:1]/",  # loopback wearing NAT64's well-known prefix
     ],
 )
 async def test_private_addresses_are_refused(url, monkeypatch):
@@ -131,3 +134,81 @@ async def test_unresolvable_host_is_actionable(monkeypatch):
     with pytest.raises(RecipeFetchError, match="could not resolve") as exc_info:
         await fetch_page("https://no-such-host.example/recipe")
     assert "POST /recipes" in str(exc_info.value)
+
+
+# ------------------------------------------------------------------ DNS pinning
+# The guard above judges the *resolved addresses*, so the connection must go to
+# exactly those addresses — a second lookup at connect time would let a DNS
+# record that changed between the two (rebinding) point the fetch somewhere
+# private after all. These tests run without respx: they exercise the real
+# httpx/httpcore plumbing down to the (canned) socket.
+
+
+class _RecordingBackend(httpcore.AsyncMockBackend):
+    """Serves canned HTTP bytes and records every address dialed."""
+
+    def __init__(self, buffer: list[bytes]) -> None:
+        super().__init__(buffer)
+        self.dialed: list[tuple[str, int]] = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        self.dialed.append((host, port))
+        return await super().connect_tcp(
+            host, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+        )
+
+
+async def test_connection_dials_the_checked_address_not_the_name(monkeypatch):
+    """The address judged public is the address connected; the hostname is
+    never resolved a second time at connect time."""
+
+    async def resolve(host: str) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(recipe_parser, "_resolve_host", resolve)
+    backend = _RecordingBackend([b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"])
+
+    def canned_transport() -> httpx.AsyncHTTPTransport:
+        transport = httpx.AsyncHTTPTransport()
+        transport._pool._network_backend = backend
+        return transport
+
+    monkeypatch.setattr(recipe_parser, "_fetch_transport", canned_transport)
+    assert await fetch_page("http://example.com/chilli") == "hello"
+    assert backend.dialed == [("93.184.216.34", 80)]
+
+
+async def test_a_host_that_was_never_checked_is_refused_at_dial_time():
+    """Whatever path a hostname arrives by, dialing it without a prior
+    public-address judgement fails closed."""
+    backend = recipe_parser._PinnedDialBackend(httpcore.AsyncMockBackend([]), {})
+    with pytest.raises(httpcore.ConnectError, match="public-address policy"):
+        await backend.connect_tcp("unchecked.example", 80)
+
+
+class _FlakyBackend(httpcore.AsyncNetworkBackend):
+    def __init__(self) -> None:
+        self.dialed: list[str] = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        self.dialed.append(host)
+        if host == "203.0.113.1":
+            raise httpcore.ConnectError("host down")
+        return httpcore.AsyncMockStream([])
+
+
+async def test_dial_falls_through_to_the_next_checked_address():
+    """Pinning must not lose multi-address fallback: a dual-stack host with
+    one dead address still loads."""
+    inner = _FlakyBackend()
+    backend = recipe_parser._PinnedDialBackend(inner, {"example.com": ["203.0.113.1", "203.0.113.2"]})
+    await backend.connect_tcp("example.com", 443)
+    assert inner.dialed == ["203.0.113.1", "203.0.113.2"]
+
+
+def test_pinning_surgery_holds_on_this_httpx():
+    """_pin_transport_dial reaches into httpx internals; if an upgrade moves
+    them it must raise rather than quietly fetch unpinned."""
+    transport = httpx.AsyncHTTPTransport()
+    recipe_parser._pin_transport_dial(transport, {})
+    assert isinstance(transport._pool._network_backend, recipe_parser._PinnedDialBackend)

@@ -14,6 +14,7 @@ import socket
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 from bs4 import BeautifulSoup
 
@@ -70,22 +71,33 @@ async def _resolve_host(host: str) -> list[str]:
     return [str(info[4][0]) for info in infos]
 
 
+# NAT64 (RFC 6052): the well-known prefix embeds an IPv4 address that a
+# translator on the network would deliver the connection to.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
 def _is_public_address(raw: str) -> bool:
     try:
         # A link-local IPv6 literal can carry a zone id ("fe80::1%eth0").
         ip = ipaddress.ip_address(raw.partition("%")[0])
     except ValueError:
         return False
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        # ::ffff:127.0.0.1 reaches loopback, so judge it as the v4 address.
-        ip = ip.ipv4_mapped
-    return not (
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            # ::ffff:127.0.0.1 reaches loopback, so judge it as the v4 address.
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64_PREFIX:
+            ip = ipaddress.ip_address(int(ip) & 0xFFFF_FFFF)
+    # is_global follows the IANA special-purpose registries, which also rule
+    # out ranges is_private misses — above all 100.64.0.0/10, carrier-grade
+    # NAT, which is where a tailnet lives. IPv6 multicast can be global scope,
+    # so it is excluded on its own.
+    return ip.is_global and not ip.is_multicast
 
 
-async def _assert_public_url(url: str) -> None:
-    """Refuse to fetch anything but a plain http(s) page on a public host.
+async def _assert_public_url(url: str) -> list[str]:
+    """Refuse anything but a plain http(s) URL on a publicly routed host, and
+    return the addresses that judgement was made on.
 
     Ingestion fetches a URL the caller supplied, so without this the endpoint
     is a request-forgery proxy (CWE-918): `POST /recipes/ingest` with
@@ -94,10 +106,10 @@ async def _assert_public_url(url: str) -> None:
     deployed on and hand the result back. Every redirect hop is checked
     separately, because a public page is free to redirect to loopback.
 
-    Names are resolved and the addresses judged, which closes the interesting
-    cases; it does not close DNS rebinding (a record whose value changes
-    between this lookup and the connection), which would need the connection
-    pinned to the address checked here.
+    The caller must connect to exactly the addresses returned here (see
+    _PinnedDialBackend): resolving the name a second time at connect time
+    would let a record that changed between the two lookups — DNS rebinding —
+    point the fetch at a private address after all.
     """
     parts = urlsplit(url)
     if parts.scheme.lower() not in _ALLOWED_SCHEMES:
@@ -124,20 +136,105 @@ async def _assert_public_url(url: str) -> None:
     if not addresses or not all(_is_public_address(address) for address in addresses):
         raise RecipeFetchError(
             f"{host} is not a public address, and this server only fetches recipes from the public "
-            f"internet — private, loopback and link-local addresses are refused. If the page is on your "
-            f"own network, {_READ_IT_YOURSELF}"
+            f"internet — private, loopback, link-local and carrier-grade NAT addresses are refused. "
+            f"If the page is on your own network, {_READ_IT_YOURSELF}"
         )
+    return addresses
+
+
+async def _validate_and_pin(pins: dict[str, list[str]], url: str) -> None:
+    """Judge a URL public and record its addresses under every spelling of the
+    host the HTTP stack might dial: urlsplit's (the one resolved) and httpx's
+    raw_host (an internationalised name becomes punycode there)."""
+    addresses = await _assert_public_url(url)
+    keys = {(urlsplit(url).hostname or "").lower()}
+    try:
+        raw_host = httpx.URL(url).raw_host.decode("ascii")
+    except httpx.InvalidURL as exc:
+        raise RecipeFetchError(f"{url} is not a fetchable URL ({exc}); check it, or {_READ_IT_YOURSELF}") from exc
+    keys.add(raw_host.lower())
+    for key in keys:
+        if key:
+            pins[key] = addresses
+
+
+class _PinnedDialBackend(httpcore.AsyncNetworkBackend):
+    """Network backend that only dials addresses _assert_public_url returned.
+
+    httpcore resolves a hostname again when it opens the socket; this replaces
+    that second lookup with the answer already judged (closing the rebinding
+    window above) and fails closed for any host that was never judged at all.
+    TLS is unaffected: httpcore wraps the socket with server_hostname taken
+    from the URL, so certificates are still verified against the site's name.
+    """
+
+    def __init__(self, inner: httpcore.AsyncNetworkBackend, pins: dict[str, list[str]]) -> None:
+        self._inner = inner
+        self._pins = pins
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ) -> httpcore.AsyncNetworkStream:
+        addresses = self._pins.get(host.strip("[]").lower(), [])
+        if not addresses:
+            raise httpcore.ConnectError(f"{host!r} was never checked against the public-address policy")
+        error: httpcore.ConnectError | None = None
+        for address in addresses:
+            try:
+                return await self._inner.connect_tcp(
+                    address, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+                )
+            except httpcore.ConnectError as exc:  # try the next resolved address, as a plain dial would
+                error = exc
+        assert error is not None
+        raise error
+
+    async def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options=None):
+        raise httpcore.ConnectError("recipe fetching never uses unix sockets")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._inner.sleep(seconds)
+
+
+def _fetch_transport() -> httpx.AsyncHTTPTransport:
+    """Its own function so tests can substitute a transport whose network
+    backend serves canned bytes instead of touching a socket."""
+    return httpx.AsyncHTTPTransport()
+
+
+def _pin_transport_dial(transport: httpx.AsyncHTTPTransport, pins: dict[str, list[str]]) -> None:
+    """Make the transport dial only pinned addresses.
+
+    Reaches into httpx internals — there is no supported hook for the dial
+    step. If an upgrade moves them, refuse to fetch at all rather than quietly
+    fetch unpinned; the ingestion tests fail loudly on that day.
+    """
+    pool = getattr(transport, "_pool", None)
+    inner = getattr(pool, "_network_backend", None)
+    if inner is None:
+        raise RuntimeError("httpx internals changed: recipe fetches can no longer be pinned to checked addresses")
+    pool._network_backend = _PinnedDialBackend(inner, pins)
 
 
 async def fetch_page(url: str) -> str:
     settings = get_settings()
     headers = {"User-Agent": "MealsBot/0.1 (+recipe ingestion; JSON-LD only)"}
-    await _assert_public_url(url)
+    # host → the addresses judged public for it; the transport refuses to dial
+    # anything else, so the address checked is the address connected.
+    pins: dict[str, list[str]] = {}
+    await _validate_and_pin(pins, url)
+    transport = _fetch_transport()
+    _pin_transport_dial(transport, pins)
     try:
         # Redirects are followed by hand so each hop goes through the same
         # public-address check as the URL the caller gave us.
         async with httpx.AsyncClient(
-            follow_redirects=False, timeout=settings.recipe_fetch_timeout_seconds, headers=headers
+            transport=transport, follow_redirects=False, timeout=settings.recipe_fetch_timeout_seconds, headers=headers
         ) as client:
             target = url
             for _ in range(_MAX_REDIRECTS + 1):
@@ -147,7 +244,7 @@ async def fetch_page(url: str) -> str:
                     return response.text
                 # next_request resolves a relative Location against the hop.
                 target = str(response.next_request.url)
-                await _assert_public_url(target)
+                await _validate_and_pin(pins, target)
             raise RecipeFetchError(
                 f"fetching {url} gave up after {_MAX_REDIRECTS} redirects; check the URL, or {_READ_IT_YOURSELF}"
             )
