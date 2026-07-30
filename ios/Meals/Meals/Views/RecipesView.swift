@@ -166,6 +166,7 @@ struct RecipeDetailView: View {
     @State private var recipe: Recipe?
     @State private var errorMessage: String?
     @State private var addedMealName: String?
+    @State private var addError: String?
     @State private var reloadKey = 0
     @State private var showDeleteConfirm = false
     @State private var deleteError: String?
@@ -280,15 +281,23 @@ struct RecipeDetailView: View {
                 Section {
                     Button {
                         Task {
-                            if let meal = await planStore.createMeal(name: recipe.title, slot: "dinner", recipeIds: [recipe.id]) {
-                                await planStore.addMeal(meal)
+                            // No active plan? One is started, rather than the
+                            // tap quietly doing nothing. And if anything fails
+                            // the user hears about it, instead of being told
+                            // the meal is on a plan that doesn't exist.
+                            if let meal = await planStore.addRecipe(recipe) {
                                 addedMealName = meal.name
+                            } else {
+                                addError = planStore.errorMessage ?? "Couldn't reach the server."
+                                planStore.errorMessage = nil
                             }
                         }
                     } label: {
                         Label("Add to this week's plan", systemImage: "plus.circle.fill")
                             .fontWeight(.medium)
                     }
+                } footer: {
+                    Text("Starts a plan for you if there isn't one yet.")
                 }
             }
         }
@@ -327,7 +336,16 @@ struct RecipeDetailView: View {
         .alert("Added to plan", isPresented: .init(get: { addedMealName != nil }, set: { if !$0 { addedMealName = nil } })) {
             Button("OK") { addedMealName = nil }
         } message: {
-            Text("\(addedMealName ?? "") is on the plan and its ingredients are on the shopping list.")
+            // Naming the plan is what tells you a new one was just started.
+            Text("\(addedMealName ?? "") is on '\(planStore.plan?.label ?? "the plan")' and its ingredients are on the shopping list.")
+        }
+        .alert(
+            "Couldn't add to the plan",
+            isPresented: .init(get: { addError != nil }, set: { if !$0 { addError = nil } })
+        ) {
+            Button("OK") { addError = nil }
+        } message: {
+            Text(addError ?? "")
         }
         .confirmationDialog(
             "Delete '\(recipe.title)'? This can't be undone.",

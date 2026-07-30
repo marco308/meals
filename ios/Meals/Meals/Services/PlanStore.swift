@@ -101,12 +101,63 @@ final class PlanStore {
         }
     }
 
-    func addMeal(_ meal: Meal) async {
-        guard let plan else { return }
+    /// The label a plan gets when one is started implicitly. Same default
+    /// `NewPlanSheet` offers, so both routes into a first plan agree.
+    nonisolated static let implicitPlanLabel = "This week's options"
+
+    /// Add a meal to the plan, starting a plan first if the household hasn't
+    /// got one. Returns false when nothing landed, with `errorMessage` set:
+    /// this used to `guard let plan else { return }`, which let the recipe
+    /// screen announce "Added to plan" after doing precisely nothing.
+    @discardableResult
+    func addMeal(_ meal: Meal) async -> Bool {
         do {
-            self.plan = try await api().addMeal(planId: plan.id, mealId: meal.id)
+            let target = try await planForWriting()
+            try await put(meal, on: target)
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// One recipe onto the plan as a meal of its own: the one-tap path from the
+    /// recipe library. The plan is resolved *before* the meal is created, so a
+    /// failure can't leave an unattached meal behind in the library.
+    func addRecipe(_ recipe: Recipe) async -> Meal? {
+        do {
+            let target = try await planForWriting()
+            guard let meal = await createMeal(name: recipe.title, slot: "dinner", recipeIds: [recipe.id]) else {
+                return nil
+            }
+            try await put(meal, on: target)
+            return meal
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func put(_ meal: Meal, on target: Plan) async throws {
+        let updated = try await api().addMeal(planId: target.id, mealId: meal.id)
+        plan = updated
+        isOffline = false
+        planCache.save(updated)
+    }
+
+    /// The plan a write should land on. `plan` can't answer this on its own:
+    /// nil means both "no active plan" and "not fetched yet", and a cached copy
+    /// may have been archived from another device. So the server decides, and
+    /// only a real 404 starts a new plan.
+    private func planForWriting() async throws -> Plan {
+        do {
+            return try await api().currentPlan()
+        } catch APIError.server(404, _) {
+            let created = try await api().createPlan(label: Self.implicitPlanLabel)
+            plan = created
+            isOffline = false
+            planCache.save(created)
+            return created
         }
     }
 
