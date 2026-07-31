@@ -37,8 +37,9 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     """Submit a recipe URL. A URL already in the library returns the cached
     recipe instantly (parse once, reuse forever). New URLs are fetched and
     parsed from their schema.org/Recipe JSON-LD — no LLM involved. Only public
-    http(s) pages are fetched: a private, loopback or link-local address is
-    refused rather than reached. Failure is a 422 either way — the page has no
+    http(s) pages are fetched: an address that isn't publicly routed (private,
+    loopback, link-local, carrier-grade NAT) is refused rather than reached.
+    Failure is a 422 either way — the page has no
     usable JSON-LD, or this server couldn't fetch it (bot-blocked, unreachable,
     not public) — and the detail tells the calling AI to read the page itself
     and submit the structured recipe via POST /recipes."""
