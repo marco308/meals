@@ -51,7 +51,8 @@ make dev     # full stack in Docker: Postgres + API on http://localhost:8000
 make seed    # demo user, recipes, a plan, and a ready-made shopping list
 ```
 
-Interactive API docs: <http://localhost:8000/docs>. The seed's demo account is
+The **web app** is at <http://localhost:8000/app/> (a browser at the bare
+address is redirected there). Interactive API docs: <http://localhost:8000/docs>. The seed's demo account is
 `demo@example.com` / `demo-password-123`, and it prints an API token you can
 use immediately with `curl` or the MCP server. (The password lives here rather
 than in the seed's output: `make seed` also fills real accounts on real servers
@@ -86,10 +87,23 @@ PASSWORD_RESET_TTL_MINUTES=30   # default
 | Directory | Contents |
 |---|---|
 | [`backend/`](backend/) | FastAPI + async SQLAlchemy + Alembic. Postgres in Docker, SQLite for local/tests |
+| [`web/`](web/) | Web app, served by the API itself at `/app` — the big-screen client. Plain HTML/CSS/ES modules, no build step |
 | [`ios/`](ios/) | Native SwiftUI iPhone app: plan, recipe library + URL ingest, and an **offline-first shopping list** |
 | [`mcp/`](mcp/) | MCP server wrapping the API with task-level tools (`ingest_recipe`, `get_shopping_list`, `check_off`, …) |
 | [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) — served live at `/skill` + `/prompt-pack` |
 | [`planning/`](planning/) | Product plan and decisions log this POC implements |
+
+### Web app
+
+The big-screen client, served by the API itself at `/app` — same origin as the
+endpoints it calls, so there's no second host, no CORS, nothing extra to
+deploy: if the server is up, the web app is too. Plain HTML/CSS/ES modules
+with no build step and no external requests, in the same Sunday-market skin as
+the site (dark mode included). It covers the whole loop: the plan, the
+shopping list (staples check, "already have it", finish-the-shop), recipe
+library with URL ingest, meals, the ingredient catalogue (aisles, staples,
+⭐/💷 verdicts, duplicate merge — the tidy-up screens the phone doesn't have),
+and settings (invites, API tokens, password, account deletion).
 
 ### iOS app
 

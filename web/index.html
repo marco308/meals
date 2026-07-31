@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YAMP</title>
+<meta name="description" content="Yet Another Meal Planner — the big-screen client. Served by your own YAMP server; talks to the same API as the iPhone app and your AI.">
+<meta name="theme-color" content="#fbf5e9">
+<!-- Same-origin only: the app calls the API that serves it, and nothing else.
+     Recipe images are the one external fetch (https images by URL). -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
+<!-- /app is served with Cache-Control: no-cache (see main.py), so every asset
+     revalidates by ETag and a deploy shows up on the next load — including the
+     ES modules below, which import their siblings with no version query -->
+<link rel="stylesheet" href="app.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<div class="awning" aria-hidden="true"></div>
+
+<div id="shell">
+  <!-- Sidebar + content are rendered by js/main.js: the shell differs for
+       signed-out (login card) and signed-in (nav + view) states. -->
+  <noscript>
+    <div class="noscript-card">
+      <h1>yamp<span class="dot">.</span></h1>
+      <p>The web app needs JavaScript — it is a client of the same API the
+      iPhone app uses. The API itself is at <a href="../docs">/docs</a>.</p>
+    </div>
+  </noscript>
+</div>
+
+<div id="toast-rack" aria-live="polite"></div>
+
+</body>
+</html>
