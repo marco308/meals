@@ -14,6 +14,13 @@ export async function renderShopping(root) {
     query: { include_staples: staplesMode || undefined, include_excluded: showExcluded || undefined },
   });
 
+  // The staples check is its own screen: just the staples, nothing else,
+  // matching the flow the skill teaches (include_staples → mark what's low).
+  if (staplesMode) {
+    renderStaplesCheck(root, list);
+    return;
+  }
+
   const ticked = list.items.filter((i) => i.checked && !i.excluded).length;
   const toGet = list.items.filter((i) => !i.excluded).length;
   const excluded = list.items.filter((i) => i.excluded);
@@ -25,13 +32,11 @@ export async function renderShopping(root) {
           <h1>Shopping list</h1>
           <p class="sub">
             <span data-count>${toGet === 0 ? "nothing to get" : `${ticked} of ${toGet} in the trolley`}</span>
-            ${!staplesMode && list.hidden_staples > 0 ? ` · ${list.hidden_staples} staples waiting for a check` : ""}
+            ${list.hidden_staples > 0 ? ` · ${list.hidden_staples} ${list.hidden_staples === 1 ? "staple" : "staples"} waiting for a check` : ""}
           </p>
         </div>
         <div class="page-actions">
-          <button class="btn ghost ${staplesMode ? "leek" : ""}" data-staples>
-            ${staplesMode ? "Done checking staples" : "🧂 Staples check"}
-          </button>
+          <button class="btn ghost" data-staples>🧂 Staples check</button>
           <a class="btn ghost" href="#/list/archived">Previous shops</a>
           <button class="btn" data-finish>Finish the shop</button>
         </div>
@@ -41,12 +46,6 @@ export async function renderShopping(root) {
         <input type="text" name="q" placeholder="Add something — “milk”, “2 l milk”, “500 g flour”…" autocomplete="off">
         <button class="btn" type="submit">Add</button>
       </form>
-
-      ${staplesMode &&
-      html`<div class="staples-banner">
-        <b>Staples check.</b> These usually live at home, so they hide from the list —
-        tick <i>low</i> on anything running out and it joins the shop in its aisle.
-      </div>`}
 
       ${list.items.length === 0
         ? emptyState("🛒", "The list writes itself", "Add meals to the plan and their ingredients appear here, merged and sorted by aisle. Or add one-offs above.")
@@ -70,15 +69,18 @@ export async function renderShopping(root) {
   bind(root, list);
 }
 
-function aisleGroups(list) {
-  const visible = list.items.filter((i) => !i.excluded);
+function groupByAisle(items) {
   const groups = [];
-  for (const item of visible) {
+  for (const item of items) {
     const last = groups[groups.length - 1];
     if (last && last.label === item.aisle_label) last.items.push(item);
     else groups.push({ emoji: item.aisle, label: item.aisle_label, items: [item] });
   }
-  return groups.map(
+  return groups;
+}
+
+function aisleGroups(list) {
+  return groupByAisle(list.items.filter((i) => !i.excluded)).map(
     (group) => html`
       <section class="aisle-group">
         <div class="aisle-head">
@@ -94,12 +96,9 @@ function aisleGroups(list) {
 
 function itemRow(item, inExcludedPile) {
   const adhocOnly = item.sources.every((s) => s.ad_hoc);
-  const staplePending = item.is_staple && !item.staple_needed;
   return html`
     <div class="shop-item ${item.checked ? "done" : ""}" data-item="${item.id}">
-      ${staplePending && staplesMode
-        ? html`<button class="icon-btn" data-low="${item.id}" title="Running low — put it on the list">low?</button>`
-        : html`<button class="tick" data-tick="${item.id}" aria-pressed="${item.checked}" aria-label="Got it"></button>`}
+      <button class="tick" data-tick="${item.id}" aria-pressed="${item.checked}" aria-label="Got it"></button>
       <span class="qty">${item.display}</span>
       <div class="i-main">
         <span class="i-name">${item.name}</span>
@@ -190,13 +189,6 @@ function bind(root, list) {
       }
     };
   }
-  for (const button of root.querySelectorAll("[data-low]")) {
-    button.onclick = async () => {
-      await api(`/shopping-list/items/${button.dataset.low}`, { method: "PATCH", body: { staple_needed: true } });
-      toast("On the list, in its aisle.", "ok");
-      renderShopping(root);
-    };
-  }
   for (const button of root.querySelectorAll("[data-have]")) {
     button.onclick = async () => {
       await api(`/shopping-list/items/${button.dataset.have}`, { method: "PATCH", body: { excluded: true } });
@@ -219,6 +211,84 @@ function bind(root, list) {
       }
     };
   }
+}
+
+// The staples check: only the staples, run down like a pantry list. A staple
+// marked low joins the main list in its aisle (staple_needed); the rest stay
+// hidden from the shop. Staples appear here once something has ever put them
+// on the list — that's the server's model, and the skill's.
+function renderStaplesCheck(root, list) {
+  const staples = list.items.filter((i) => i.is_staple);
+  const low = staples.filter((i) => i.staple_needed).length;
+
+  render(root, html`
+    <div class="page narrow">
+      <div class="page-head">
+        <div>
+          <h1>Staples check</h1>
+          <p class="sub">${staples.length === 0 ? "nothing is marked as a staple yet" : `${staples.length} ${staples.length === 1 ? "staple" : "staples"} · ${low} on the list`}</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn leek" data-staples>Done — back to the list</button>
+        </div>
+      </div>
+
+      <div class="staples-banner">
+        <b>Pre-shop pantry sweep.</b> Staples live at home, so they stay off the
+        list until you say you're low — anything you mark joins the shop in its
+        aisle, the rest stay hidden.
+      </div>
+
+      ${staples.length === 0
+        ? emptyState("🧂", "No staples to check", "Mark things like olive oil and salt as staples on the Ingredients page. Once a recipe or a quick-add has ever put one on a list, it shows up here before each shop.")
+        : groupByAisle(staples).map(
+            (group) => html`
+              <section class="aisle-group">
+                <div class="aisle-head">
+                  <span class="a-emoji" aria-hidden="true">${group.emoji}</span>
+                  <span class="a-label">${group.label}</span>
+                  <span class="a-count">${group.items.filter((i) => i.staple_needed).length}/${group.items.length} low</span>
+                </div>
+                <div>${group.items.map((item) => stapleRow(item))}</div>
+              </section>
+            `,
+          )}
+    </div>
+  `);
+
+  root.querySelector("[data-staples]").onclick = () => {
+    staplesMode = false;
+    renderShopping(root);
+  };
+  for (const button of root.querySelectorAll("[data-low]")) {
+    button.onclick = async () => {
+      const needed = button.dataset.needed === "true";
+      try {
+        await api(`/shopping-list/items/${button.dataset.low}`, { method: "PATCH", body: { staple_needed: !needed } });
+        if (!needed) toast("On the list, in its aisle.", "ok");
+        renderShopping(root);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+    };
+  }
+}
+
+function stapleRow(item) {
+  return html`
+    <div class="shop-item">
+      <span class="qty">${item.display}</span>
+      <div class="i-main">
+        <span class="i-name">${item.name}</span>${valueBadge(item)}
+      </div>
+      ${item.staple_needed
+        ? html`
+            <span class="chip butter">on the list</span>
+            <button class="icon-btn" data-low="${item.id}" data-needed="true">stocked after all</button>
+          `
+        : html`<button class="btn small" data-low="${item.id}" data-needed="false">Low — add it</button>`}
+    </div>
+  `;
 }
 
 // Keep the header and per-aisle tallies honest during optimistic ticking,
