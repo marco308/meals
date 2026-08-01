@@ -41,6 +41,7 @@ is what keeps the API complete and the views consistent.
 | Path | Role |
 |---|---|
 | `backend/` | FastAPI + async SQLAlchemy 2.0 + Alembic. Postgres in Docker; SQLite for `make run` and all tests |
+| `web/` | Web app served by the backend at `/app` (StaticFiles mount in `app/main.py`). No build step: hand-written HTML/CSS + ES modules, same-origin with the API, no external requests |
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
@@ -111,6 +112,32 @@ from `deps.py`; every query filters on `user.household_id`.
   household's own verdict — unlike an aisle it is **never guessed**, so no
   keyword table. It rides along on list items and recipe lines so it shows up
   at the shelf; the vocabulary is published in the skill.
+
+### The web client (`web/`)
+
+Ships inside the backend image (repo-root build context, like `skill/`) and is
+mounted at `/app` with the same two-place directory lookup; browsers hitting
+`/` with no `marketing_url` configured are redirected there. Rules that keep
+it boring to operate:
+
+- **No build step, no external requests.** Hand-written CSS + ES modules the
+  browser loads directly; recipe `image_url`s are the one external fetch
+  (allowed by the CSP in `index.html`). Don't introduce npm, bundlers, or CDN
+  scripts.
+- **Assets are served `Cache-Control: no-cache`** (`_RevalidatedStaticFiles`)
+  because there are no hashed filenames — every load revalidates by ETag, so a
+  deploy shows up on the next page load. Don't "optimise" this into long-lived
+  caching without adding content hashes.
+- It identifies as `X-Meals-Client: web/1.0 (1)`; only `ios/*` is ever gated,
+  and the web app deploys *with* the server, so it can never be older than the
+  API — no gate, no version ceremony.
+- The XSS boundary is the `html` tagged template in `js/dom.js` (everything
+  interpolated is escaped unless it is itself a template). Never build DOM
+  strings outside it.
+- Dialog code must not depend on the `close` *event* — some embedded browsers
+  never deliver it; `openDialog` patches `close()` to also remove the element.
+- The 4xx `detail` strings the API writes for AI clients are shown verbatim in
+  toasts — another reason to keep them human sentences.
 
 ### Client/API compatibility
 

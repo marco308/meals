@@ -1,8 +1,10 @@
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import client_gate
 from app.config import get_settings
@@ -70,14 +72,46 @@ app.include_router(shopping.router)
 app.include_router(skill.router)
 app.include_router(pages.router)
 
+# The web client is served by the API itself so it is always same-origin with
+# the endpoints it calls — no CORS, no second host to deploy or certify. Plain
+# static files with no build step; hash routing means only /app/ itself and its
+# assets need serving. In the Docker image web/ sits next to app/
+# (/srv/meals/web); in a repo checkout it lives at the repo root. Same
+# two-place lookup as the skill router, for the same reason.
+_WEB_DIRS = (
+    Path(__file__).resolve().parents[1] / "web",
+    Path(__file__).resolve().parents[2] / "web",
+)
+_web_dir = next((path for path in _WEB_DIRS if path.is_dir()), None)
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """`Cache-Control: no-cache` on every asset (revalidate, don't refetch).
+
+    With no build step there are no hashed filenames, and the ES modules the
+    shell imports carry no ?v= query — heuristic caching would keep a browser
+    on weeks-stale JS after a deploy. ETag revalidation makes this cheap: the
+    steady state is 304s, and a deploy shows up on the next load.
+    """
+
+    def file_response(self, *args: object, **kwargs: object) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
+if _web_dir is not None:
+    app.mount("/app", _RevalidatedStaticFiles(directory=_web_dir, html=True), name="webapp")
+
 
 @app.get("/", include_in_schema=False)
 async def root(request: Request) -> Response:
-    # Browsers get the marketing site when this deployment has one, the
-    # interactive docs otherwise; assistants and curl get a JSON landing
-    # advertising every machine-readable surface (issue #5).
+    # Browsers get the marketing site when this deployment has one, the web
+    # app otherwise (it ships in the image, so a self-hosted bare domain lands
+    # somewhere usable); assistants and curl get a JSON landing advertising
+    # every machine-readable surface (issue #5).
     if "text/html" in request.headers.get("accept", ""):
-        return RedirectResponse(settings.marketing_url or "/docs")
+        return RedirectResponse(settings.marketing_url or ("/app/" if _web_dir else "/docs"))
     base = base_url(request)
     landing = {
         "name": settings.app_name,
@@ -85,6 +119,7 @@ async def root(request: Request) -> Response:
         "description": "Meal options planner with an AI-first API — fetch the skill for the workflow guide.",
         "openapi": f"{base}/openapi.json",
         "docs": f"{base}/docs",
+        "app": f"{base}/app/",
         "skill": f"{base}/skill",
         "prompt_pack": f"{base}/prompt-pack",
         # Lets an assistant spot a stale installed copy without a second request.

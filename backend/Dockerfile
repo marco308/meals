@@ -15,6 +15,8 @@ COPY backend/alembic ./alembic
 COPY backend/app ./app
 # The skill + prompt pack, served at /skill and /prompt-pack
 COPY skill ./skill
+# The web client, served at /app — same-origin with the API it calls
+COPY web ./web
 # The App Store's privacy and support URLs point at /privacy and /support, which
 # render these. If they don't ship, those URLs 404 and the listing is broken.
 COPY PRIVACY.md SUPPORT.md ./

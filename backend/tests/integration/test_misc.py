@@ -19,10 +19,13 @@ class TestMeta:
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
-    async def test_root_redirects_browsers_to_docs(self, client):
+    async def test_root_redirects_browsers_to_the_web_app(self, client):
+        """No marketing_url set (the self-hosted default): browsers land on the
+        web app now that one ships in the image. /docs remains the fallback
+        only for a build without web/."""
         response = await client.get("/", headers={"accept": "text/html,application/xhtml+xml"})
         assert response.status_code == 307
-        assert response.headers["location"] == "/docs"
+        assert response.headers["location"] == "/app/"
 
     async def test_root_redirects_browsers_to_the_marketing_site_when_set(self, client, monkeypatch):
         """A deployment with a public face sends browsers there instead of the docs."""

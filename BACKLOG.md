@@ -15,6 +15,22 @@ tail plus engineering debt worth naming.
 - [ ] **Onboard the second household member** — no longer needs curl at either end: build 16 mints the code (Settings → Invite someone) and build 14 onwards can redeem it on the register screen. Both are on TestFlight, so this is now just a thing to do
 - [ ] **Clean the BBC misparse junk out of prod** — dual-measure lines left ingredients named "/3½oz vermicelli rice noodles", "/10½oz cooked" and friends behind (parser fixed + guarded `DELETE /ingredients/{id}` added 2026-07-29, Q22; summer_rolls_15105 is a known affected recipe). The recipe lines kept their raw text and correct metric quantities, so merging each junk row into the real food (`POST /ingredients/{keeper_id}/merge`) heals the recipes too; `DELETE /ingredients/{id}` mops up anything left unreferenced. An AI on the v9 playbook can do the whole sweep
 
+## Web app tail
+
+The web client (`web/`, served at `/app`) shipped covering the whole loop;
+what it deliberately doesn't do yet:
+
+- [ ] **Offline** — it's online-only by design (the iPhone in the supermarket
+  is the offline story; the web app is the kitchen/desk screen). If that ever
+  changes, the `PendingOp` queue semantics from iOS (Q11) are the model
+- [ ] **Servings scaling UI** — same gap as iOS; the API has no first-class
+  support yet (see "Servings scaling" below), the meal editor only exposes the
+  per-recipe `scale` factor
+- [ ] **Re-ingest from the recipe page** — blocked on the same "Re-parse
+  endpoint" item below
+- [ ] **Marketing site mention** — docs/ still sells "iPhone app + any AI";
+  the self-host pitch can now include the web app for free
+
 ## Account lifecycle
 
 - [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so. **Not yet set on the deployment**, so reset is unavailable in production until it is

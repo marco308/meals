@@ -22,6 +22,16 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
+- **A web app**, served by the API itself at `/app` (`web/` in the repo) — the
+  big-screen client. Same-origin with the endpoints it calls, no build step, no
+  external requests; covers the plan, the shopping list (staples check,
+  "already have it", finish-the-shop, previous shops), recipe library with URL
+  ingest, meals, the ingredient catalogue (aisles, staples, value verdicts,
+  duplicate merge), and settings (invites, API tokens, password, account
+  deletion). Browsers at `/` on a deployment with no `marketing_url` configured
+  now land there instead of `/docs`; the JSON landing advertises it as `app`.
+  Assets are served `Cache-Control: no-cache` so a deploy shows up on the next
+  page load.
 - `GET /privacy` and `GET /support` — the App Store requires publicly reachable
   policy and support URLs, and the deployment is the only thing this project
   already hosts. Unauthenticated, exempt from the client gate, and rendered
