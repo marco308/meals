@@ -258,6 +258,16 @@
       <figcaption>A real screenshot, straight from the same scripted run that makes the App&nbsp;Store set.</figcaption>
     </figure>
   </div>
+
+  <div class="run-notes">
+    <p>
+      <b>And for the bigger screen, a web app.</b> Your server serves it
+      itself at <span class="mono">/app</span>: plan the week, tidy the
+      recipe library and run the staples check from a laptop, then walk the
+      shop with the phone. Same household, same API, nothing extra to
+      deploy: if the server is up, so is the web app.
+    </p>
+  </div>
 </section>
 
 <!-- ═══════════════════════ pricing ═══════════════════════ -->
@@ -277,7 +287,7 @@
       <p class="tier-lede">Not a free tier. The whole thing.</p>
       <ul>
         <li>Every feature, no exceptions</li>
-        <li>Full API, MCP server, iPhone app</li>
+        <li>Full API, MCP server, web app, iPhone app</li>
         <li>Invite codes for your household</li>
         <li>Your hardware, your data, your rules</li>
       </ul>
@@ -327,7 +337,7 @@
       <div>
         <p class="s-label">Start the whole stack</p>
         <p class="s-cmd">make up</p>
-        <p class="s-note">Postgres and the API on :8000, the MCP server on :8100, all in Docker.</p>
+        <p class="s-note">Postgres and the API on :8000, the web app at <span class="mono">/app</span>, the MCP server on :8100, all in Docker.</p>
       </div>
     </div>
     <div class="step">
@@ -401,9 +411,12 @@
     <details>
       <summary>Android? Web?</summary>
       <p>
-        The API is open and documented; the iPhone app is one client of it.
-        An Android or web client is a pull request we would take seriously,
-        and your AI can already drive everything from any platform today.
+        Web ships in the box: your server serves the web app itself at
+        <span class="mono">/app</span>, same-origin with the API, nothing
+        extra to run. The API is open and documented, and the iPhone and web
+        apps are just two clients of it; an Android client is a pull request
+        we would take seriously, and your AI can already drive everything
+        from any platform today.
       </p>
     </details>
     <details>
