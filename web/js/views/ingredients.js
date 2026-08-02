@@ -1,7 +1,9 @@
 // The ingredient catalogue: aisles, staples and the household's own
 // premium/budget verdicts (Q17 — never guessed, so this is where they get
 // set). Also the duplicates clean-up (Q21), which finally gets a screen —
-// until now only an AI over MCP could run it.
+// until now only an AI over MCP could run it. The finder only reports
+// name-folding facts, so each row also carries a manual "merge…" for the
+// pairs it can't claim ("beef mince" vs "minced beef").
 
 import { aisles, api } from "../api.js";
 import { confirmDialog, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
@@ -95,7 +97,10 @@ function ingredientRow(item, aisleList) {
         <option value="budget" ${item.value_tier === "budget" ? "selected" : ""}>💷 budget</option>
       </select>
       <input type="text" value="${item.value_note ?? ""}" placeholder="why (shows at the shelf)" data-k="value_note">
-      <button class="icon-btn warm" data-del title="Only unreferenced ingredients can go">✕</button>
+      <span class="row-actions">
+        <button class="icon-btn" data-mrg title="Fold this into another ingredient — for duplicates the finder can't see">merge…</button>
+        <button class="icon-btn warm" data-del title="Only unreferenced ingredients can go">✕</button>
+      </span>
     </div>
   `;
 }
@@ -117,6 +122,9 @@ function bindRow(row, root) {
   row.querySelector('[data-k="value_tier"]').onchange = (e) => save({ value_tier: e.target.value });
   const note = row.querySelector('[data-k="value_note"]');
   note.onchange = () => save({ value_note: note.value.trim() || null });
+  row.querySelector("[data-mrg]").onclick = () => {
+    mergeIntoDialog({ id, name: row.querySelector(".name").textContent }, root);
+  };
   row.querySelector("[data-del]").onclick = async () => {
     const name = row.querySelector(".name").textContent;
     const ok = await confirmDialog({
@@ -136,10 +144,23 @@ function bindRow(row, root) {
   };
 }
 
+// One line of curation context per ingredient, so a merge choice is made
+// knowing whose aisle/staple/verdict survives (the keeper's) and whose is lost.
+const ingredientMeta = (item) =>
+  [
+    `${item.aisle} ${item.aisle_label}`,
+    item.is_staple && "staple",
+    item.value_tier === "premium" && "⭐ premium",
+    item.value_tier === "budget" && "💷 budget",
+    item.value_note && `“${item.value_note}”`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
 async function duplicatesDialog(root) {
   const dialog = openDialog(html`
     <h2>Duplicate ingredients</h2>
-    <p class="sub">Same food, different spellings — merging repoints every recipe line and list item at the keeper, then removes the spares.</p>
+    <p class="sub">Same food, different spellings. Pick the one that survives — merging repoints every recipe line and list item at it, then removes the rest. The survivor keeps its own aisle, staple flag and verdict.</p>
     <div data-body>${skeleton()}</div>
     <div class="dialog-actions"><button class="btn ghost" data-x>Close</button></div>
   `);
@@ -148,32 +169,74 @@ async function duplicatesDialog(root) {
   const body = dialog.querySelector("[data-body]");
   const load = async () => {
     const dupes = await api("/ingredients/duplicates");
-    if (dupes.groups.length === 0) {
-      render(body, html`<div class="empty"><span class="e-emoji">✨</span><h2>Catalogue is clean</h2><p>No duplicate names found.</p></div>`);
+    if (dupes.groups.length === 0 && dupes.unfolded.length === 0) {
+      render(body, html`<div class="empty"><span class="e-emoji">✨</span><h2>Catalogue is clean</h2>
+        <p>No duplicate names found. Spotted a pair this can't see, like “beef mince” and “minced beef”? Use merge… on the ingredient's own row.</p></div>`);
       return;
     }
     render(body, html`
-      <ul class="picker-list">
-        ${dupes.groups.map(
-          (group) => html`
-            <li>
-              <div class="p-main">
-                <div class="p-title">${group.keeper.name} <span class="chip green">keeper</span></div>
-                <div class="p-sub">absorbs: ${group.duplicates.map((d) => d.name).join(", ")}</div>
-              </div>
-              <button class="btn small" data-merge="${group.keeper.id}" data-dupes-ids="${group.duplicates.map((d) => d.id).join(",")}">Merge</button>
-            </li>
-          `,
-        )}
-      </ul>
+      ${dupes.groups.map((group, index) => {
+        const members = [group.keeper, ...group.duplicates];
+        return html`
+          <section class="merge-group" data-group="${index}">
+            ${members.map(
+              (member) => html`
+                <label class="merge-member">
+                  <input type="radio" name="keep-${index}" value="${member.id}" ${member.id === group.keeper.id ? "checked" : ""}>
+                  <span class="m-name">${member.name}</span>
+                  ${member.id === group.keeper.id ? html`<span class="chip green">suggested</span>` : null}
+                  <span class="m-meta">${ingredientMeta(member)}</span>
+                </label>
+              `,
+            )}
+            <div class="merge-group-foot">
+              <span class="m-hint" data-hint hidden>new recipes file this food under “${group.canonical_name}”, so a separate “${group.canonical_name}” can creep back</span>
+              <button class="btn small" data-merge></button>
+            </div>
+          </section>
+        `;
+      })}
+      ${dupes.unfolded.length > 0 &&
+      html`
+        <section class="unfolded">
+          <h3 class="merge-section-head">Old spellings</h3>
+          <p class="sub">Stored under a name a new recipe wouldn't use, with nothing to merge into. Filing one moves it to the modern name, keeping its aisle, staple flag and verdict.</p>
+          <ul class="picker-list">
+            ${dupes.unfolded.map(
+              (entry, index) => html`
+                <li>
+                  <div class="p-main">
+                    <div class="p-title">${entry.ingredient.name}</div>
+                    <div class="p-sub">${ingredientMeta(entry.ingredient)}</div>
+                  </div>
+                  <button class="btn small" data-unfold="${index}">File under “${entry.canonical_name}”</button>
+                </li>
+              `,
+            )}
+          </ul>
+        </section>
+      `}
     `);
-    for (const button of body.querySelectorAll("[data-merge]")) {
+    for (const section of body.querySelectorAll("[data-group]")) {
+      const group = dupes.groups[Number(section.dataset.group)];
+      const members = [group.keeper, ...group.duplicates];
+      const button = section.querySelector("[data-merge]");
+      const hint = section.querySelector("[data-hint]");
+      const picked = () => members.find((member) => member.id === section.querySelector("input:checked").value);
+      const sync = () => {
+        const keep = picked();
+        button.textContent = `Merge ${members.length - 1} into “${keep.name}”`;
+        hint.hidden = keep.name === group.canonical_name;
+      };
+      for (const radio of section.querySelectorAll("input[type=radio]")) radio.onchange = sync;
+      sync();
       button.onclick = async () => {
+        const keep = picked();
         button.disabled = true;
         try {
-          const result = await api(`/ingredients/${button.dataset.merge}/merge`, {
+          const result = await api(`/ingredients/${keep.id}/merge`, {
             method: "POST",
-            body: { duplicate_ids: button.dataset.dupesIds.split(",") },
+            body: { duplicate_ids: members.filter((member) => member.id !== keep.id).map((member) => member.id) },
           });
           toast(`Merged ${result.merged} into “${result.ingredient.name}”.`, "ok");
           await load();
@@ -184,6 +247,103 @@ async function duplicatesDialog(root) {
         }
       };
     }
+    for (const button of body.querySelectorAll("[data-unfold]")) {
+      button.onclick = async () => {
+        const entry = dupes.unfolded[Number(button.dataset.unfold)];
+        button.disabled = true;
+        try {
+          // The canonical row doesn't exist yet (that is what made this row
+          // "unfolded"), so create it carrying the old row's curation — this
+          // is a rename, not a merge of two opinions — then fold the old row
+          // into it.
+          const keeper = await api("/ingredients", {
+            method: "POST",
+            body: {
+              name: entry.canonical_name,
+              aisle: entry.ingredient.aisle,
+              is_staple: entry.ingredient.is_staple,
+              value_tier: entry.ingredient.value_tier,
+              value_note: entry.ingredient.value_note,
+            },
+          });
+          await api(`/ingredients/${keeper.id}/merge`, {
+            method: "POST",
+            body: { duplicate_ids: [entry.ingredient.id] },
+          });
+          toast(`Filed “${entry.ingredient.name}” under “${keeper.name}”.`, "ok");
+          await load();
+          renderIngredients(root);
+        } catch (error) {
+          button.disabled = false;
+          toast(error.detail || error.message, "error");
+        }
+      };
+    }
   };
   await load();
+}
+
+// Manual merge for the pairs the duplicates finder deliberately won't claim
+// (Q21: it reports name-folding facts, not guesses). The human supplies the
+// judgement the table abstains from; the survivor they pick keeps its name.
+async function mergeIntoDialog(source, root) {
+  const dialog = openDialog(html`
+    <h2>Merge “${source.name}” into…</h2>
+    <p class="sub">Pick the ingredient that survives. Every recipe line, meal and shopping-list line pointing at “${source.name}” moves onto it, then “${source.name}” is deleted. Not reversible — merge spellings of the same food, not things bought together.</p>
+    <input type="search" placeholder="Search ingredients…" data-q autocomplete="off">
+    <ul class="picker-list" data-results>${skeleton()}</ul>
+  `);
+
+  const results = dialog.querySelector("[data-results]");
+  const input = dialog.querySelector("[data-q]");
+  const search = async () => {
+    const items = (await api("/ingredients", { query: { search: input.value.trim() || undefined } })).filter(
+      (item) => item.id !== source.id,
+    );
+    render(results, html`
+      ${items.length === 0 && html`<li><span class="p-sub">No other ingredient matches.</span></li>`}
+      ${items.map(
+        (item) => html`
+          <li>
+            <div class="p-main">
+              <div class="p-title">${item.name}</div>
+              <div class="p-sub">${ingredientMeta(item)}</div>
+            </div>
+            <button class="btn small" data-pick="${item.id}" data-name="${item.name}">Merge into this</button>
+          </li>
+        `,
+      )}
+    `);
+    for (const button of results.querySelectorAll("[data-pick]")) {
+      button.onclick = async () => {
+        const ok = await confirmDialog({
+          title: `Merge “${source.name}” into “${button.dataset.name}”?`,
+          body: `Everything pointing at “${source.name}” moves onto “${button.dataset.name}”, then “${source.name}” is deleted. This can't be undone.`,
+          confirmLabel: "Merge",
+          danger: true,
+        });
+        if (!ok) return;
+        button.disabled = true;
+        try {
+          const result = await api(`/ingredients/${button.dataset.pick}/merge`, {
+            method: "POST",
+            body: { duplicate_ids: [source.id] },
+          });
+          dialog.close();
+          toast(`Merged “${source.name}” into “${result.ingredient.name}”.`, "ok");
+          renderIngredients(root);
+        } catch (error) {
+          button.disabled = false;
+          toast(error.detail || error.message, "error");
+        }
+      };
+    }
+  };
+  let timer;
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(search, 220);
+  };
+  await search();
+  input.focus();
 }
