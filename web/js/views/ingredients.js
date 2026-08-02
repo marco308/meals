@@ -6,23 +6,11 @@
 // pairs it can't claim ("beef mince" vs "minced beef").
 
 import { aisles, api } from "../api.js";
-import { confirmDialog, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
+import { confirmDialog, debounce, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
 
 let query = { search: "", staplesOnly: false, tier: "" };
 
 export async function renderIngredients(root) {
-  render(root, skeleton());
-  const [items, aisleList] = await Promise.all([
-    api("/ingredients", {
-      query: {
-        search: query.search || undefined,
-        staples_only: query.staplesOnly || undefined,
-        value_tier: query.tier || undefined,
-      },
-    }),
-    aisles(),
-  ]);
-
   render(root, html`
     <div class="page">
       <div class="page-head">
@@ -45,7 +33,29 @@ export async function renderIngredients(root) {
         </select>
       </div>
 
-      ${items.length === 0
+      <div data-results>${skeleton()}</div>
+    </div>
+  `);
+
+  // Filter changes redraw [data-results] only — the toolbar (and the search
+  // input mid-typing) must survive, so never re-render the whole page here.
+  const results = root.querySelector("[data-results]");
+  let seq = 0;
+  const refresh = async () => {
+    const ticket = ++seq;
+    try {
+      const [items, aisleList] = await Promise.all([
+        api("/ingredients", {
+          query: {
+            search: query.search || undefined,
+            staples_only: query.staplesOnly || undefined,
+            value_tier: query.tier || undefined,
+          },
+        }),
+        aisles(),
+      ]);
+      if (ticket !== seq) return; // a newer filter overtook this fetch
+      render(results, items.length === 0
         ? emptyState("🥕", "Nothing here", "Ingredients appear as recipes and shopping lists use them.")
         : html`
             <div class="card">
@@ -56,30 +66,31 @@ export async function renderIngredients(root) {
               </div>
               ${items.map((item) => ingredientRow(item, aisleList))}
             </div>
-          `}
-    </div>
-  `);
+          `);
+      for (const row of results.querySelectorAll("[data-ing]")) bindRow(row, refresh);
+    } catch (error) {
+      if (ticket === seq) toast(error.detail || error.message, "error");
+    }
+  };
 
   const search = root.querySelector("[data-search]");
-  let timer;
-  search.oninput = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      query.search = search.value.trim();
-      renderIngredients(root);
-    }, 250);
-  };
-  root.querySelector("[data-staples]").onclick = () => {
+  search.oninput = debounce(() => {
+    query.search = search.value.trim();
+    refresh();
+  });
+  const staplesChip = root.querySelector("[data-staples]");
+  staplesChip.onclick = () => {
     query.staplesOnly = !query.staplesOnly;
-    renderIngredients(root);
+    staplesChip.classList.toggle("on", query.staplesOnly);
+    refresh();
   };
   root.querySelector("[data-tier]").onchange = (event) => {
     query.tier = event.target.value;
-    renderIngredients(root);
+    refresh();
   };
-  root.querySelector("[data-dupes]").onclick = () => duplicatesDialog(root);
+  root.querySelector("[data-dupes]").onclick = () => duplicatesDialog(refresh);
 
-  for (const row of root.querySelectorAll("[data-ing]")) bindRow(row, root);
+  await refresh();
 }
 
 function ingredientRow(item, aisleList) {
@@ -105,7 +116,7 @@ function ingredientRow(item, aisleList) {
   `;
 }
 
-function bindRow(row, root) {
+function bindRow(row, refresh) {
   const id = row.dataset.ing;
   const save = async (body) => {
     try {
@@ -123,7 +134,7 @@ function bindRow(row, root) {
   const note = row.querySelector('[data-k="value_note"]');
   note.onchange = () => save({ value_note: note.value.trim() || null });
   row.querySelector("[data-mrg]").onclick = () => {
-    mergeIntoDialog({ id, name: row.querySelector(".name").textContent }, root);
+    mergeIntoDialog({ id, name: row.querySelector(".name").textContent }, refresh);
   };
   row.querySelector("[data-del]").onclick = async () => {
     const name = row.querySelector(".name").textContent;
@@ -137,7 +148,7 @@ function bindRow(row, root) {
     try {
       await api(`/ingredients/${id}`, { method: "DELETE" });
       toast("Deleted.", "ok");
-      renderIngredients(root);
+      refresh();
     } catch (error) {
       toast(error.detail || error.message, "error");
     }
@@ -157,7 +168,7 @@ const ingredientMeta = (item) =>
     .filter(Boolean)
     .join(" · ");
 
-async function duplicatesDialog(root) {
+async function duplicatesDialog(refresh) {
   const dialog = openDialog(html`
     <h2>Duplicate ingredients</h2>
     <p class="sub">Same food, different spellings. Pick the one that survives — merging repoints every recipe line and list item at it, then removes the rest. The survivor keeps its own aisle, staple flag and verdict.</p>
@@ -240,7 +251,7 @@ async function duplicatesDialog(root) {
           });
           toast(`Merged ${result.merged} into “${result.ingredient.name}”.`, "ok");
           await load();
-          renderIngredients(root);
+          refresh();
         } catch (error) {
           button.disabled = false;
           toast(error.detail || error.message, "error");
@@ -272,7 +283,7 @@ async function duplicatesDialog(root) {
           });
           toast(`Filed “${entry.ingredient.name}” under “${keeper.name}”.`, "ok");
           await load();
-          renderIngredients(root);
+          refresh();
         } catch (error) {
           button.disabled = false;
           toast(error.detail || error.message, "error");
@@ -286,7 +297,7 @@ async function duplicatesDialog(root) {
 // Manual merge for the pairs the duplicates finder deliberately won't claim
 // (Q21: it reports name-folding facts, not guesses). The human supplies the
 // judgement the table abstains from; the survivor they pick keeps its name.
-async function mergeIntoDialog(source, root) {
+async function mergeIntoDialog(source, refresh) {
   const dialog = openDialog(html`
     <h2>Merge “${source.name}” into…</h2>
     <p class="sub">Pick the ingredient that survives. Every recipe line, meal and shopping-list line pointing at “${source.name}” moves onto it, then “${source.name}” is deleted. Not reversible — merge spellings of the same food, not things bought together.</p>
@@ -331,7 +342,7 @@ async function mergeIntoDialog(source, root) {
           });
           dialog.close();
           toast(`Merged “${source.name}” into “${result.ingredient.name}”.`, "ok");
-          renderIngredients(root);
+          refresh();
         } catch (error) {
           button.disabled = false;
           toast(error.detail || error.message, "error");

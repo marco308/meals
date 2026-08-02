@@ -4,29 +4,18 @@
 // convention. Pages without usable JSON-LD 422 with advice we show verbatim.
 
 import { api } from "../api.js";
-import { confirmDialog, emptyState, fmtRel, html, openDialog, render, skeleton, toast } from "../dom.js";
+import { confirmDialog, debounce, emptyState, fmtRel, html, openDialog, render, skeleton, toast } from "../dom.js";
 import { linesEditor } from "./lines.js";
 
 let query = { search: "", tag: "", sort: "title", under30: false };
 
 export async function renderRecipes(root) {
-  render(root, skeleton());
-  const recipes = await api("/recipes", {
-    query: {
-      search: query.search || undefined,
-      tag: query.tag || undefined,
-      sort: query.sort,
-      max_total_minutes: query.under30 ? 30 : undefined,
-    },
-  });
-  const tags = [...new Set(recipes.flatMap((r) => r.tags))].sort();
-
   render(root, html`
     <div class="page">
       <div class="page-head">
         <div>
           <h1>Recipes</h1>
-          <p class="sub">${recipes.length} in the library</p>
+          <p class="sub" data-count>&nbsp;</p>
         </div>
         <div class="page-actions">
           <button class="btn" data-ingest>🔗 From a URL</button>
@@ -43,10 +32,44 @@ export async function renderRecipes(root) {
         </select>
         <button class="chip click ${query.under30 ? "on" : ""}" data-under30>under 30 min</button>
         <span class="gap"></span>
-        ${tags.map((tag) => html`<button class="chip click ${query.tag === tag ? "on" : ""}" data-tag="${tag}">${tag}</button>`)}
+        <span class="facet-chips" data-tags></span>
       </div>
 
-      ${recipes.length === 0
+      <div data-results>${skeleton()}</div>
+    </div>
+  `);
+
+  // Filter changes redraw the results (and the data-derived count and tag
+  // chips) only — the toolbar stays put so typing in the search box never
+  // loses the input, its focus, or the caret.
+  const results = root.querySelector("[data-results]");
+  const tagsBox = root.querySelector("[data-tags]");
+  const count = root.querySelector("[data-count]");
+  let seq = 0;
+  const refresh = async () => {
+    const ticket = ++seq;
+    try {
+      const recipes = await api("/recipes", {
+        query: {
+          search: query.search || undefined,
+          tag: query.tag || undefined,
+          sort: query.sort,
+          max_total_minutes: query.under30 ? 30 : undefined,
+        },
+      });
+      if (ticket !== seq) return; // a newer filter overtook this fetch
+      count.textContent = `${recipes.length} in the library`;
+
+      const tags = [...new Set(recipes.flatMap((r) => r.tags))].sort();
+      render(tagsBox, html`${tags.map((tag) => html`<button class="chip click ${query.tag === tag ? "on" : ""}" data-tag="${tag}">${tag}</button>`)}`);
+      for (const chip of tagsBox.querySelectorAll("[data-tag]")) {
+        chip.onclick = () => {
+          query.tag = query.tag === chip.dataset.tag ? "" : chip.dataset.tag;
+          refresh();
+        };
+      }
+
+      render(results, recipes.length === 0
         ? emptyState("📖", "No recipes yet", "Paste a recipe URL and the library starts itself — or ask your AI to fill it while you put the kettle on.", html`<button class="btn" data-ingest-empty>🔗 Add one from a URL</button>`)
         : html`
             <div class="recipe-grid">
@@ -68,41 +91,37 @@ export async function renderRecipes(root) {
                 `,
               )}
             </div>
-          `}
-    </div>
-  `);
+          `);
+      const ingestEmpty = results.querySelector("[data-ingest-empty]");
+      if (ingestEmpty) ingestEmpty.onclick = () => ingestDialog();
+    } catch (error) {
+      if (ticket === seq) toast(error.detail || error.message, "error");
+    }
+  };
 
   const search = root.querySelector("[data-search]");
-  let timer;
-  search.oninput = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      query.search = search.value.trim();
-      renderRecipes(root);
-    }, 250);
-  };
+  search.oninput = debounce(() => {
+    query.search = search.value.trim();
+    refresh();
+  });
   root.querySelector("[data-sort]").onchange = (event) => {
     query.sort = event.target.value;
-    renderRecipes(root);
+    refresh();
   };
-  root.querySelector("[data-under30]").onclick = () => {
+  const under30 = root.querySelector("[data-under30]");
+  under30.onclick = () => {
     query.under30 = !query.under30;
-    renderRecipes(root);
+    under30.classList.toggle("on", query.under30);
+    refresh();
   };
-  for (const chip of root.querySelectorAll("[data-tag]")) {
-    chip.onclick = () => {
-      query.tag = query.tag === chip.dataset.tag ? "" : chip.dataset.tag;
-      renderRecipes(root);
-    };
-  }
-  for (const button of root.querySelectorAll("[data-ingest], [data-ingest-empty]")) {
-    button.onclick = () => ingestDialog(root);
-  }
+  root.querySelector("[data-ingest]").onclick = () => ingestDialog();
+
+  await refresh();
 }
 
 const totalMinutes = (recipe) => (recipe.prep_minutes || 0) + (recipe.cook_minutes || 0) || null;
 
-function ingestDialog(root) {
+function ingestDialog() {
   const dialog = openDialog(html`
     <h2>Recipe from a URL</h2>
     <p class="sub">Most recipe sites carry machine-readable data; if this one does, the whole thing lands in one go. Already-known URLs come back from the library instead of duplicating.</p>
