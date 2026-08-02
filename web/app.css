@@ -326,6 +326,10 @@ select { cursor: pointer; }
 .toolbar input[type="search"] { max-width: 300px; }
 .toolbar select { width: auto; }
 .toolbar .gap { flex: 1; }
+/* Data-derived chip sets (recipe tags, meal slots) refresh with the results
+   while the toolbar around them stays put; the wrapper must not disturb the
+   toolbar's own flex flow. */
+.toolbar .facet-chips { display: contents; }
 
 /* ── menu card (the plan) ───────────────────────────────────────────── */
 

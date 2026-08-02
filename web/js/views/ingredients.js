@@ -4,23 +4,11 @@
 // until now only an AI over MCP could run it.
 
 import { aisles, api } from "../api.js";
-import { confirmDialog, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
+import { confirmDialog, debounce, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
 
 let query = { search: "", staplesOnly: false, tier: "" };
 
 export async function renderIngredients(root) {
-  render(root, skeleton());
-  const [items, aisleList] = await Promise.all([
-    api("/ingredients", {
-      query: {
-        search: query.search || undefined,
-        staples_only: query.staplesOnly || undefined,
-        value_tier: query.tier || undefined,
-      },
-    }),
-    aisles(),
-  ]);
-
   render(root, html`
     <div class="page">
       <div class="page-head">
@@ -43,7 +31,29 @@ export async function renderIngredients(root) {
         </select>
       </div>
 
-      ${items.length === 0
+      <div data-results>${skeleton()}</div>
+    </div>
+  `);
+
+  // Filter changes redraw [data-results] only — the toolbar (and the search
+  // input mid-typing) must survive, so never re-render the whole page here.
+  const results = root.querySelector("[data-results]");
+  let seq = 0;
+  const refresh = async () => {
+    const ticket = ++seq;
+    try {
+      const [items, aisleList] = await Promise.all([
+        api("/ingredients", {
+          query: {
+            search: query.search || undefined,
+            staples_only: query.staplesOnly || undefined,
+            value_tier: query.tier || undefined,
+          },
+        }),
+        aisles(),
+      ]);
+      if (ticket !== seq) return; // a newer filter overtook this fetch
+      render(results, items.length === 0
         ? emptyState("🥕", "Nothing here", "Ingredients appear as recipes and shopping lists use them.")
         : html`
             <div class="card">
@@ -54,30 +64,31 @@ export async function renderIngredients(root) {
               </div>
               ${items.map((item) => ingredientRow(item, aisleList))}
             </div>
-          `}
-    </div>
-  `);
+          `);
+      for (const row of results.querySelectorAll("[data-ing]")) bindRow(row, refresh);
+    } catch (error) {
+      if (ticket === seq) toast(error.detail || error.message, "error");
+    }
+  };
 
   const search = root.querySelector("[data-search]");
-  let timer;
-  search.oninput = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      query.search = search.value.trim();
-      renderIngredients(root);
-    }, 250);
-  };
-  root.querySelector("[data-staples]").onclick = () => {
+  search.oninput = debounce(() => {
+    query.search = search.value.trim();
+    refresh();
+  });
+  const staplesChip = root.querySelector("[data-staples]");
+  staplesChip.onclick = () => {
     query.staplesOnly = !query.staplesOnly;
-    renderIngredients(root);
+    staplesChip.classList.toggle("on", query.staplesOnly);
+    refresh();
   };
   root.querySelector("[data-tier]").onchange = (event) => {
     query.tier = event.target.value;
-    renderIngredients(root);
+    refresh();
   };
-  root.querySelector("[data-dupes]").onclick = () => duplicatesDialog(root);
+  root.querySelector("[data-dupes]").onclick = () => duplicatesDialog(refresh);
 
-  for (const row of root.querySelectorAll("[data-ing]")) bindRow(row, root);
+  await refresh();
 }
 
 function ingredientRow(item, aisleList) {
@@ -100,7 +111,7 @@ function ingredientRow(item, aisleList) {
   `;
 }
 
-function bindRow(row, root) {
+function bindRow(row, refresh) {
   const id = row.dataset.ing;
   const save = async (body) => {
     try {
@@ -129,14 +140,14 @@ function bindRow(row, root) {
     try {
       await api(`/ingredients/${id}`, { method: "DELETE" });
       toast("Deleted.", "ok");
-      renderIngredients(root);
+      refresh();
     } catch (error) {
       toast(error.detail || error.message, "error");
     }
   };
 }
 
-async function duplicatesDialog(root) {
+async function duplicatesDialog(refresh) {
   const dialog = openDialog(html`
     <h2>Duplicate ingredients</h2>
     <p class="sub">Same food, different spellings — merging repoints every recipe line and list item at the keeper, then removes the spares.</p>
@@ -177,7 +188,7 @@ async function duplicatesDialog(root) {
           });
           toast(`Merged ${result.merged} into “${result.ingredient.name}”.`, "ok");
           await load();
-          renderIngredients(root);
+          refresh();
         } catch (error) {
           button.disabled = false;
           toast(error.detail || error.message, "error");

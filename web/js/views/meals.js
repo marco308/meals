@@ -2,34 +2,57 @@
 // optional scale) plus loose ingredients — "cottage pie with peas & carrots".
 
 import { api } from "../api.js";
-import { confirmDialog, emptyState, fmtRel, foodEmoji, html, render, skeleton, toast } from "../dom.js";
+import { confirmDialog, debounce, emptyState, fmtRel, foodEmoji, html, render, skeleton, toast } from "../dom.js";
 import { linesEditor } from "./lines.js";
 
 let query = { search: "", slot: "" };
 
 export async function renderMeals(root) {
-  render(root, skeleton());
-  const meals = await api("/meals", {
-    query: { search: query.search || undefined, slot: query.slot || undefined },
-  });
-  const slots = [...new Set(meals.map((m) => m.slot).filter(Boolean))].sort();
-
   render(root, html`
     <div class="page narrow">
       <div class="page-head">
         <div>
           <h1>Meals</h1>
-          <p class="sub">${meals.length} to choose from</p>
+          <p class="sub" data-count>&nbsp;</p>
         </div>
         <div class="page-actions"><a class="btn" href="#/meals/new">＋ New meal</a></div>
       </div>
 
       <div class="toolbar">
         <input type="search" placeholder="Search meals…  ( / )" value="${query.search}" data-search>
-        ${slots.map((slot) => html`<button class="chip click ${query.slot === slot ? "on" : ""}" data-slot="${slot}">${slot}</button>`)}
+        <span class="facet-chips" data-slots></span>
       </div>
 
-      ${meals.length === 0
+      <div data-results>${skeleton()}</div>
+    </div>
+  `);
+
+  // Filter changes redraw the results (and the data-derived count and slot
+  // chips) only — the toolbar stays put so typing in the search box never
+  // loses the input, its focus, or the caret.
+  const results = root.querySelector("[data-results]");
+  const slotsBox = root.querySelector("[data-slots]");
+  const count = root.querySelector("[data-count]");
+  let seq = 0;
+  const refresh = async () => {
+    const ticket = ++seq;
+    try {
+      const meals = await api("/meals", {
+        query: { search: query.search || undefined, slot: query.slot || undefined },
+      });
+      if (ticket !== seq) return; // a newer filter overtook this fetch
+      count.textContent = `${meals.length} to choose from`;
+
+      const slots = [...new Set(meals.map((m) => m.slot).filter(Boolean))].sort();
+      render(slotsBox, html`${slots.map((slot) => html`<button class="chip click ${query.slot === slot ? "on" : ""}" data-slot="${slot}">${slot}</button>`)}`);
+      for (const chip of slotsBox.querySelectorAll("[data-slot]")) {
+        chip.onclick = () => {
+          query.slot = query.slot === chip.dataset.slot ? "" : chip.dataset.slot;
+          refresh();
+        };
+      }
+
+      render(results, meals.length === 0
         ? emptyState("🍽️", "No meals yet", "A meal is a recipe (or a few) with any extras — make one and it becomes a plan option.", html`<a class="btn" href="#/meals/new">＋ New meal</a>`)
         : html`
             <ul class="row-list">
@@ -54,25 +77,19 @@ export async function renderMeals(root) {
                 `,
               )}
             </ul>
-          `}
-    </div>
-  `);
+          `);
+    } catch (error) {
+      if (ticket === seq) toast(error.detail || error.message, "error");
+    }
+  };
 
   const search = root.querySelector("[data-search]");
-  let timer;
-  search.oninput = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      query.search = search.value.trim();
-      renderMeals(root);
-    }, 250);
-  };
-  for (const chip of root.querySelectorAll("[data-slot]")) {
-    chip.onclick = () => {
-      query.slot = query.slot === chip.dataset.slot ? "" : chip.dataset.slot;
-      renderMeals(root);
-    };
-  }
+  search.oninput = debounce(() => {
+    query.search = search.value.trim();
+    refresh();
+  });
+
+  await refresh();
 }
 
 export async function renderMealDetail(root, mealId) {
