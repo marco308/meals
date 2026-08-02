@@ -625,6 +625,7 @@ table.plain tr:last-child td { border-bottom: 0; }
 .ing-row select, .ing-row input { padding: .32rem .55rem; font-size: .88rem; border-radius: 9px; }
 .ing-row .flash { animation: saved .8s var(--ease); }
 @keyframes saved { 0% { background: var(--tint-green); } 100% { background: transparent; } }
+.row-actions { display: flex; gap: .35rem; align-items: center; justify-content: flex-end; }
 
 .scale-input { width: 4.4rem; padding: .3rem .5rem; font-size: .88rem; }
 
@@ -717,6 +718,22 @@ dialog h2 { font-size: 1.3rem; margin-bottom: .9rem; }
 .picker-list .p-main { flex: 1; min-width: 0; }
 .picker-list .p-title { font-weight: 600; }
 .picker-list .p-sub { font-size: .78rem; color: var(--ink-mute); }
+
+dialog .sub { color: var(--ink-mute); font-size: .9rem; margin: .2rem 0 .9rem; }
+
+/* duplicate groups: one radio per spelling picks the survivor */
+.merge-group { padding: .65rem 0; border-bottom: 1px dashed var(--line); }
+.merge-group:last-child { border-bottom: 0; }
+.unfolded { margin-top: 1.2rem; }
+.unfolded .merge-section-head { font-size: 1.05rem; margin-bottom: .2rem; }
+.unfolded .picker-list { margin-top: .2rem; }
+.merge-member { display: flex; align-items: center; gap: .55rem; padding: .28rem 0; cursor: pointer; }
+.merge-member input { accent-color: var(--ink); }
+.merge-member .m-name { font-weight: 600; white-space: nowrap; }
+.merge-member .m-meta { font-size: .78rem; color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merge-group-foot { display: flex; align-items: center; justify-content: flex-end; gap: .8rem; margin-top: .4rem; }
+.merge-group-foot .m-hint { font-size: .78rem; color: var(--butter-dk); flex: 1; }
+.merge-group-foot .btn { flex-shrink: 0; }
 
 /* ── toast ──────────────────────────────────────────────────────────── */
 
