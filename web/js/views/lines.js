@@ -21,6 +21,11 @@ export function linesEditor(container, initial = []) {
     return { name: "", quantity: null, unit: null, raw: null, dirty: true };
   }
 
+  // A wholly blank row is dropped by read(), so it must never block submit;
+  // `required` on the name only guards rows that would otherwise lose typed
+  // qty/unit data silently.
+  const hasContent = (line) => line.quantity !== null || (line.unit ?? "").trim() !== "" || line.name.trim() !== "";
+
   function draw() {
     render(container, html`
       <datalist id="unit-suggestions">
@@ -31,7 +36,7 @@ export function linesEditor(container, initial = []) {
           <div class="line-row" data-index="${index}">
             <input type="number" step="any" min="0" placeholder="qty" value="${line.quantity ?? ""}" data-k="quantity" aria-label="Quantity">
             <input type="text" placeholder="unit" value="${line.unit ?? ""}" list="unit-suggestions" data-k="unit" aria-label="Unit">
-            <input type="text" placeholder="ingredient" value="${line.name}" data-k="name" aria-label="Ingredient" required>
+            <input type="text" placeholder="ingredient" value="${line.name}" data-k="name" aria-label="Ingredient" ${hasContent(line) ? "required" : ""}>
             <button type="button" class="icon-btn warm" data-drop tabindex="-1" title="Remove line">✕</button>
           </div>
         `,
@@ -48,6 +53,7 @@ export function linesEditor(container, initial = []) {
           // Hand-edited lines drop their scraped raw text — it no longer
           // describes what the row says.
           lines[index].dirty = true;
+          row.querySelector('[data-k="name"]').required = hasContent(lines[index]);
         };
         if (input.dataset.k === "name") {
           input.onkeydown = (event) => {
