@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Meal options planner backend — recipes, meals, plans, aisle-sorted shopping list, AI-friendly API"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.140.7",
+    "fastapi>=0.141.1",
     "uvicorn[standard]>=0.51.0",
     "sqlalchemy[asyncio]>=2.0.51",
     "asyncpg>=0.29",
@@ -25,7 +25,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "respx>=0.21",
-    "ruff>=0.5",
+    "ruff>=0.16.1",
 ]
 
 [build-system]
