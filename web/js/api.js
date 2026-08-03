@@ -99,3 +99,10 @@ export async function aisles() {
   aisleCache ||= await api("/aisles");
   return aisleCache;
 }
+
+// The order /aisles returns follows the active supermarket, so anything that
+// changes supermarkets (settings, the shopping-page switcher) must drop the
+// cache or the ingredients screen keeps grouping by the old walk.
+export function invalidateAisles() {
+  aisleCache = null;
+}

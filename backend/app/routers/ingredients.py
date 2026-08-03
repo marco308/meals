@@ -20,6 +20,7 @@ from app.services.aisles import AISLES, is_valid_aisle
 from app.services.catalog import get_or_create_ingredient
 from app.services.ingredient_merge import MergeError, find_duplicate_groups, find_unfolded, merge_ingredients
 from app.services.ingredient_names import canonical_ingredient_name
+from app.services.supermarkets import effective_aisle_order, get_active_supermarket
 from app.services.values import VALUE_TIER_HINT, is_valid_value_tier
 
 router = APIRouter(tags=["ingredients"])
@@ -39,10 +40,17 @@ class IngredientCreate(BaseModel):
 
 
 @router.get("/aisles", response_model=list[AisleOut])
-async def list_aisles(user: CurrentUser) -> list[AisleOut]:
+async def list_aisles(user: CurrentUser, db: DbSession) -> list[AisleOut]:
     """The aisle vocabulary, in store-walking order — the same order the
-    shopping list is sorted in."""
-    return [AisleOut(emoji=emoji, label=label) for emoji, label in AISLES]
+    shopping list is sorted in. When the household has an active supermarket
+    (see /supermarkets) this is that store's saved walking order; otherwise
+    the built-in one."""
+    market = await get_active_supermarket(db, user.household_id)
+    labels = dict(AISLES)
+    return [
+        AisleOut(emoji=emoji, label=labels[emoji])
+        for emoji in effective_aisle_order(market.aisle_order if market else None)
+    ]
 
 
 @router.get("/ingredients", response_model=list[IngredientOut])

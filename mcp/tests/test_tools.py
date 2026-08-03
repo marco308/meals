@@ -698,3 +698,90 @@ class TestDeleteIngredient:
         )
         result = await server.delete_ingredient("unobtainium")
         assert "No ingredient 'unobtainium'" in result
+
+
+class TestSupermarkets:
+    """Per-store aisle walking orders: list, switch, save."""
+
+    def _market(self, name, market_id="22222222-2222-2222-2222-222222222222", active=False, order=None):
+        return {
+            "id": market_id,
+            "name": name,
+            "aisle_order": order or ["🧊", "🥤", "🥬"],
+            "is_active": active,
+            "created_at": "2026-08-03T09:00:00",
+        }
+
+    @respx.mock
+    async def test_list_shows_orders_and_the_active_store(self):
+        respx.get(f"{API}/supermarkets").mock(
+            return_value=httpx.Response(200, json=[self._market("Big Tesco", active=True), self._market("Aldi")])
+        )
+        result = await server.list_supermarkets()
+        assert "Big Tesco: 🧊 🥤 🥬  ← active" in result
+        assert "Aldi" in result
+
+    @respx.mock
+    async def test_list_explains_the_default_when_nothing_saved(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[]))
+        result = await server.list_supermarkets()
+        assert "default store-walking order" in result and "save_supermarket" in result
+
+    @respx.mock
+    async def test_switch_resolves_by_name(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[self._market("Big Tesco")]))
+        patch = respx.patch(f"{API}/supermarkets/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(200, json=self._market("Big Tesco", active=True))
+        )
+        result = await server.switch_supermarket("big tesco")
+        assert "sorts for Big Tesco" in result
+        assert json.loads(patch.calls.last.request.content) == {"is_active": True}
+
+    @respx.mock
+    async def test_switch_to_default_deactivates_the_active_store(self):
+        respx.get(f"{API}/supermarkets").mock(
+            return_value=httpx.Response(200, json=[self._market("Big Tesco", active=True)])
+        )
+        patch = respx.patch(f"{API}/supermarkets/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(200, json=self._market("Big Tesco"))
+        )
+        result = await server.switch_supermarket("default")
+        assert "default store-walking order" in result
+        assert json.loads(patch.calls.last.request.content) == {"is_active": False}
+
+    @respx.mock
+    async def test_switch_miss_lists_the_saved_stores(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[self._market("Big Tesco")]))
+        result = await server.switch_supermarket("Lidl")
+        assert "No supermarket called 'Lidl'" in result and "Big Tesco" in result
+
+    @respx.mock
+    async def test_save_creates_when_new_and_activates_by_default(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[]))
+        post = respx.post(f"{API}/supermarkets").mock(
+            return_value=httpx.Response(201, json=self._market("Aldi", active=True, order=["🧊", "🥤", "🥬", "🍞"]))
+        )
+        result = await server.save_supermarket("Aldi", ["🧊", "🥤"])
+        assert "Aldi saved: 🧊 🥤 🥬 🍞" in result and "sorts for it" in result
+        sent = json.loads(post.calls.last.request.content)
+        assert sent == {"name": "Aldi", "aisle_order": ["🧊", "🥤"], "is_active": True}
+
+    @respx.mock
+    async def test_save_updates_the_existing_store_by_name(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[self._market("Aldi")]))
+        patch = respx.patch(f"{API}/supermarkets/22222222-2222-2222-2222-222222222222").mock(
+            return_value=httpx.Response(200, json=self._market("Aldi", active=True))
+        )
+        result = await server.save_supermarket("aldi", ["🧊", "🥤", "🥬"])
+        assert "Aldi updated" in result
+        sent = json.loads(patch.calls.last.request.content)
+        assert sent == {"aisle_order": ["🧊", "🥤", "🥬"], "is_active": True}
+
+    @respx.mock
+    async def test_save_passes_the_apis_validation_detail_back(self):
+        respx.get(f"{API}/supermarkets").mock(return_value=httpx.Response(200, json=[]))
+        respx.post(f"{API}/supermarkets").mock(
+            return_value=httpx.Response(422, json={"detail": "unknown aisle(s) 🧀; valid aisles: 🥬 🍞"})
+        )
+        result = await server.save_supermarket("Aldi", ["🧀"])
+        assert "unknown aisle(s) 🧀" in result

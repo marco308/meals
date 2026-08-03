@@ -10,6 +10,7 @@ from app.models import ListItem, ShoppingList
 from app.schemas.shopping import AdhocItemIn, ArchiveOut, ListItemOut, ListItemUpdate, ShoppingListOut
 from app.serializers import list_item_out, shopping_list_out
 from app.services.shopping import add_adhoc_item, archive_and_replace, get_active_list, get_list_full, is_adhoc_only
+from app.services.supermarkets import effective_aisle_order, get_active_supermarket
 
 router = APIRouter(prefix="/shopping-list", tags=["shopping-list"])
 
@@ -24,11 +25,22 @@ async def get_shopping_list(
     """The live shopping list, sorted in store-walking order (aisle emoji,
     then name). Staples and 'already have it' items are hidden by default;
     hidden_staples says how many are waiting for a staples check. A staple
-    marked staple_needed ("I'm low") stays on the list in its aisle."""
+    marked staple_needed ("I'm low") stays on the list in its aisle.
+
+    The walk follows the household's active supermarket when one is set
+    (`supermarket` names it — see /supermarkets); otherwise the built-in
+    order."""
     active = await get_active_list(db, user.household_id)
     await db.commit()  # persist the list if it was just created
     full = await get_list_full(db, active.id)
-    return shopping_list_out(full, include_staples=include_staples, include_excluded=include_excluded)
+    market = await get_active_supermarket(db, user.household_id)
+    return shopping_list_out(
+        full,
+        include_staples=include_staples,
+        include_excluded=include_excluded,
+        supermarket=market,
+        aisle_sequence=effective_aisle_order(market.aisle_order) if market else None,
+    )
 
 
 @router.post("/items", response_model=ListItemOut, status_code=status.HTTP_201_CREATED)

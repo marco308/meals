@@ -1,9 +1,9 @@
 """Model → response-schema conversion, including display strings and aisle labels."""
 
-from app.models import Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList
+from app.models import Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList, Supermarket
 from app.schemas.catalog import IngredientOut, RecipeLineOut, RecipeOut, RecipeSummary
 from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
-from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut
+from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
 from app.services.units import format_buy_quantity, format_quantity
 from app.services.values import value_tier_label
@@ -162,7 +162,13 @@ def list_item_out(item: ListItem) -> ListItemOut:
     )
 
 
-def shopping_list_out(shopping_list: ShoppingList, include_staples: bool, include_excluded: bool) -> ShoppingListOut:
+def shopping_list_out(
+    shopping_list: ShoppingList,
+    include_staples: bool,
+    include_excluded: bool,
+    supermarket: Supermarket | None = None,
+    aisle_sequence: list[str] | None = None,
+) -> ShoppingListOut:
     visible: list[ListItem] = []
     hidden_staples = 0
     for item in shopping_list.items:
@@ -172,7 +178,8 @@ def shopping_list_out(shopping_list: ShoppingList, include_staples: bool, includ
         if item.excluded and not include_excluded:
             continue
         visible.append(item)
-    visible.sort(key=lambda item: (AISLE_ORDER.get(item.ingredient.aisle, len(AISLE_ORDER)), item.ingredient.name))
+    order = AISLE_ORDER if aisle_sequence is None else {emoji: i for i, emoji in enumerate(aisle_sequence)}
+    visible.sort(key=lambda item: (order.get(item.ingredient.aisle, len(order)), item.ingredient.name))
     return ShoppingListOut(
         id=shopping_list.id,
         status=shopping_list.status,
@@ -180,4 +187,5 @@ def shopping_list_out(shopping_list: ShoppingList, include_staples: bool, includ
         archived_at=shopping_list.archived_at,
         items=[list_item_out(item) for item in visible],
         hidden_staples=hidden_staples,
+        supermarket=SupermarketRef(id=supermarket.id, name=supermarket.name) if supermarket else None,
     )

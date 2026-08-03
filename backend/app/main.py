@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import client_gate
 from app.config import get_settings
-from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill
+from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
 from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
@@ -69,6 +69,7 @@ app.include_router(recipes.router)
 app.include_router(meals.router)
 app.include_router(plans.router)
 app.include_router(shopping.router)
+app.include_router(supermarkets.router)
 app.include_router(skill.router)
 app.include_router(pages.router)
 

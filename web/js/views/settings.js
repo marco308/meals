@@ -1,16 +1,17 @@
-// Settings: account, household invites (Q19), AI access tokens, and the
-// danger zone (Q20). Invite codes and API tokens are shown exactly once —
-// the server stores only hashes.
+// Settings: account, household invites (Q19), supermarkets & aisle order,
+// AI access tokens, and the danger zone (Q20). Invite codes and API tokens
+// are shown exactly once — the server stores only hashes.
 
-import { api, session } from "../api.js";
+import { aisles, api, invalidateAisles, session } from "../api.js";
 import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, invites, tokens] = await Promise.all([
+  const [user, invites, tokens, markets] = await Promise.all([
     api("/auth/me"),
     api("/auth/invites"),
     api("/auth/tokens"),
+    api("/supermarkets"),
   ]);
   session.saveUser(user);
 
@@ -48,6 +49,46 @@ export async function renderSettings(root) {
             `
           : html`<p class="sub">No invites issued yet.</p>`}
         <div class="dialog-actions"><button class="btn" data-invite>Invite someone</button></div>
+      </div>
+
+      <div class="section card">
+        <h2>Supermarkets &amp; aisle order</h2>
+        <p class="sub">
+          The shopping list walks the aisles in this order. Save the stores you
+          actually shop at, arrange each one's aisles the way you meet them,
+          and pick where you're shopping — every device (and your AI) sorts
+          for it.
+        </p>
+        <div class="market-list">
+          <div class="market-row">
+            <label class="m-pick">
+              <input type="radio" name="active-market" value="" ${markets.some((m) => m.is_active) ? "" : "checked"}>
+              <div class="m-main">
+                <b>Default order</b>
+                <span class="sub">the built-in walk, fruit &amp; veg first</span>
+              </div>
+            </label>
+          </div>
+          ${markets.map(
+            (m) => html`
+              <div class="market-row">
+                <label class="m-pick">
+                  <input type="radio" name="active-market" value="${m.id}" ${m.is_active ? "checked" : ""}>
+                  <div class="m-main">
+                    <b>${m.name}</b>
+                    <span class="sub aisle-mini">${m.aisle_order.join(" ")}</span>
+                  </div>
+                </label>
+                <span class="m-actions">
+                  <button class="icon-btn" type="button" data-order-market="${m.id}">aisle order</button>
+                  <button class="icon-btn" type="button" data-rename-market="${m.id}">rename</button>
+                  <button class="icon-btn warm" type="button" data-del-market="${m.id}">delete</button>
+                </span>
+              </div>
+            `,
+          )}
+        </div>
+        <div class="dialog-actions"><button class="btn" data-add-market>Add a supermarket</button></div>
       </div>
 
       <div class="section card">
@@ -124,6 +165,54 @@ export async function renderSettings(root) {
     };
   }
 
+  const activeMarketId = markets.find((m) => m.is_active)?.id || "";
+  for (const radio of root.querySelectorAll('input[name="active-market"]')) {
+    radio.onchange = async () => {
+      try {
+        if (radio.value) {
+          await api(`/supermarkets/${radio.value}`, { method: "PATCH", body: { is_active: true } });
+          toast(`Shopping list now sorts for ${markets.find((m) => m.id === radio.value)?.name}.`, "ok");
+        } else if (activeMarketId) {
+          await api(`/supermarkets/${activeMarketId}`, { method: "PATCH", body: { is_active: false } });
+          toast("Back to the default aisle order.", "ok");
+        }
+        invalidateAisles();
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+      renderSettings(root);
+    };
+  }
+
+  root.querySelector("[data-add-market]").onclick = () => addMarketDialog(root);
+
+  for (const button of root.querySelectorAll("[data-order-market]")) {
+    button.onclick = () => orderDialog(root, markets.find((m) => m.id === button.dataset.orderMarket));
+  }
+
+  for (const button of root.querySelectorAll("[data-rename-market]")) {
+    button.onclick = () => renameMarketDialog(root, markets.find((m) => m.id === button.dataset.renameMarket));
+  }
+
+  for (const button of root.querySelectorAll("[data-del-market]")) {
+    button.onclick = async () => {
+      const market = markets.find((m) => m.id === button.dataset.delMarket);
+      const ok = await confirmDialog({
+        title: `Delete ${market.name}?`,
+        body: market.is_active
+          ? "Its saved aisle order goes with it and the list goes back to the default order."
+          : "Its saved aisle order goes with it.",
+        confirmLabel: "Delete",
+        danger: true,
+      });
+      if (!ok) return;
+      await api(`/supermarkets/${market.id}`, { method: "DELETE" });
+      invalidateAisles();
+      toast(`${market.name} deleted.`, "ok");
+      renderSettings(root);
+    };
+  }
+
   root.querySelector("[data-token]").onclick = () => tokenDialog(root);
 
   for (const button of root.querySelectorAll("[data-revoke-token]")) {
@@ -155,6 +244,126 @@ export async function renderSettings(root) {
   };
 
   root.querySelector("[data-delete-account]").onclick = () => deleteAccountDialog();
+}
+
+function addMarketDialog(root) {
+  const dialog = openDialog(html`
+    <h2>Add a supermarket</h2>
+    <p class="sub">It starts on the default aisle order — you'll arrange its own walk next.</p>
+    <form data-f>
+      <label class="field"><span>Name</span>
+        <input type="text" name="name" required maxlength="120" placeholder="Big Tesco" autofocus></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Add</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const name = new FormData(event.target).get("name").trim();
+    if (!name) return;
+    try {
+      const market = await api("/supermarkets", { method: "POST", body: { name } });
+      dialog.close();
+      orderDialog(root, market); // straight into arranging the walk
+    } catch (error) {
+      toast(error.detail || error.message, "error"); // e.g. the duplicate-name 409
+    }
+  };
+}
+
+async function orderDialog(root, market) {
+  const labels = new Map((await aisles()).map((a) => [a.emoji, a.label]));
+  const order = [...market.aisle_order];
+  const dialog = openDialog(html`
+    <h2>${market.name} — aisle order</h2>
+    <p class="sub">First aisle you meet at the top; the shopping list walks it top to bottom.</p>
+    <div class="order-rows" data-rows></div>
+    <div class="dialog-actions">
+      <button class="btn ghost" type="button" data-x>Cancel</button>
+      <button class="btn" type="button" data-save>Save order</button>
+    </div>
+  `);
+  const rows = dialog.querySelector("[data-rows]");
+
+  const move = (from, to, dir) => {
+    [order[from], order[to]] = [order[to], order[from]];
+    draw();
+    // Keep focus on the moved aisle's button so keyboard reordering flows.
+    const same = rows.querySelector(`[data-${dir}="${to}"]`);
+    const other = rows.querySelector(`[data-${dir === "up" ? "down" : "up"}="${to}"]`);
+    (same && !same.disabled ? same : other)?.focus();
+  };
+
+  const draw = () => {
+    render(
+      rows,
+      html`${order.map(
+        (emoji, i) => html`
+          <div class="order-row">
+            <span class="o-emoji" aria-hidden="true">${emoji}</span>
+            <span class="o-label">${labels.get(emoji) || "Unknown"}</span>
+            <span class="o-btns">
+              <button class="icon-btn" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""}
+                aria-label="Move ${labels.get(emoji) || emoji} up">↑</button>
+              <button class="icon-btn" type="button" data-down="${i}" ${i === order.length - 1 ? "disabled" : ""}
+                aria-label="Move ${labels.get(emoji) || emoji} down">↓</button>
+            </span>
+          </div>
+        `,
+      )}`,
+    );
+    for (const button of rows.querySelectorAll("[data-up]")) {
+      button.onclick = () => move(Number(button.dataset.up), Number(button.dataset.up) - 1, "up");
+    }
+    for (const button of rows.querySelectorAll("[data-down]")) {
+      button.onclick = () => move(Number(button.dataset.down), Number(button.dataset.down) + 1, "down");
+    }
+  };
+  draw();
+
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-save]").onclick = async () => {
+    try {
+      await api(`/supermarkets/${market.id}`, { method: "PATCH", body: { aisle_order: order } });
+      invalidateAisles();
+      dialog.close();
+      toast(`${market.name}'s aisle order saved.`, "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+}
+
+function renameMarketDialog(root, market) {
+  const dialog = openDialog(html`
+    <h2>Rename ${market.name}</h2>
+    <form data-f>
+      <label class="field"><span>Name</span>
+        <input type="text" name="name" required maxlength="120" value="${market.name}" autofocus></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Rename</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const name = new FormData(event.target).get("name").trim();
+    if (!name) return;
+    try {
+      await api(`/supermarkets/${market.id}`, { method: "PATCH", body: { name } });
+      dialog.close();
+      toast("Renamed.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
 }
 
 function inviteStatus(invite) {

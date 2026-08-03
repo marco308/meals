@@ -32,7 +32,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 11
+PLAYBOOK_VERSION = 12
 
 mcp = FastMCP(
     "meals",
@@ -586,6 +586,91 @@ async def finish_shop() -> str:
     except ApiError as exc:
         return str(exc)
     return f"Shop finished. List archived; fresh list started [id: {result['new_list_id']}]."
+
+
+# ---------------------------------------------------------------- supermarkets
+
+
+def _fmt_market(market: dict) -> str:
+    active = "  ← active (the list sorts for this store)" if market["is_active"] else ""
+    return f"{market['name']}: {' '.join(market['aisle_order'])}{active}"
+
+
+@mcp.tool()
+async def list_supermarkets() -> str:
+    """The household's saved supermarkets and their aisle walking orders.
+    The active one is the order the shopping list sorts in; none active means
+    the default store-walking order."""
+    try:
+        markets = await _call("GET", "/supermarkets")
+    except ApiError as exc:
+        return str(exc)
+    if not markets:
+        return (
+            "No supermarkets saved — the list uses the default store-walking order. "
+            "save_supermarket(name, aisle_order) records how the user walks a real store."
+        )
+    lines = [_fmt_market(market) for market in markets]
+    if not any(market["is_active"] for market in markets):
+        lines.append("(none active — the list is on the default store-walking order)")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def switch_supermarket(name: str) -> str:
+    """Sort the shopping list for a different store — worth doing when the
+    user says where they're shopping ("I'm at Aldi"). Pass 'default' to go
+    back to the built-in order. Stores must be saved first (list_supermarkets
+    / save_supermarket)."""
+    wanted = name.lower().strip()
+    try:
+        markets = await _call("GET", "/supermarkets")
+        if wanted in ("default", "none", ""):
+            active = [market for market in markets if market["is_active"]]
+            if not active:
+                return "Already on the default store-walking order."
+            await _call("PATCH", f"/supermarkets/{active[0]['id']}", json={"is_active": False})
+            return "Back to the default store-walking order."
+        matches = [market for market in markets if market["name"].lower() == wanted]
+        if not matches:
+            names = ", ".join(market["name"] for market in markets)
+            if not names:
+                return f"No supermarkets saved yet — save_supermarket('{name}', [...]) creates one."
+            return f"No supermarket called '{name}'. Saved: {names}. Or save_supermarket to add it."
+        await _call("PATCH", f"/supermarkets/{matches[0]['id']}", json={"is_active": True})
+    except ApiError as exc:
+        return str(exc)
+    return f"Shopping list now sorts for {matches[0]['name']}."
+
+
+@mcp.tool()
+async def save_supermarket(name: str, aisle_order: list[str], make_active: bool = True) -> str:
+    """Save a supermarket's aisle walking order (creating it if new) — use
+    when the user describes how they walk a store ("in our Tesco the frozen
+    aisles come first"). aisle_order is aisle emojis first-to-last; aisles
+    left out keep their usual place at the end. Valid: 🥬 🍞 🥩 ❄️ 🥛 🥫 🍝
+    🌶️ 🥤 🍫 🧊 🧼 🧴 ❓. By default the list starts sorting for the store
+    straight away (make_active)."""
+    try:
+        markets = await _call("GET", "/supermarkets")
+        existing = [market for market in markets if market["name"].lower() == name.lower().strip()]
+        if existing:
+            patch: dict[str, Any] = {"aisle_order": aisle_order}
+            if make_active:
+                patch["is_active"] = True
+            saved = await _call("PATCH", f"/supermarkets/{existing[0]['id']}", json=patch)
+            verb = "updated"
+        else:
+            saved = await _call(
+                "POST",
+                "/supermarkets",
+                json={"name": name.strip(), "aisle_order": aisle_order, "is_active": make_active},
+            )
+            verb = "saved"
+    except ApiError as exc:
+        return str(exc)
+    active = " — the list now sorts for it" if saved["is_active"] else ""
+    return f"{saved['name']} {verb}: {' '.join(saved['aisle_order'])}{active}"
 
 
 async def _find_ingredient(name: str) -> dict:

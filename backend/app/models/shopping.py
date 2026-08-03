@@ -1,13 +1,34 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.catalog import Ingredient, Recipe
 from app.models.planning import PlanMeal
 from app.models.users import utcnow
+
+
+class Supermarket(Base):
+    """A store the household shops at, with its own aisle walking order.
+
+    `aisle_order` is a sequence of aisle emojis; the *active* supermarket's
+    order is what the shopping list sorts by and what GET /aisles returns
+    (which is also how the iOS app learns it — it refetches /aisles and sorts
+    locally). No active supermarket means the built-in order in
+    `services/aisles.py`. An order saved before a new aisle joined the
+    vocabulary simply gains it at the end (`effective_aisle_order`)."""
+
+    __tablename__ = "supermarkets"
+    __table_args__ = (UniqueConstraint("household_id", "name", name="uq_supermarket_household_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id"))
+    name: Mapped[str] = mapped_column(String(120))
+    aisle_order: Mapped[list] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ShoppingList(Base):

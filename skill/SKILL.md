@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 11 -->
+<!-- playbook-version: 12 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v11, and this file is a snapshot** — once installed it never
+**This is playbook v12, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -60,11 +60,20 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
 
 ## Shopping list conventions
 
-- Aisle vocabulary (store-walking order): 🥬 fruit & veg · 🍞 bakery ·
+- Aisle vocabulary (default store-walking order): 🥬 fruit & veg · 🍞 bakery ·
   🥩 meat & fish · ❄️ chilled (dips, fresh pasta — the cabinet, not the
   freezer) · 🥛 dairy · 🥫 tins & jars · 🍝 dry goods & pasta ·
   🌶️ herbs & spices · 🥤 drinks · 🍫 snacks · 🧊 frozen · 🧼 toiletries ·
   🧴 household · ❓ unknown. Tag ❓ ingredients with `set_ingredient_aisle` when you can.
+- **The walking order is the household's own.** They can save one per store
+  (Settings → Supermarkets in the web app, or `save_supermarket(name,
+  aisle_order)` when they describe a store's layout) and the active one is
+  the order the list arrives sorted in. When they say where they're shopping
+  ("I'm at Aldi") and that store is saved, `switch_supermarket("Aldi")`
+  re-sorts the walk for it; `switch_supermarket("default")` goes back.
+  `list_supermarkets` shows what's saved. Aisles left out of a saved order
+  keep their usual place at the end — never invent an order the user didn't
+  describe.
 - Ad-hoc items ("we're out of milk") go straight on with `add_to_list` — never
   create a meal for them.
 - "Already have onions" → `mark_already_have("onion")`, don't delete the line.
@@ -154,8 +163,13 @@ something cooked that the user only mentioned in passing.
 - *"What can I cook tonight?"* → `get_plan()`, list un-cooked options with
   cook times. No tool for "tonight" exists — plans have no days; just present
   the options.
-- *"I'm at Tesco, what do I need?"* → `get_shopping_list()`, read it back
-  grouped by aisle, offer to check things off as they shop.
+- *"I'm at Tesco, what do I need?"* → if "Tesco" is a saved supermarket,
+  `switch_supermarket("Tesco")` first so the walk matches the store; then
+  `get_shopping_list()`, read it back grouped by aisle, offer to check
+  things off as they shop.
+- *"In our Tesco you hit frozen first, then drinks, then fruit & veg"* →
+  `save_supermarket("Tesco", ["🧊", "🥤", "🥬", …])` with the aisles in the
+  order they said — unmentioned aisles slot in at the end by themselves.
 - *"Scratch the burgers, we're out Friday"* → `remove_meal_from_plan("burgers")`
   — the list decrements itself; ad-hoc items survive.
 - *"Add garlic bread to the cottage pie"* → `update_meal("cottage pie",

@@ -45,6 +45,7 @@ async def counts(engine) -> dict:
         "list_items",
         "list_item_sources",
         "cooked_events",
+        "supermarkets",
     ]
     async with engine.connect() as conn:
         return {t: (await conn.execute(text(f"select count(*) from {t}"))).scalar() for t in tables}
@@ -63,9 +64,10 @@ class TestLastMemberDeletion:
         pm = (await client.get(f"/plans/{plan['id']}")).json()["meals"][0]
         await client.post(f"/plans/{plan['id']}/meals/{pm['id']}/cooked")
         assert len((await get_list(client))["items"]) > 0
-        # An unredeemed invite too, so every table has a row and "all zero
-        # afterwards" actually proves something.
+        # An unredeemed invite and a supermarket too, so every table has a row
+        # and "all zero afterwards" actually proves something.
         await invite_code(client, token)
+        assert (await client.post("/supermarkets", json={"name": "Big Tesco"})).status_code == 201
 
         before = await counts(engine)
         # Cooking records one event per subject — the meal and the recipe.
