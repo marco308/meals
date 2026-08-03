@@ -116,6 +116,21 @@ class TestActivation:
         assert [a["emoji"] for a in (await auth_client.get("/aisles")).json()] == AISLE_EMOJIS
         assert (await get_list(auth_client))["supermarket"] is None
 
+    async def test_ingredients_sorted_by_aisle_follow_the_active_market(self, auth_client):
+        """GET /ingredients?sort=aisle promises "the same walk the shopping
+        list uses" — so it must honour the active supermarket too."""
+        await create_recipe(auth_client)  # beef 🥩, onion 🥬, tomatoes 🥫
+
+        def walk(ingredients):
+            return [i["aisle"] for i in ingredients]
+
+        default = (await auth_client.get("/ingredients", params={"sort": "aisle"})).json()
+        assert walk(default) == ["🥬", "🥩", "🥫"]
+
+        await create_market(auth_client, aisle_order=BACKWARDS, is_active=True)
+        sorted_for_store = (await auth_client.get("/ingredients", params={"sort": "aisle"})).json()
+        assert walk(sorted_for_store) == ["🥫", "🥩", "🥬"]
+
 
 class TestShoppingListSort:
     async def test_the_list_walks_the_active_markets_order(self, auth_client):
