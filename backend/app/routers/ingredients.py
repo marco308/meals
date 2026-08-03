@@ -1,8 +1,9 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.deps import CurrentUser, DbSession
 from app.models import Ingredient, ListItem, MealIngredient, RecipeIngredient
@@ -16,11 +17,11 @@ from app.schemas.catalog import (
     UnfoldedIngredient,
 )
 from app.serializers import ingredient_out
-from app.services.aisles import AISLES, is_valid_aisle
+from app.services.aisles import AISLE_ORDER, AISLES, is_valid_aisle
 from app.services.catalog import get_or_create_ingredient
 from app.services.ingredient_merge import MergeError, find_duplicate_groups, find_unfolded, merge_ingredients
 from app.services.ingredient_names import canonical_ingredient_name
-from app.services.values import VALUE_TIER_HINT, is_valid_value_tier
+from app.services.values import VALUE_TIER_HINT, VALUE_TIER_NAMES, is_valid_value_tier
 
 router = APIRouter(tags=["ingredients"])
 
@@ -36,6 +37,17 @@ class IngredientCreate(BaseModel):
     is_staple: bool = False
     value_tier: str | None = None
     value_note: str | None = Field(default=None, max_length=200)
+
+
+def _sort_order(sort: str) -> tuple:
+    """Name is always the tiebreak so ordering is stable across requests."""
+    if sort == "aisle":
+        return (case(AISLE_ORDER, value=Ingredient.aisle, else_=len(AISLES)), Ingredient.name)
+    if sort == "value_tier":
+        # VALUE_TIERS is already premium → budget → any: opinions first, unrated last.
+        tier_order = {tier: index for index, tier in enumerate(VALUE_TIER_NAMES)}
+        return (case(tier_order, value=Ingredient.value_tier, else_=len(tier_order)), Ingredient.name)
+    return (Ingredient.name,)
 
 
 @router.get("/aisles", response_model=list[AisleOut])
@@ -57,6 +69,13 @@ async def list_ingredients(
     ),
     staples_only: bool = Query(default=False),
     value_tier: str | None = Query(default=None, description=f"filter by buying advice; {VALUE_TIER_HINT}"),
+    sort: Literal["name", "aisle", "value_tier"] = Query(
+        default="name",
+        description=(
+            "name (default), aisle (store-walking order, the same walk the shopping list uses), "
+            "or value_tier (⭐ premium first, then 💷 budget, then no opinion)"
+        ),
+    ),
 ) -> list[IngredientOut]:
     """Filter by `value_tier=premium` for the shopping list of things the
     household has decided are worth paying up for (and `budget` for the
@@ -69,7 +88,7 @@ async def list_ingredients(
     substring hit."""
     if value_tier is not None and not is_valid_value_tier(value_tier):
         raise HTTPException(status_code=422, detail=f"unknown value tier '{value_tier}'; {VALUE_TIER_HINT}")
-    query = select(Ingredient).where(Ingredient.household_id == user.household_id).order_by(Ingredient.name)
+    query = select(Ingredient).where(Ingredient.household_id == user.household_id).order_by(*_sort_order(sort))
     if search:
         query = query.where(Ingredient.name.ilike(f"%{search.lower()}%"))
     if name is not None:

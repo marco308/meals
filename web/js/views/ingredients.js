@@ -8,7 +8,7 @@
 import { aisles, api } from "../api.js";
 import { confirmDialog, debounce, emptyState, html, openDialog, render, skeleton, toast } from "../dom.js";
 
-let query = { search: "", staplesOnly: false, tier: "" };
+let query = { search: "", staplesOnly: false, tier: "", sort: "name" };
 
 export async function renderIngredients(root) {
   render(root, html`
@@ -25,6 +25,11 @@ export async function renderIngredients(root) {
 
       <div class="toolbar">
         <input type="search" placeholder="Search ingredients…  ( / )" value="${query.search}" data-search>
+        <select data-sort aria-label="Sort">
+          <option value="name" ${query.sort === "name" ? "selected" : ""}>A → Z</option>
+          <option value="aisle" ${query.sort === "aisle" ? "selected" : ""}>By aisle</option>
+          <option value="value_tier" ${query.sort === "value_tier" ? "selected" : ""}>By verdict</option>
+        </select>
         <button class="chip click ${query.staplesOnly ? "on" : ""}" data-staples>staples only</button>
         <select data-tier aria-label="Value tier">
           <option value="">any verdict</option>
@@ -50,6 +55,7 @@ export async function renderIngredients(root) {
             search: query.search || undefined,
             staples_only: query.staplesOnly || undefined,
             value_tier: query.tier || undefined,
+            sort: query.sort,
           },
         }),
         aisles(),
@@ -82,6 +88,10 @@ export async function renderIngredients(root) {
   staplesChip.onclick = () => {
     query.staplesOnly = !query.staplesOnly;
     staplesChip.classList.toggle("on", query.staplesOnly);
+    refresh();
+  };
+  root.querySelector("[data-sort]").onchange = (event) => {
+    query.sort = event.target.value;
     refresh();
   };
   root.querySelector("[data-tier]").onchange = (event) => {

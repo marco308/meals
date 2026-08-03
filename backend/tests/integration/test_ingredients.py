@@ -61,6 +61,28 @@ class TestIngredients:
         staples = await auth_client.get("/ingredients", params={"staples_only": "true"})
         assert [i["name"] for i in staples.json()] == ["salt"]
 
+    async def test_sort_by_aisle_walks_the_store(self, auth_client):
+        await auth_client.post("/ingredients", json={"name": "milk"})  # 🥛 Dairy
+        await auth_client.post("/ingredients", json={"name": "chicken"})  # 🥩 Meat & fish
+        await auth_client.post("/ingredients", json={"name": "banana"})  # 🥬 Fruit & veg
+        await auth_client.post("/ingredients", json={"name": "apple"})  # 🥬 Fruit & veg
+
+        response = await auth_client.get("/ingredients", params={"sort": "aisle"})
+        # store-walking order, name as the tiebreak within an aisle
+        assert [i["name"] for i in response.json()] == ["apple", "banana", "chicken", "milk"]
+
+    async def test_sort_by_value_tier_opinions_first(self, auth_client):
+        await auth_client.post("/ingredients", json={"name": "milk"})
+        await auth_client.post("/ingredients", json={"name": "plain flour", "value_tier": "budget"})
+        await auth_client.post("/ingredients", json={"name": "olive oil", "value_tier": "premium"})
+
+        response = await auth_client.get("/ingredients", params={"sort": "value_tier"})
+        assert [i["name"] for i in response.json()] == ["olive oil", "plain flour", "milk"]
+
+    async def test_sort_rejects_unknown_field(self, auth_client):
+        response = await auth_client.get("/ingredients", params={"sort": "price"})
+        assert response.status_code == 422
+
     async def test_aisles_endpoint_in_store_order(self, auth_client):
         response = await auth_client.get("/aisles")
         assert response.status_code == 200
