@@ -21,6 +21,7 @@ from app.services.aisles import AISLE_ORDER, AISLES, is_valid_aisle
 from app.services.catalog import get_or_create_ingredient
 from app.services.ingredient_merge import MergeError, find_duplicate_groups, find_unfolded, merge_ingredients
 from app.services.ingredient_names import canonical_ingredient_name
+from app.services.supermarkets import effective_aisle_order, get_active_supermarket
 from app.services.values import VALUE_TIER_HINT, VALUE_TIER_NAMES, is_valid_value_tier
 
 router = APIRouter(tags=["ingredients"])
@@ -39,10 +40,15 @@ class IngredientCreate(BaseModel):
     value_note: str | None = Field(default=None, max_length=200)
 
 
-def _sort_order(sort: str) -> tuple:
-    """Name is always the tiebreak so ordering is stable across requests."""
+def _sort_order(sort: str, aisle_order: dict[str, int] | None = None) -> tuple:
+    """Name is always the tiebreak so ordering is stable across requests.
+
+    `aisle_order` overrides the built-in walk for sort=aisle — the caller
+    passes the active supermarket's order so this stays "the same walk the
+    shopping list uses" for households that saved one."""
     if sort == "aisle":
-        return (case(AISLE_ORDER, value=Ingredient.aisle, else_=len(AISLES)), Ingredient.name)
+        order = AISLE_ORDER if aisle_order is None else aisle_order
+        return (case(order, value=Ingredient.aisle, else_=len(order)), Ingredient.name)
     if sort == "value_tier":
         # VALUE_TIERS is already premium → budget → any: opinions first, unrated last.
         tier_order = {tier: index for index, tier in enumerate(VALUE_TIER_NAMES)}
@@ -51,10 +57,17 @@ def _sort_order(sort: str) -> tuple:
 
 
 @router.get("/aisles", response_model=list[AisleOut])
-async def list_aisles(user: CurrentUser) -> list[AisleOut]:
+async def list_aisles(user: CurrentUser, db: DbSession) -> list[AisleOut]:
     """The aisle vocabulary, in store-walking order — the same order the
-    shopping list is sorted in."""
-    return [AisleOut(emoji=emoji, label=label) for emoji, label in AISLES]
+    shopping list is sorted in. When the household has an active supermarket
+    (see /supermarkets) this is that store's saved walking order; otherwise
+    the built-in one."""
+    market = await get_active_supermarket(db, user.household_id)
+    labels = dict(AISLES)
+    return [
+        AisleOut(emoji=emoji, label=labels[emoji])
+        for emoji in effective_aisle_order(market.aisle_order if market else None)
+    ]
 
 
 @router.get("/ingredients", response_model=list[IngredientOut])
@@ -88,7 +101,14 @@ async def list_ingredients(
     substring hit."""
     if value_tier is not None and not is_valid_value_tier(value_tier):
         raise HTTPException(status_code=422, detail=f"unknown value tier '{value_tier}'; {VALUE_TIER_HINT}")
-    query = select(Ingredient).where(Ingredient.household_id == user.household_id).order_by(*_sort_order(sort))
+    aisle_order: dict[str, int] | None = None
+    if sort == "aisle":
+        market = await get_active_supermarket(db, user.household_id)
+        if market is not None:
+            aisle_order = {emoji: i for i, emoji in enumerate(effective_aisle_order(market.aisle_order))}
+    query = (
+        select(Ingredient).where(Ingredient.household_id == user.household_id).order_by(*_sort_order(sort, aisle_order))
+    )
     if search:
         query = query.where(Ingredient.name.ilike(f"%{search.lower()}%"))
     if name is not None:

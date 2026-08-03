@@ -2,7 +2,7 @@
 // (its sources), quantities are the server's derived truth, and checking off
 // is optimistic — the strike-through should never wait for a round trip.
 
-import { api } from "../api.js";
+import { api, invalidateAisles } from "../api.js";
 import { confirmDialog, emptyState, fmtDate, html, render, skeleton, toast } from "../dom.js";
 
 let staplesMode = false;
@@ -10,9 +10,12 @@ let showExcluded = false;
 
 export async function renderShopping(root) {
   render(root, skeleton());
-  const list = await api("/shopping-list", {
-    query: { include_staples: staplesMode || undefined, include_excluded: showExcluded || undefined },
-  });
+  const [list, markets] = await Promise.all([
+    api("/shopping-list", {
+      query: { include_staples: staplesMode || undefined, include_excluded: showExcluded || undefined },
+    }),
+    api("/supermarkets"),
+  ]);
 
   // The staples check is its own screen: just the staples, nothing else,
   // matching the flow the skill teaches (include_staples → mark what's low).
@@ -33,6 +36,13 @@ export async function renderShopping(root) {
           <p class="sub">
             <span data-count>${toGet === 0 ? "nothing to get" : `${ticked} of ${toGet} in the trolley`}</span>
             ${list.hidden_staples > 0 ? ` · ${list.hidden_staples} ${list.hidden_staples === 1 ? "staple" : "staples"} waiting for a check` : ""}
+            ${markets.length > 0
+              ? html` · aisles for
+                  <select class="market-pick" data-market aria-label="Sort the aisles for">
+                    <option value="">default order</option>
+                    ${markets.map((m) => html`<option value="${m.id}" ${m.is_active ? "selected" : ""}>${m.name}</option>`)}
+                  </select>`
+              : ""}
           </p>
         </div>
         <div class="page-actions">
@@ -66,7 +76,7 @@ export async function renderShopping(root) {
     </div>
   `);
 
-  bind(root, list);
+  bind(root, list, markets);
 }
 
 function groupByAisle(items) {
@@ -132,11 +142,30 @@ function whyLine(item) {
   return parts.join(" ");
 }
 
-function bind(root, list) {
+function bind(root, list, markets) {
   root.querySelector("[data-staples]").onclick = () => {
     staplesMode = !staplesMode;
     renderShopping(root);
   };
+
+  // "I'm in a different store today" — re-sort the walk without a settings trip.
+  const picker = root.querySelector("[data-market]");
+  if (picker) {
+    picker.onchange = async () => {
+      const activeId = markets.find((m) => m.is_active)?.id;
+      try {
+        if (picker.value) {
+          await api(`/supermarkets/${picker.value}`, { method: "PATCH", body: { is_active: true } });
+        } else if (activeId) {
+          await api(`/supermarkets/${activeId}`, { method: "PATCH", body: { is_active: false } });
+        }
+        invalidateAisles();
+        renderShopping(root);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+    };
+  }
   root.querySelector("[data-show-excluded]").onclick = () => {
     showExcluded = !showExcluded;
     renderShopping(root);

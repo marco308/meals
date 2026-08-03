@@ -49,6 +49,11 @@ class ListItemUpdate(BaseModel):
     staple_needed: bool | None = None
 
 
+class SupermarketRef(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class ShoppingListOut(BaseModel):
     id: uuid.UUID
     status: str
@@ -56,6 +61,29 @@ class ShoppingListOut(BaseModel):
     archived_at: datetime | None
     items: list[ListItemOut]  # sorted in store-walking order (aisle, then name)
     hidden_staples: int  # staples not shown — list them with ?include_staples=true, surface one via staple_needed
+    supermarket: SupermarketRef | None = None  # whose aisle order the sort follows; null = the built-in order
+
+
+class SupermarketOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    aisle_order: list[str]  # the complete walk, first aisle to last
+    is_active: bool  # the active supermarket's order sorts the list and GET /aisles
+    created_at: datetime
+
+
+class SupermarketCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    # Aisle emojis first-to-last as walked; omitted aisles keep their usual
+    # place at the end. Default: the built-in store-walking order.
+    aisle_order: list[str] | None = None
+    is_active: bool = False
+
+
+class SupermarketUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    aisle_order: list[str] | None = None
+    is_active: bool | None = None  # true sorts the list for this store; false falls back to the built-in order
 
 
 class ArchiveOut(BaseModel):

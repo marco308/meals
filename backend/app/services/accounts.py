@@ -21,6 +21,7 @@ from app.models import (
     Plan,
     Recipe,
     ShoppingList,
+    Supermarket,
     User,
 )
 
@@ -54,6 +55,7 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     # Ingredients last of the food: list items and meal/recipe lines reference
     # them without a cascade, so they must already be gone.
     await db.execute(delete(Ingredient).where(Ingredient.household_id == household_id))
+    await db.execute(delete(Supermarket).where(Supermarket.household_id == household_id))
     await db.execute(delete(HouseholdInvite).where(HouseholdInvite.household_id == household_id))
     await db.execute(delete(User).where(User.household_id == household_id))
     await db.execute(delete(Household).where(Household.id == household_id))

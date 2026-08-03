@@ -105,8 +105,13 @@ from `deps.py`; every query filters on `user.household_id`.
   `ShoppingListStore` renders *server truth + queued `PendingOp`s*, persists
   both to disk, and replays ops in order — changes there must preserve
   idempotency and id-remapping.
-- **Aisle order** (`services/aisles.py`) is the shopping-list sort order and
-  its emoji vocabulary is published in the skill. Keep the two in sync.
+- **Aisle order** (`services/aisles.py`) is the default shopping-list sort
+  order and its emoji vocabulary is published in the skill. Keep the two in
+  sync. Households can override the *order* (never the vocabulary) per store
+  via `/supermarkets` (`services/supermarkets.py`): the active supermarket's
+  order drives the list sort and `GET /aisles`, which is how iOS learns it
+  without an app change. Orders saved before a new aisle existed gain it at
+  the end — adding an aisle must never invalidate a saved supermarket.
 - **Premium vs budget** (`services/values.py`, Q17). An ingredient's
   `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
   household's own verdict — unlike an aisle it is **never guessed**, so no
