@@ -8,7 +8,7 @@ class TestIngredients:
         body = response.json()
         assert body["name"] == "milk"  # canonicalised
         assert body["aisle"] == "🥛"
-        assert body["aisle_label"] == "Dairy & eggs"
+        assert body["aisle_label"] == "Dairy"
         assert body["is_staple"] is False
 
     async def test_create_with_explicit_aisle_and_staple(self, auth_client):

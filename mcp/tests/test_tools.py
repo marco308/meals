@@ -68,7 +68,7 @@ class TestShoppingList:
     @respx.mock
     async def test_add_to_list_sends_client_id_for_idempotency(self):
         route = respx.post(f"{API}/shopping-list/items").mock(
-            return_value=httpx.Response(201, json=_item("milk", "🥛", "Dairy & eggs", "2 l"))
+            return_value=httpx.Response(201, json=_item("milk", "🥛", "Dairy", "2 l"))
         )
         result = await server.add_to_list("milk", 2, "l")
         assert "milk — 2 l" in result
@@ -124,7 +124,7 @@ class TestShoppingList:
     async def test_need_staple_rejects_non_staples(self):
         respx.get(f"{API}/shopping-list").mock(
             return_value=httpx.Response(
-                200, json={"items": [_item("milk", "🥛", "Dairy & eggs", is_staple=False)], "hidden_staples": 0}
+                200, json={"items": [_item("milk", "🥛", "Dairy", is_staple=False)], "hidden_staples": 0}
             )
         )
         result = await server.need_staple("milk")

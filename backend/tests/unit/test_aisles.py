@@ -24,6 +24,13 @@ class TestGuessAisle:
             ("smoked paprika", "🌶️"),
             ("self-raising flour", "🍝"),
             ("sourdough", "🍞"),
+            ("houmous", "❄️"),
+            ("hummus", "❄️"),
+            ("tzatziki", "❄️"),
+            ("dips", "❄️"),  # plural word match
+            ("fresh pasta", "❄️"),  # longest keyword wins over 'pasta'
+            ("sausage rolls", "❄️"),  # longest keyword wins over 'sausage'
+            ("coleslaw", "❄️"),
         ],
     )
     def test_known_ingredients(self, name, expected):
@@ -46,6 +53,9 @@ class TestVocabulary:
 
     def test_toiletries_walk_between_frozen_and_household(self):
         assert AISLE_ORDER["🧊"] < AISLE_ORDER["🧼"] < AISLE_ORDER["🧴"]
+
+    def test_chilled_walks_between_meat_and_dairy(self):
+        assert AISLE_ORDER["🥩"] < AISLE_ORDER["❄️"] < AISLE_ORDER["🥛"]
 
     def test_is_valid_aisle(self):
         assert is_valid_aisle("🥫")
