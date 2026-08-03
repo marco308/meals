@@ -8,6 +8,8 @@ struct PlanView: View {
     @State private var showNewPlan = false
     @State private var showHistory = false
     @State private var showArchiveConfirm = false
+    @State private var showRename = false
+    @State private var renameDraft = ""
 
     var body: some View {
         NavigationStack {
@@ -41,7 +43,11 @@ struct PlanView: View {
                     Menu {
                         Button("New plan…", systemImage: "calendar.badge.plus") { showNewPlan = true }
                         Button("Past plans", systemImage: "clock.arrow.circlepath") { showHistory = true }
-                        if store.plan != nil {
+                        if let plan = store.plan {
+                            Button("Rename plan…", systemImage: "pencil") {
+                                renameDraft = plan.label
+                                showRename = true
+                            }
                             Button("Archive this plan", systemImage: "archivebox", role: .destructive) {
                                 showArchiveConfirm = true
                             }
@@ -57,6 +63,17 @@ struct PlanView: View {
             .sheet(isPresented: $showAddMeal) { AddMealSheet() }
             .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
             .sheet(isPresented: $showHistory) { PastPlansSheet() }
+            .alert("Rename plan", isPresented: $showRename) {
+                TextField("Label", text: $renameDraft)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    let cleaned = renameDraft.trimmingCharacters(in: .whitespaces)
+                    guard !cleaned.isEmpty else { return }
+                    Task { await store.renamePlan(to: cleaned) }
+                }
+            } message: {
+                Text("The label is how this week shows up in your past plans.")
+            }
             .confirmationDialog(
                 "Archive '\(store.plan?.label ?? "")'? Its meals come off the shopping list; anything added by hand stays.",
                 isPresented: $showArchiveConfirm,
@@ -181,23 +198,27 @@ struct PastPlansSheet: View {
         NavigationStack {
             List {
                 ForEach(store.history) { plan in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(plan.label)
-                            Text("\(plan.status == "archived" ? "archived · " : "active · ")\(plan.mealCount) meal\(plan.mealCount == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if plan.status == "archived" && plan.mealCount > 0 {
-                            Button("Again") {
-                                Task {
-                                    await store.createPlan(label: "\(plan.label) (again)", copyFrom: plan.id)
-                                    dismiss()
-                                }
+                    NavigationLink {
+                        PastPlanDetailView(summary: plan)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(plan.label)
+                                Text("\(plan.status == "archived" ? "archived · " : "active · ")\(plan.mealCount) meal\(plan.mealCount == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.bordered)
-                            .font(.callout)
+                            Spacer()
+                            if plan.status == "archived" && plan.mealCount > 0 {
+                                Button("Again") {
+                                    Task {
+                                        await store.createPlan(label: "\(plan.label) (again)", copyFrom: plan.id)
+                                        dismiss()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .font(.callout)
+                            }
                         }
                     }
                 }
@@ -216,6 +237,73 @@ struct PastPlansSheet: View {
                 }
             }
             .task { await store.loadHistory() }
+        }
+    }
+}
+
+/// What a past week's menu was, read back in full (Q4): every option and
+/// whether it got cooked. Read-only on purpose — to cook it again, use
+/// "Again" on the plan's row, which copies it into a fresh plan.
+struct PastPlanDetailView: View {
+    @Environment(Session.self) private var session
+    let summary: PlanSummary
+
+    @State private var plan: Plan?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let plan {
+                List {
+                    if let wrapped = TimestampLabel.day(plan.archivedAt) {
+                        Section {
+                            Label("Wrapped up \(wrapped)", systemImage: "archivebox")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    ForEach(plan.slots, id: \.slot) { group in
+                        Section(group.slot.capitalized) {
+                            ForEach(group.meals) { planMeal in
+                                HStack {
+                                    Text(planMeal.meal.name)
+                                    Spacer()
+                                    if planMeal.cookedAt != nil {
+                                        Label("cooked", systemImage: "checkmark.circle.fill")
+                                            .labelStyle(.iconOnly)
+                                            .foregroundStyle(.green)
+                                            .accessibilityLabel("cooked")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if plan.meals.isEmpty {
+                        ContentUnavailableView(
+                            "Nothing was on it",
+                            systemImage: "fork.knife",
+                            description: Text("This plan was wrapped up without any meals.")
+                        )
+                    }
+                }
+            } else if let errorMessage {
+                ContentUnavailableView(
+                    "Couldn't load plan",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage)
+                )
+            } else {
+                ProgressView()
+            }
+        }
+        .navigationTitle(summary.label)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            do {
+                plan = try await session.api.plan(id: summary.id)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -308,9 +396,14 @@ struct PlanMealRow: View {
 }
 
 /// Pick an existing meal from the library, or create one from a recipe.
+/// Also the library's own housekeeping: a swipe edits or deletes a meal that
+/// isn't on the plan — the only place such a meal is ever on screen.
 struct AddMealSheet: View {
     @Environment(PlanStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var editingMeal: Meal?
+    @State private var pendingDelete: Meal?
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationStack {
@@ -349,6 +442,19 @@ struct AddMealSheet: View {
                                 }
                             }
                         }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                pendingDelete = meal
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button {
+                                editingMeal = meal
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.orange)
+                        }
                     }
                 }
             }
@@ -360,6 +466,39 @@ struct AddMealSheet: View {
                 }
             }
             .task { await store.loadMealLibrary() }
+            .sheet(item: $editingMeal) { meal in
+                NavigationStack {
+                    MealEditorView(
+                        mode: .edit(meal),
+                        onSaved: { _ in editingMeal = nil },
+                        onCancel: { editingMeal = nil }
+                    )
+                }
+            }
+            .confirmationDialog(
+                "Delete '\(pendingDelete?.name ?? "")'? Recipes stay in the library; cooked history stays on the record. This can't be undone.",
+                isPresented: .init(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete meal", role: .destructive) {
+                    guard let meal = pendingDelete else { return }
+                    pendingDelete = nil
+                    Task {
+                        if await !store.deleteMeal(meal) {
+                            deleteError = store.errorMessage
+                            store.errorMessage = nil
+                        }
+                    }
+                }
+            }
+            .alert(
+                "Couldn't delete",
+                isPresented: .init(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+            ) {
+                Button("OK") { deleteError = nil }
+            } message: {
+                Text(deleteError ?? "")
+            }
         }
     }
 

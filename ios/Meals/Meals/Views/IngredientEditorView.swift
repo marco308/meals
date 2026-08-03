@@ -8,6 +8,7 @@ import SwiftUI
 struct IngredientEditorView: View {
     @Environment(Session.self) private var session
     @Environment(ShoppingListStore.self) private var listStore
+    @Environment(\.dismiss) private var dismiss
 
     let ingredientId: UUID
     var onChange: (() -> Void)? = nil
@@ -17,6 +18,7 @@ struct IngredientEditorView: View {
     @State private var errorMessage: String?
     @State private var isSaving = false
     @State private var noteDraft = ""
+    @State private var showMerge = false
     @FocusState private var noteFocused: Bool
 
     var body: some View {
@@ -73,6 +75,21 @@ struct IngredientEditorView: View {
                     }
                 }
 
+                Section {
+                    Button {
+                        showMerge = true
+                    } label: {
+                        Label("Merge into another ingredient…", systemImage: "arrow.triangle.merge")
+                    }
+                    .disabled(isSaving)
+                } footer: {
+                    Text(
+                        "For duplicates spelled too differently for the finder — 'beef mince' "
+                            + "next to 'minced beef'. Everything using '\(info.name)' moves onto "
+                            + "the ingredient you pick, then '\(info.name)' is deleted."
+                    )
+                }
+
                 if let errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(.red).font(.callout)
@@ -90,6 +107,17 @@ struct IngredientEditorView: View {
         .navigationTitle(info?.name.capitalized ?? "Ingredient")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(isPresented: $showMerge) {
+            if let info {
+                MergeIntoSheet(source: info) {
+                    // This ingredient no longer exists: re-sort the list,
+                    // tell the presenter, and get off its screen.
+                    Task { await listStore.sync() }
+                    onChange?()
+                    dismiss()
+                }
+            }
+        }
     }
 
     private var stapleBinding: Binding<Bool> {

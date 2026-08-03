@@ -20,6 +20,8 @@ struct SettingsView: View {
             List {
                 accountSection
                 householdSection
+                shoppingSection
+                aiSection
                 serverSection
                 aboutSection
                 dangerSection
@@ -58,11 +60,45 @@ struct SettingsView: View {
             } label: {
                 Label("Invite someone…", systemImage: "person.badge.plus")
             }
+            NavigationLink {
+                InvitesView()
+            } label: {
+                Label("Invites", systemImage: "envelope")
+            }
         } footer: {
             Text(
                 "Everyone in a household shares its recipes, plan and shopping list, "
                     + "and can change all of it. There are no roles or permissions."
             )
+        }
+    }
+
+    private var shoppingSection: some View {
+        Section {
+            NavigationLink {
+                SupermarketsView()
+            } label: {
+                Label("Supermarkets & aisle order", systemImage: "storefront")
+            }
+        } header: {
+            Text("Shopping")
+        } footer: {
+            Text(
+                "Save the stores you shop at and arrange each one's aisles the way you "
+                    + "meet them — the shopping list walks whichever store is picked."
+            )
+        }
+    }
+
+    private var aiSection: some View {
+        Section {
+            NavigationLink {
+                APITokensView()
+            } label: {
+                Label("AI access", systemImage: "key")
+            }
+        } footer: {
+            Text("Personal API tokens let an assistant drive this server on your behalf.")
         }
     }
 

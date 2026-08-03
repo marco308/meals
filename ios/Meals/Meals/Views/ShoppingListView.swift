@@ -4,11 +4,18 @@ import SwiftUI
 /// signal: every interaction is applied locally and queued, then synced.
 struct ShoppingListView: View {
     @Environment(ShoppingListStore.self) private var store
+    @Environment(Session.self) private var session
     @State private var quickAddText = ""
     @State private var showStaplesCheck = false
     @State private var showFinishConfirm = false
     @State private var finishError: String?
     @State private var showChecked = false
+    /// The household's saved stores, for the "we're at Aldi today" switch.
+    /// Loaded best-effort — offline, the menu simply doesn't offer the switch
+    /// (the PATCH couldn't land anyway).
+    @State private var markets: [Supermarket] = []
+    @State private var marketError: String?
+    @State private var showPreviousShops = false
 
     var body: some View {
         @Bindable var store = store
@@ -82,6 +89,20 @@ struct ShoppingListView: View {
                     Menu {
                         Toggle("Show staples", isOn: $store.includeStaples)
                         Toggle("Show 'already have' (\(store.excludedCount))", isOn: $store.includeExcluded)
+                        if !markets.isEmpty {
+                            // "I'm in a different store today" — re-sort the
+                            // walk without a settings trip.
+                            Picker("Sorting aisles for", selection: marketSelection) {
+                                Text("Default order").tag(UUID?.none)
+                                ForEach(markets) { market in
+                                    Text(market.name).tag(Optional(market.id))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                        Button("Previous shops", systemImage: "clock.arrow.circlepath") {
+                            showPreviousShops = true
+                        }
                         Button("Finish shop", systemImage: "checkmark.seal") {
                             showFinishConfirm = true
                         }
@@ -90,10 +111,27 @@ struct ShoppingListView: View {
                     }
                 }
             }
-            .task { await store.sync() }
-            .refreshable { await store.sync() }
+            .task {
+                await store.sync()
+                await loadMarkets()
+            }
+            .refreshable {
+                await store.sync()
+                await loadMarkets()
+            }
             .sheet(isPresented: $showStaplesCheck) {
                 StaplesCheckView()
+            }
+            .sheet(isPresented: $showPreviousShops) {
+                PreviousShopsView()
+            }
+            .alert(
+                "Couldn't switch store",
+                isPresented: .init(get: { marketError != nil }, set: { if !$0 { marketError = nil } })
+            ) {
+                Button("OK") { marketError = nil }
+            } message: {
+                Text(marketError ?? "")
             }
             .confirmationDialog(
                 "Archive this list and start fresh?",
@@ -134,6 +172,38 @@ struct ShoppingListView: View {
         let (name, quantity, unit) = Self.parseQuickAdd(text)
         store.addAdhoc(name: name, quantity: quantity, unit: unit)
         quickAddText = ""
+    }
+
+    /// The active store, as a menu-picker selection; nil = the default order.
+    private var marketSelection: Binding<UUID?> {
+        Binding(
+            get: { markets.first(where: \.isActive)?.id },
+            set: { picked in
+                let active = markets.first(where: \.isActive)?.id
+                guard picked != active else { return }
+                Task { await switchMarket(from: active, to: picked) }
+            }
+        )
+    }
+
+    private func loadMarkets() async {
+        if let fetched = try? await session.api.supermarkets() {
+            markets = fetched
+        }
+    }
+
+    private func switchMarket(from active: UUID?, to picked: UUID?) async {
+        do {
+            if let picked {
+                _ = try await session.api.updateSupermarket(id: picked, isActive: true)
+            } else if let active {
+                _ = try await session.api.updateSupermarket(id: active, isActive: false)
+            }
+            await loadMarkets()
+            await store.sync()  // refetch: the list and /aisles now follow the new walk
+        } catch {
+            marketError = error.localizedDescription
+        }
     }
 
     /// "milk 2 l" / "2 l milk" / "milk 2l" / "bin bags" → (name, qty?, unit?).
@@ -199,12 +269,21 @@ struct ShoppingItemRow: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {
+            // First action keeps the full swipe: "have it" is recoverable,
+            // delete never is, so delete stays a deliberate tap.
             Button {
                 store.markAlreadyHave(item)
             } label: {
                 Label("Have it", systemImage: "house")
             }
             .tint(.indigo)
+            if item.isAdhocOnly {
+                Button(role: .destructive) {
+                    store.deleteAdhoc(item)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
         }
         .sheet(isPresented: $showDetail) {
             ItemDetailSheet(item: item)
@@ -353,6 +432,14 @@ struct ItemDetailSheet: View {
                         dismiss()
                     } label: {
                         Label(item.checked ? "Un-check" : "Check off", systemImage: item.checked ? "circle" : "checkmark.circle")
+                    }
+                    if item.isAdhocOnly {
+                        Button(role: .destructive) {
+                            store.deleteAdhoc(item)
+                            dismiss()
+                        } label: {
+                            Label("Delete from the list", systemImage: "trash")
+                        }
                     }
                     if item.excluded {
                         Button {

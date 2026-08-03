@@ -10,9 +10,11 @@ final class FakeShoppingAPI: ShoppingAPI {
     var failWith: APIError?
     var addItemResult: ((AdhocPayload) -> ListItem)?
     var patchFailures: [UUID: APIError] = [:]
+    var deleteFailures: [UUID: APIError] = [:]
 
     private(set) var patches: [(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?)] = []
     private(set) var added: [AdhocPayload] = []
+    private(set) var deleted: [UUID] = []
     private(set) var fetchCount = 0
 
     init(list: ShoppingListPayload) {
@@ -46,6 +48,13 @@ final class FakeShoppingAPI: ShoppingAPI {
         added.append(payload)
         if let addItemResult { return addItemResult(payload) }
         return TestData.item(id: payload.id, name: payload.name, quantity: payload.quantity, unit: payload.unit)
+    }
+
+    func deleteItem(id: UUID) async throws {
+        if let failWith { throw failWith }
+        if let failure = deleteFailures[id] { throw failure }
+        deleted.append(id)
+        list.items.removeAll { $0.id == id }
     }
 
     func archiveList() async throws {
@@ -412,6 +421,69 @@ final class ShoppingListStoreTests: XCTestCase {
             store.checkedItems.map(\.name), ["milk"],
             "the basket counts only what dropped out of the list — not hidden staples or already-have lines"
         )
+    }
+
+    // MARK: Ad-hoc delete (Q22)
+
+    func testDeleteAdhocWorksOfflineAndReplays() async {
+        let byHand = ItemSource(adHoc: true, mealName: nil, recipeTitle: nil, quantity: 1)
+        let bags = TestData.item(name: "bin bags", sources: [byHand])
+        let api = FakeShoppingAPI(list: TestData.payload([bags]))
+        let store = makeStore(api)
+        await store.sync()
+
+        api.failWith = .offline
+        store.deleteAdhoc(bags)
+        XCTAssertFalse(store.displayItems.contains { $0.name == "bin bags" }, "gone locally at once")
+        await store.sync()
+        XCTAssertEqual(store.pending.count, 1)
+
+        api.failWith = nil
+        await store.sync()
+        XCTAssertTrue(store.pending.isEmpty)
+        XCTAssertEqual(api.deleted, [bags.id])
+    }
+
+    func testDeleteOfJustAddedAdhocFollowsServerRemap() async {
+        // Offline: quick-add "milk" (synthetic id), then delete it. Online,
+        // the server merges the add into an EXISTING line with a different id
+        // — the queued delete must chase it there, same as a check-off would.
+        let serverMilkId = UUID()
+        let api = FakeShoppingAPI(list: TestData.payload([]))
+        api.failWith = .offline
+        let store = makeStore(api)
+        store.addAdhoc(name: "milk", quantity: 500, unit: "ml")
+        await store.sync()
+        let synthetic = store.displayItems.first { $0.name == "milk" }!
+        store.deleteAdhoc(synthetic)
+        await store.sync()
+        XCTAssertEqual(store.pending.count, 2)
+
+        api.failWith = nil
+        api.addItemResult = { _ in TestData.item(id: serverMilkId, name: "milk", quantity: 1500, unit: "ml") }
+        await store.sync()
+
+        XCTAssertEqual(api.deleted, [serverMilkId], "delete re-targeted to the server's merged item id")
+    }
+
+    func testRejectedDeleteIsDroppedAndTruthRestored() async {
+        // A meal claimed the line while the delete sat in the queue: the
+        // server 409s, the op is dropped, and the refetch brings the line back.
+        let beef = TestData.item(name: "minced beef")
+        let api = FakeShoppingAPI(list: TestData.payload([beef]))
+        let store = makeStore(api)
+        await store.sync()
+
+        api.failWith = .offline
+        store.deleteAdhoc(beef)
+        await store.sync()
+
+        api.failWith = nil
+        api.deleteFailures[beef.id] = .server(status: 409, detail: "'minced beef' is needed by: Spag bol")
+        await store.sync()
+
+        XCTAssertTrue(store.pending.isEmpty, "the 409 op is dropped, not wedged")
+        XCTAssertEqual(store.displayItems.map(\.name), ["minced beef"], "server truth restores the line")
     }
 }
 

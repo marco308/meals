@@ -42,6 +42,71 @@ struct InviteCreated: Codable, Sendable {
     }
 }
 
+/// An invite on the books (`GET /auth/invites`): status only — the code
+/// itself is hashed server-side the moment it's minted, so a list can never
+/// leak one.
+struct InviteInfo: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let createdAt: String
+    let expiresAt: String
+    let acceptedAt: String?
+
+    enum Status: Equatable {
+        case open
+        case redeemed
+        case expired
+    }
+
+    /// `now` is injectable for tests; ISO-8601 timestamps compare correctly
+    /// as strings, so this stays inside the no-date-math convention.
+    func status(now: String = TimestampLabel.nowUTC()) -> Status {
+        if acceptedAt != nil { return .redeemed }
+        return String(expiresAt.prefix(19)) <= String(now.prefix(19)) ? .expired : .open
+    }
+}
+
+/// A personal API token's metadata (`GET /auth/tokens`). Only creation ever
+/// returns the token string itself, and only once.
+struct APIToken: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let label: String?
+    let createdAt: String
+    let expiresAt: String?
+    let lastUsedAt: String?
+}
+
+/// `POST /auth/tokens` — carries the plaintext token, shown exactly once.
+struct APITokenCreated: Codable, Sendable {
+    let id: UUID
+    let label: String?
+    let token: String
+}
+
+/// "2 Aug 2026" from an ISO timestamp — for lists of records (invites,
+/// tokens, previous shops). Reads the string prefix like `CookedHistory`
+/// does; no Date round-trip, so a backend's date format can't break a screen.
+enum TimestampLabel {
+    static func day(_ timestamp: String?) -> String? {
+        guard let timestamp, timestamp.count >= 10 else { return nil }
+        let parts = timestamp.prefix(10).split(separator: "-")
+        guard parts.count == 3, let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
+              (1...12).contains(month)
+        else { return nil }
+        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return "\(day) \(names[month - 1]) \(year)"
+    }
+
+    /// The current moment in the same shape the server's timestamps take, for
+    /// string comparison (expiry checks). Generated locally, never parsed.
+    static func nowUTC() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: Date())
+    }
+}
+
 struct AuthResponse: Codable, Sendable {
     let token: String
     let user: UserProfile
@@ -220,6 +285,8 @@ struct Plan: Codable, Identifiable, Equatable, Sendable {
     let label: String
     let status: String
     let meals: [PlanMeal]
+    // Optional so caches written by older app versions still decode.
+    var archivedAt: String? = nil
 
     var slots: [(slot: String, meals: [PlanMeal])] {
         let grouped = Dictionary(grouping: meals) { $0.meal.slot ?? "other" }
@@ -270,6 +337,10 @@ struct ListItem: Codable, Identifiable, Equatable, Sendable {
 
     var isNeededStaple: Bool { stapleNeeded ?? false }
     var tier: ValueTier { ValueTier(raw: valueTier) }
+
+    /// Deletable: nothing but hand-adds put it here (matches the server's own
+    /// `is_adhoc_only` — a meal-sourced line would 409).
+    var isAdhocOnly: Bool { sources.allSatisfy(\.adHoc) }
 }
 
 struct ShoppingListPayload: Codable, Equatable, Sendable {
@@ -282,6 +353,26 @@ struct ShoppingListPayload: Codable, Equatable, Sendable {
 struct Aisle: Codable, Equatable, Hashable, Sendable {
     let emoji: String
     let label: String
+}
+
+/// A saved store and its aisle walking order (`GET /supermarkets`). The
+/// active one's order is what the shopping list sorts by and what `/aisles`
+/// returns — the rest of the app follows along without knowing supermarkets
+/// exist.
+struct Supermarket: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let aisleOrder: [String]
+    let isActive: Bool
+}
+
+/// A finished shop (`GET /shopping-list/archived`) — what a list looked like
+/// when it was archived, for the record.
+struct ArchivedListSummary: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let createdAt: String
+    let archivedAt: String?
+    let itemCount: Int
 }
 
 /// Ingredient-level metadata (canonical name, aisle, staple flag, premium-vs-
@@ -298,6 +389,35 @@ struct IngredientInfo: Codable, Identifiable, Equatable, Sendable {
     var valueNote: String? = nil
 
     var tier: ValueTier { ValueTier(raw: valueTier) }
+}
+
+/// Ingredients that are the same food under two spellings
+/// (`GET /ingredients/duplicates`). The keeper is the suggested survivor;
+/// groups are name-folding facts, not guesses — "beef mince" vs "minced
+/// beef" never appears here and needs a manual merge.
+struct DuplicateGroup: Codable, Equatable, Sendable {
+    let canonicalName: String
+    let keeper: IngredientInfo
+    let duplicates: [IngredientInfo]
+}
+
+/// An ingredient stored under a name a new write wouldn't use, with no twin
+/// to merge into — tidied by creating the canonical row and folding this one
+/// into it.
+struct UnfoldedIngredient: Codable, Equatable, Sendable {
+    let ingredient: IngredientInfo
+    let canonicalName: String
+}
+
+struct DuplicatesPayload: Codable, Equatable, Sendable {
+    let groups: [DuplicateGroup]
+    let unfolded: [UnfoldedIngredient]
+}
+
+/// `POST /ingredients/{id}/merge` — the survivor and how many rows it absorbed.
+struct MergeResult: Codable, Equatable, Sendable {
+    let ingredient: IngredientInfo
+    let merged: Int
 }
 
 /// A loose ingredient being written (meal sides, decision F1/F2): name plus
