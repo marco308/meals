@@ -163,6 +163,23 @@ enum RecipeSort: String, CaseIterable, Sendable {
     }
 }
 
+/// Catalogue ordering for `GET /ingredients`. `name` is the API default and
+/// is left out of the query so old backends keep working. `aisle` follows the
+/// active supermarket's walk — the same order the shopping list uses.
+enum IngredientSort: String, CaseIterable, Sendable {
+    case name
+    case aisle
+    case valueTier = "value_tier"
+
+    var label: String {
+        switch self {
+        case .name: "A–Z"
+        case .aisle: "By aisle"
+        case .valueTier: "By verdict"
+        }
+    }
+}
+
 // MARK: - Endpoint helpers
 
 extension APIClient {
@@ -241,8 +258,102 @@ extension APIClient {
         try await send("DELETE", "/auth/me", json: ["password": password], as: AccountDeleted.self)
     }
 
+    /// Everyone this household could still let in: open, redeemed and expired
+    /// invites. Codes themselves are gone — the server keeps only hashes.
+    func invites() async throws -> [InviteInfo] {
+        try await send("GET", "/auth/invites", as: [InviteInfo].self)
+    }
+
+    /// Revoke an unredeemed invite; whoever holds the code can no longer join.
+    func revokeInvite(id: UUID) async throws {
+        try await raw("DELETE", "/auth/invites/\(id.uuidString.lowercased())")
+    }
+
+    func apiTokens() async throws -> [APIToken] {
+        try await send("GET", "/auth/tokens", as: [APIToken].self)
+    }
+
+    /// Mint a personal API token for an AI client. The returned token string
+    /// is shown exactly once — the server stores only its hash.
+    func createAPIToken(label: String, expiresInDays: Int?) async throws -> APITokenCreated {
+        try await send(
+            "POST", "/auth/tokens",
+            json: ["label": label, "expires_in_days": expiresInDays],
+            as: APITokenCreated.self
+        )
+    }
+
+    /// Whatever AI client holds this token stops working immediately.
+    func revokeAPIToken(id: UUID) async throws {
+        try await raw("DELETE", "/auth/tokens/\(id.uuidString.lowercased())")
+    }
+
     func ingredient(id: UUID) async throws -> IngredientInfo {
         try await send("GET", "/ingredients/\(id.uuidString.lowercased())", as: IngredientInfo.self)
+    }
+
+    /// Exact lookup, folded the same way a write is: `named: "fresh mint"`
+    /// finds the "mint" it would be filed under. nil when no ingredient would
+    /// claim that name.
+    func ingredient(named name: String) async throws -> IngredientInfo? {
+        try await send(
+            "GET", "/ingredients",
+            query: [URLQueryItem(name: "name", value: name)],
+            as: [IngredientInfo].self
+        ).first
+    }
+
+    /// The household's ingredient catalogue. `valueTier` nil means any verdict.
+    func ingredients(
+        search: String? = nil,
+        staplesOnly: Bool = false,
+        valueTier: ValueTier? = nil,
+        sort: IngredientSort = .name
+    ) async throws -> [IngredientInfo] {
+        var query: [URLQueryItem] = []
+        if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
+        if staplesOnly { query.append(URLQueryItem(name: "staples_only", value: "true")) }
+        if let valueTier { query.append(URLQueryItem(name: "value_tier", value: valueTier.rawValue)) }
+        if sort != .name { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
+        return try await send("GET", "/ingredients", query: query, as: [IngredientInfo].self)
+    }
+
+    /// Find-or-create by canonical name, carrying curation — used when filing
+    /// an old spelling under the name a new write would use.
+    func createIngredient(
+        name: String, aisle: String?, isStaple: Bool, valueTier: ValueTier, valueNote: String?
+    ) async throws -> IngredientInfo {
+        try await send(
+            "POST", "/ingredients",
+            json: [
+                "name": name,
+                "aisle": aisle,
+                "is_staple": isStaple,
+                "value_tier": valueTier.rawValue,
+                "value_note": valueNote,
+            ],
+            as: IngredientInfo.self
+        )
+    }
+
+    /// 409 while anything still references it — the detail says what to do.
+    func deleteIngredient(id: UUID) async throws {
+        try await raw("DELETE", "/ingredients/\(id.uuidString.lowercased())")
+    }
+
+    func ingredientDuplicates() async throws -> DuplicatesPayload {
+        try await send("GET", "/ingredients/duplicates", as: DuplicatesPayload.self)
+    }
+
+    /// Fold `duplicateIds` into the keeper: every recipe line, meal and list
+    /// line pointing at a duplicate is repointed, then the duplicates are
+    /// deleted. Not reversible; the keeper keeps its own curation.
+    func mergeIngredients(keeperId: UUID, duplicateIds: [UUID]) async throws -> MergeResult {
+        try await send(
+            "POST", "/ingredients/\(keeperId.uuidString.lowercased())/merge",
+            json: ["duplicate_ids": duplicateIds.map { $0.uuidString.lowercased() }],
+            as: MergeResult.self
+        )
     }
 
     func updateIngredient(
@@ -262,10 +373,14 @@ extension APIClient {
         )
     }
 
-    func recipes(search: String?, sort: RecipeSort = .title) async throws -> [RecipeSummary] {
+    func recipes(
+        search: String?, sort: RecipeSort = .title, tag: String? = nil, maxTotalMinutes: Int? = nil
+    ) async throws -> [RecipeSummary] {
         var query: [URLQueryItem] = []
         if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
         if sort != .title { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
+        if let tag, !tag.isEmpty { query.append(URLQueryItem(name: "tag", value: tag)) }
+        if let maxTotalMinutes { query.append(URLQueryItem(name: "max_total_minutes", value: String(maxTotalMinutes))) }
         return try await send("GET", "/recipes", query: query, as: [RecipeSummary].self)
     }
 
@@ -389,6 +504,15 @@ extension APIClient {
         try await send("GET", "/plans/current", as: Plan.self)
     }
 
+    /// Any plan by id — how an archived week's menu is read back (Q4).
+    func plan(id: UUID) async throws -> Plan {
+        try await send("GET", "/plans/\(id.uuidString.lowercased())", as: Plan.self)
+    }
+
+    func renamePlan(id: UUID, label: String) async throws -> Plan {
+        try await send("PATCH", "/plans/\(id.uuidString.lowercased())", json: ["label": label], as: Plan.self)
+    }
+
     func createPlan(label: String, copyFrom: UUID? = nil) async throws -> Plan {
         try await send(
             "POST", "/plans",
@@ -426,6 +550,43 @@ extension APIClient {
             as: Plan.self
         )
     }
+
+    // MARK: Supermarkets
+
+    /// The household's saved stores. The active one's aisle order drives the
+    /// shopping-list sort and `GET /aisles`; none active = the built-in walk.
+    func supermarkets() async throws -> [Supermarket] {
+        try await send("GET", "/supermarkets", as: [Supermarket].self)
+    }
+
+    /// New stores start on the built-in aisle order; 409 on a duplicate name.
+    func createSupermarket(name: String) async throws -> Supermarket {
+        try await send("POST", "/supermarkets", json: ["name": name], as: Supermarket.self)
+    }
+
+    /// A true PATCH: only the arguments passed are sent. `isActive: true` is
+    /// "we're at this store today"; `false` goes back to the built-in order.
+    func updateSupermarket(
+        id: UUID, name: String? = nil, aisleOrder: [String]? = nil, isActive: Bool? = nil
+    ) async throws -> Supermarket {
+        var payload: [String: Any?] = [:]
+        if let name { payload["name"] = name }
+        if let aisleOrder { payload["aisle_order"] = aisleOrder }
+        if let isActive { payload["is_active"] = isActive }
+        return try await send(
+            "PATCH", "/supermarkets/\(id.uuidString.lowercased())", json: payload, as: Supermarket.self
+        )
+    }
+
+    /// If it was the active store the list falls back to the built-in order.
+    func deleteSupermarket(id: UUID) async throws {
+        try await raw("DELETE", "/supermarkets/\(id.uuidString.lowercased())")
+    }
+
+    /// Finished shops, newest first.
+    func archivedLists() async throws -> [ArchivedListSummary] {
+        try await send("GET", "/shopping-list/archived", as: [ArchivedListSummary].self)
+    }
 }
 
 // MARK: - Shopping API (protocol so the offline store is testable)
@@ -442,6 +603,7 @@ protocol ShoppingAPI: Sendable {
     func fetchAisles() async throws -> [Aisle]
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem
     func addItem(_ payload: AdhocPayload) async throws -> ListItem
+    func deleteItem(id: UUID) async throws
     func archiveList() async throws
 }
 
@@ -482,6 +644,11 @@ extension APIClient: ShoppingAPI {
             ],
             as: ListItem.self
         )
+    }
+
+    /// Only ad-hoc lines can go; a 409 names the meals that still need the item.
+    func deleteItem(id: UUID) async throws {
+        try await raw("DELETE", "/shopping-list/items/\(id.uuidString.lowercased())")
     }
 
     func archiveList() async throws {

@@ -625,7 +625,8 @@ table.plain tr:last-child td { border-bottom: 0; }
 
 .ing-row { display: grid; grid-template-columns: minmax(140px, 1.4fr) auto minmax(110px, 1fr) auto minmax(120px, 1fr) minmax(160px, 1.4fr) auto; gap: .6rem; align-items: center; padding: .5rem 0; border-bottom: 1px dashed var(--line); }
 .ing-row.ing-head { border-bottom: 2px solid var(--line); }
-.ing-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ing-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ing-row .name:hover, .ing-row .name:focus-visible { text-decoration: underline dotted; }
 .ing-row select, .ing-row input { padding: .32rem .55rem; font-size: .88rem; border-radius: 9px; }
 .ing-row .flash { animation: saved .8s var(--ease); }
 @keyframes saved { 0% { background: var(--tint-green); } 100% { background: transparent; } }

@@ -24,6 +24,13 @@ enum AppLinks {
     static func privacy(server: String) -> URL { page("/privacy", server: server) }
     static func support(server: String) -> URL { page("/support", server: server) }
 
+    /// The AI-facing pages every deployment serves: the skill is an
+    /// assistant's operating manual for this server, the prompt pack a
+    /// paste-anywhere version. Linked next to API tokens, which is where
+    /// they're needed.
+    static func skill(server: String) -> URL { page("/skill", server: server) }
+    static func promptPack(server: String) -> URL { page("/prompt-pack", server: server) }
+
     private static func page(_ path: String, server: String) -> URL {
         let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let base = URL(string: trimmed), base.scheme != nil, base.host != nil else {

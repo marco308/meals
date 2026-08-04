@@ -150,4 +150,99 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(aisles.last?.emoji, "❓")
         XCTAssertEqual(aisles.count, 12)
     }
+
+    func testDecodesSupermarkets() throws {
+        let json = Data(
+            #"""
+            [{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "Big Tesco",
+              "aisle_order": ["🍞", "🥬", "🥩"], "is_active": true, "created_at": "2026-08-01T10:00:00Z"}]
+            """#.utf8
+        )
+        let markets = try APIClient.decoder().decode([Supermarket].self, from: json)
+        XCTAssertEqual(markets.first?.name, "Big Tesco")
+        XCTAssertEqual(markets.first?.aisleOrder, ["🍞", "🥬", "🥩"])
+        XCTAssertEqual(markets.first?.isActive, true)
+    }
+
+    func testDecodesDuplicatesPayload() throws {
+        let mint = #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "mint", "aisle": "🥬", "aisle_label": "Fruit & veg", "is_staple": false, "value_tier": "any", "value_tier_label": "No strong opinion", "value_note": null}"#
+        let leaves = #"{"id": "4f45efcd-6475-46aa-9668-34ec9c40103e", "name": "mint leaves", "aisle": "🥬", "aisle_label": "Fruit & veg", "is_staple": false, "value_tier": "any", "value_tier_label": "No strong opinion", "value_note": null}"#
+        let json = Data(
+            #"""
+            {"groups": [{"canonical_name": "mint", "keeper": \#(mint), "duplicates": [\#(leaves)]}],
+             "unfolded": [{"ingredient": \#(leaves), "canonical_name": "mint leaf"}]}
+            """#.utf8
+        )
+        let payload = try APIClient.decoder().decode(DuplicatesPayload.self, from: json)
+        XCTAssertEqual(payload.groups.first?.keeper.name, "mint")
+        XCTAssertEqual(payload.groups.first?.duplicates.map(\.name), ["mint leaves"])
+        XCTAssertEqual(payload.unfolded.first?.canonicalName, "mint leaf")
+    }
+
+    func testDecodesInvitesWithStatus() throws {
+        let json = Data(
+            #"""
+            [{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "created_at": "2026-07-01T10:00:00Z",
+              "expires_at": "2026-07-08T10:00:00Z", "accepted_at": null, "accepted_by_user_id": null},
+             {"id": "4f45efcd-6475-46aa-9668-34ec9c40103e", "created_at": "2026-07-01T10:00:00Z",
+              "expires_at": "2026-07-08T10:00:00Z", "accepted_at": "2026-07-02T09:00:00Z",
+              "accepted_by_user_id": "61931d47-4154-418a-a43f-f734a0e3d888"}]
+            """#.utf8
+        )
+        let invites = try APIClient.decoder().decode([InviteInfo].self, from: json)
+        XCTAssertEqual(invites[0].status(now: "2026-07-03T10:00:00"), .open)
+        XCTAssertEqual(invites[0].status(now: "2026-07-09T10:00:00"), .expired)
+        XCTAssertEqual(invites[1].status(now: "2026-07-03T10:00:00"), .redeemed, "redeemed wins even before expiry")
+        XCTAssertEqual(invites[1].status(now: "2026-07-09T10:00:00"), .redeemed, "…and after it")
+    }
+
+    func testDecodesAPITokens() throws {
+        let json = Data(
+            #"""
+            [{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "kind": "pat", "label": "Claude on the laptop",
+              "created_at": "2026-08-01T10:00:00Z", "expires_at": null, "last_used_at": "2026-08-02T09:30:00Z"}]
+            """#.utf8
+        )
+        let tokens = try APIClient.decoder().decode([APIToken].self, from: json)
+        XCTAssertEqual(tokens.first?.label, "Claude on the laptop")
+        XCTAssertNil(tokens.first?.expiresAt)
+        XCTAssertEqual(TimestampLabel.day(tokens.first?.lastUsedAt), "2 Aug 2026")
+    }
+
+    func testDecodesArchivedLists() throws {
+        let json = Data(
+            #"""
+            [{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "created_at": "2026-07-26T10:00:00Z",
+              "archived_at": "2026-08-02T17:00:00Z", "item_count": 14}]
+            """#.utf8
+        )
+        let lists = try APIClient.decoder().decode([ArchivedListSummary].self, from: json)
+        XCTAssertEqual(lists.first?.itemCount, 14)
+        XCTAssertEqual(TimestampLabel.day(lists.first?.archivedAt), "2 Aug 2026")
+    }
+
+    /// The plan fixture predates nothing here, but a cache written by an older
+    /// app has no archived_at key — that must stay decodable (the same rule as
+    /// every other added field).
+    func testPlanArchivedAtIsOptional() throws {
+        let plan = try APIClient.decoder().decode(Plan.self, from: fixture("plan"))
+        _ = plan.archivedAt  // present or not, never a decode error
+    }
+
+    func testDayLabelReadsTheIsoPrefixOnly() {
+        XCTAssertEqual(TimestampLabel.day("2026-08-02T17:00:00Z"), "2 Aug 2026")
+        XCTAssertEqual(TimestampLabel.day("2026-12-31"), "31 Dec 2026")
+        XCTAssertNil(TimestampLabel.day(nil))
+        XCTAssertNil(TimestampLabel.day("soon"))
+        XCTAssertNil(TimestampLabel.day("2026-13-01T00:00:00Z"), "a nonsense month is not a date")
+    }
+
+    /// Only lines every source of which is ad-hoc offer delete — mirroring the
+    /// server's `is_adhoc_only` so the app never offers a doomed action.
+    func testAdhocOnlyMirrorsTheServerRule() {
+        let byHand = ItemSource(adHoc: true, mealName: nil, recipeTitle: nil, quantity: 1)
+        let fromMeal = ItemSource(adHoc: false, mealName: "Spag bol", recipeTitle: "Spag bol", quantity: 500)
+        XCTAssertTrue(TestData.item(name: "bin bags", sources: [byHand]).isAdhocOnly)
+        XCTAssertFalse(TestData.item(name: "beef", sources: [byHand, fromMeal]).isAdhocOnly)
+    }
 }

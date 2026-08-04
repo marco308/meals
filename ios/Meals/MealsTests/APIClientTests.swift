@@ -486,6 +486,114 @@ final class AccountLifecycleTests: XCTestCase {
         }
     }
 
+    func testIngredientListDefaultsSendNoQuery() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/ingredients")
+            XCTAssertNil(request.url?.query, "API defaults need no parameters, so old backends keep working")
+            return (200, Data("[]".utf8))
+        }
+        _ = try await client(protocolClass: StubProtocol.self).ingredients()
+    }
+
+    func testIngredientListBuildsTheFilterQuery() async throws {
+        StubProtocol.handler = { request in
+            let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(query["search"], "mint")
+            XCTAssertEqual(query["staples_only"], "true")
+            XCTAssertEqual(query["value_tier"], "premium")
+            XCTAssertEqual(query["sort"], "aisle")
+            return (200, Data("[]".utf8))
+        }
+        _ = try await client(protocolClass: StubProtocol.self).ingredients(
+            search: "mint", staplesOnly: true, valueTier: .premium, sort: .aisle
+        )
+    }
+
+    func testIngredientExactLookupSendsTheNameParameter() async throws {
+        StubProtocol.handler = { request in
+            let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(items, [URLQueryItem(name: "name", value: "fresh mint")])
+            return (
+                200,
+                Data(
+                    #"[{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "mint", "aisle": "🥬", "aisle_label": "Fruit & veg", "is_staple": false, "value_tier": "any", "value_tier_label": "No strong opinion", "value_note": null}]"#
+                    .utf8
+                )
+            )
+        }
+        let found = try await client(protocolClass: StubProtocol.self).ingredient(named: "fresh mint")
+        XCTAssertEqual(found?.name, "mint", "the server folds the lookup; the caller sees where it lands")
+
+        StubProtocol.handler = { _ in (200, Data("[]".utf8)) }
+        let missing = try await client(protocolClass: StubProtocol.self).ingredient(named: "dragon fruit")
+        XCTAssertNil(missing)
+    }
+
+    func testMergePostsTheDuplicateIds() async throws {
+        let keeper = UUID(uuidString: "61931D47-4154-418A-A43F-F734A0E3D888")!
+        let duplicate = UUID(uuidString: "4F45EFCD-6475-46AA-9668-34EC9C40103E")!
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/ingredients/61931d47-4154-418a-a43f-f734a0e3d888/merge")
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["duplicate_ids"] as? [String], [duplicate.uuidString.lowercased()])
+            return (
+                200,
+                Data(
+                    #"{"ingredient": {"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "mint", "aisle": "🥬", "aisle_label": "Fruit & veg", "is_staple": false, "value_tier": "any", "value_tier_label": "No strong opinion", "value_note": null}, "merged": 1}"#
+                    .utf8
+                )
+            )
+        }
+        let result = try await client(protocolClass: StubProtocol.self)
+            .mergeIngredients(keeperId: keeper, duplicateIds: [duplicate])
+        XCTAssertEqual(result.merged, 1)
+        XCTAssertEqual(result.ingredient.name, "mint")
+    }
+
+    func testSupermarketPatchSendsOnlyTheFieldsGiven() async throws {
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertTrue(request.url!.path.hasPrefix("/supermarkets/"))
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["is_active"] as? Bool, true)
+            XCTAssertNil(sent?["name"], "activating a store must not rename it")
+            XCTAssertNil(sent?["aisle_order"], "…or replace its saved walk")
+            return (
+                200,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "Big Tesco", "aisle_order": ["🥬"], "is_active": true, "created_at": "2026-08-01T10:00:00Z"}"#
+                    .utf8
+                )
+            )
+        }
+        let market = try await client(protocolClass: StubProtocol.self)
+            .updateSupermarket(id: UUID(), isActive: true)
+        XCTAssertTrue(market.isActive)
+    }
+
+    func testCreateAPITokenOmitsExpiryWhenNever() async throws {
+        StubProtocol.handler = { request in
+            let body = request.httpBody ?? request.streamedBody()
+            let sent = try? JSONSerialization.jsonObject(with: body ?? Data()) as? [String: Any]
+            XCTAssertEqual(sent?["label"] as? String, "Claude on the laptop")
+            XCTAssertNil(sent?["expires_in_days"], "'never' is the API default and is left unsaid")
+            return (
+                201,
+                Data(
+                    #"{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "kind": "pat", "label": "Claude on the laptop", "created_at": "2026-08-01T10:00:00Z", "expires_at": null, "last_used_at": null, "token": "meals_pat_abc"}"#
+                    .utf8
+                )
+            )
+        }
+        let created = try await client(protocolClass: StubProtocol.self)
+            .createAPIToken(label: "Claude on the laptop", expiresInDays: nil)
+        XCTAssertEqual(created.token, "meals_pat_abc")
+    }
+
     /// A reference box so the stub closure can hand a value back.
     private final class Captured: @unchecked Sendable {
         var body: [String: Any]?

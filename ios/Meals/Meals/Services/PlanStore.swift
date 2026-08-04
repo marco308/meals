@@ -88,6 +88,19 @@ final class PlanStore {
         }
     }
 
+    /// Rename the current plan. The label is how a week is remembered in the
+    /// history, so it's worth getting right; nothing else changes.
+    func renamePlan(to label: String) async {
+        guard let plan else { return }
+        do {
+            let updated = try await api().renamePlan(id: plan.id, label: label)
+            self.plan = updated
+            planCache.save(updated)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Archive the current plan (Q4). Its meals' contributions come off the
     /// active shopping list server-side.
     func archiveCurrentPlan() async {
@@ -254,6 +267,11 @@ final class RecipeStore {
     private(set) var isOffline = false
     var errorMessage: String?
     var sort: RecipeSort = .title
+    /// Library filters (mirroring the web app's): a tag chip and the
+    /// under-30-minutes toggle. State lives here so every caller of
+    /// `refresh()` respects them without threading parameters around.
+    var tag: String? = nil
+    var under30 = false
 
     private let api: () -> APIClient
     private let libraryCache: DiskCache<[RecipeSummary]>
@@ -275,12 +293,14 @@ final class RecipeStore {
         isLoading = recipes.isEmpty
         defer { isLoading = false }
         do {
-            recipes = try await api().recipes(search: search, sort: sort)
+            recipes = try await api().recipes(
+                search: search, sort: sort, tag: tag, maxTotalMinutes: under30 ? 30 : nil
+            )
             isOffline = false
             // Only cache the unfiltered library — a search result isn't the
             // library, and restoring one on next launch would look like data
             // loss.
-            if search == nil || search!.isEmpty { libraryCache.save(recipes) }
+            if (search == nil || search!.isEmpty) && tag == nil && !under30 { libraryCache.save(recipes) }
         } catch let error as APIError where error.isConnectivity {
             isOffline = true
         } catch {

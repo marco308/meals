@@ -9,11 +9,12 @@ enum PendingOp: Codable, Equatable, Identifiable {
     case setExcluded(id: UUID, itemID: UUID, value: Bool)
     case setStapleNeeded(id: UUID, itemID: UUID, value: Bool)
     case addAdhoc(id: UUID, name: String, quantity: Double?, unit: String?)
+    case deleteItem(id: UUID, itemID: UUID)
 
     var id: UUID {
         switch self {
         case .setChecked(let id, _, _), .setExcluded(let id, _, _), .setStapleNeeded(let id, _, _),
-             .addAdhoc(let id, _, _, _): id
+             .addAdhoc(let id, _, _, _), .deleteItem(let id, _): id
         }
     }
 }
@@ -135,6 +136,8 @@ final class ShoppingListStore {
             if let index = items.firstIndex(where: { $0.id == itemID }) {
                 items[index].stapleNeeded = value
             }
+        case .deleteItem(_, let itemID):
+            items.removeAll { $0.id == itemID }
         case .addAdhoc(let id, let name, let quantity, let unit):
             let canonical = name.lowercased().trimmingCharacters(in: .whitespaces)
             if let index = items.firstIndex(where: { $0.name == canonical && $0.unit == unit }) {
@@ -216,6 +219,13 @@ final class ShoppingListStore {
         enqueue(.addAdhoc(id: UUID(), name: trimmed, quantity: quantity, unit: unit))
     }
 
+    /// Delete a line added by hand (Q22) — a typo'd quick-add, mostly. Only
+    /// offered when every source is ad-hoc: meal-sourced lines come off by
+    /// taking the meal off the plan, and the server would 409 anyway.
+    func deleteAdhoc(_ item: ListItem) {
+        enqueue(.deleteItem(id: UUID(), itemID: item.id))
+    }
+
     private func enqueue(_ op: PendingOp) {
         pending.append(op)
         persistPending()
@@ -277,6 +287,8 @@ final class ShoppingListStore {
             // The server may merge into an existing line with a different id;
             // later queued ops on our synthetic id must follow it there.
             if item.id != id { remap[id] = item.id }
+        case .deleteItem(_, let itemID):
+            try await client.deleteItem(id: remap[itemID] ?? itemID)
         }
     }
 

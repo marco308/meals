@@ -34,6 +34,12 @@ struct RecipesView: View {
                             systemImage: "wifi.slash",
                             description: Text("No saved copy of the library yet — it'll be here once you've loaded it online.")
                         )
+                    } else if hasFilters || !search.isEmpty {
+                        ContentUnavailableView(
+                            "Nothing matches",
+                            systemImage: "line.3.horizontal.decrease.circle",
+                            description: Text("No recipe matches the search and filters.")
+                        )
                     } else {
                         ContentUnavailableView(
                             "No recipes yet",
@@ -64,9 +70,23 @@ struct RecipesView: View {
                                 Text(option.label).tag(option)
                             }
                         }
+                        Divider()
+                        Toggle("Under 30 min", isOn: under30Binding)
+                        if !availableTags.isEmpty {
+                            Picker("Tag", selection: tagBinding) {
+                                Text("Any tag").tag(String?.none)
+                                ForEach(availableTags, id: \.self) { tag in
+                                    Text(tag).tag(Optional(tag))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
                     } label: {
-                        Image(systemName: "arrow.up.arrow.down")
+                        Image(systemName: hasFilters
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
                     }
+                    .accessibilityLabel("Sort and filter")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -106,6 +126,36 @@ struct RecipesView: View {
             get: { store.sort },
             set: { option in
                 store.sort = option
+                Task { await store.refresh(search: search.isEmpty ? nil : search) }
+            }
+        )
+    }
+
+    private var hasFilters: Bool { store.under30 || store.tag != nil }
+
+    /// Tags present in the current results, plus the active one so it can
+    /// always be untoggled — same behaviour as the web app's tag chips.
+    private var availableTags: [String] {
+        var tags = Set(store.recipes.flatMap(\.tags))
+        if let active = store.tag { tags.insert(active) }
+        return tags.sorted()
+    }
+
+    private var under30Binding: Binding<Bool> {
+        Binding(
+            get: { store.under30 },
+            set: { on in
+                store.under30 = on
+                Task { await store.refresh(search: search.isEmpty ? nil : search) }
+            }
+        )
+    }
+
+    private var tagBinding: Binding<String?> {
+        Binding(
+            get: { store.tag },
+            set: { tag in
+                store.tag = tag
                 Task { await store.refresh(search: search.isEmpty ? nil : search) }
             }
         )
