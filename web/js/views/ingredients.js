@@ -106,7 +106,7 @@ export async function renderIngredients(root) {
 function ingredientRow(item, aisleList) {
   return html`
     <div class="ing-row" data-ing="${item.id}">
-      <span class="name" title="${item.name}">${item.name}</span>
+      <span class="name" title="${item.name} — click to rename" tabindex="0" role="button">${item.name}</span>
       <input type="checkbox" ${item.is_staple ? "checked" : ""} data-k="is_staple" title="Staples hide from the list until a staples check says you're low">
       <select data-k="aisle" aria-label="Aisle">
         ${aisleList.map((a) => html`<option value="${a.emoji}" ${a.emoji === item.aisle ? "selected" : ""}>${a.emoji} ${a.label}</option>`)}
@@ -143,6 +143,14 @@ function bindRow(row, refresh) {
   row.querySelector('[data-k="value_tier"]').onchange = (e) => save({ value_tier: e.target.value });
   const note = row.querySelector('[data-k="value_note"]');
   note.onchange = () => save({ value_note: note.value.trim() || null });
+  const name = row.querySelector(".name");
+  name.onclick = () => renameInline(row, refresh);
+  name.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      renameInline(row, refresh);
+    }
+  };
   row.querySelector("[data-mrg]").onclick = () => {
     mergeIntoDialog({ id, name: row.querySelector(".name").textContent }, refresh);
   };
@@ -163,6 +171,100 @@ function bindRow(row, refresh) {
       toast(error.detail || error.message, "error");
     }
   };
+}
+
+// Rename, as sugar over create-and-merge (Q21). A name is the ingredient's
+// identity key — every write finds-or-creates by its folded form — so a raw
+// name edit would strand future writes on a fresh, uncurated row. Instead:
+// find what the new name folds to; same row = nothing to rename, another row
+// = a merge (its curation wins), no row = create one carrying this row's
+// curation and fold this row into it. References follow in every case.
+function renameInline(row, refresh) {
+  const span = row.querySelector(".name");
+  const item = {
+    // Read curation from the row's own controls: they hold any edits made
+    // since the fetch, and a rename must not silently revert those.
+    id: row.dataset.ing,
+    name: span.textContent,
+    aisle: row.querySelector('[data-k="aisle"]').value,
+    is_staple: row.querySelector('[data-k="is_staple"]').checked,
+    value_tier: row.querySelector('[data-k="value_tier"]').value,
+    value_note: row.querySelector('[data-k="value_note"]').value.trim() || null,
+  };
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = item.name;
+  input.maxLength = 200;
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  let closed = false;
+  const done = async (save) => {
+    if (closed) return; // Enter triggers blur too — settle once
+    closed = true;
+    const typed = input.value.trim();
+    if (save && typed && typed.toLowerCase() !== item.name.toLowerCase()) {
+      await renameIngredient(item, typed, refresh);
+    } else {
+      input.replaceWith(span); // untouched — put the row back as it was
+    }
+  };
+  input.onkeydown = (event) => {
+    if (event.key === "Enter") done(true);
+    if (event.key === "Escape") done(false);
+  };
+  input.onblur = () => done(true);
+}
+
+async function renameIngredient(item, typed, refresh) {
+  try {
+    // `name=` folds the typed text exactly the way a write would, so this
+    // answers "which ingredient would that name land on?"
+    const target = (await api("/ingredients", { query: { name: typed } }))[0];
+    if (target && target.id === item.id) {
+      toast(`“${typed}” is filed under “${item.name}” — that's already this ingredient.`, "ok");
+      refresh();
+      return;
+    }
+    if (target) {
+      const ok = await confirmDialog({
+        title: `“${typed}” already exists as “${target.name}”`,
+        body: `Renaming folds “${item.name}” into it: every recipe line and list item moves onto “${target.name}”, which keeps its own aisle, staple flag and verdict. This can't be undone.`,
+        confirmLabel: "Merge them",
+        danger: true,
+      });
+      if (!ok) {
+        refresh();
+        return;
+      }
+      await api(`/ingredients/${target.id}/merge`, { method: "POST", body: { duplicate_ids: [item.id] } });
+      toast(`Merged “${item.name}” into “${target.name}”.`, "ok");
+    } else {
+      // The new name is free: create it carrying this row's curation — a
+      // rename is a respelling, not a change of opinion — then fold the old
+      // row into it.
+      const keeper = await api("/ingredients", {
+        method: "POST",
+        body: {
+          name: typed,
+          aisle: item.aisle,
+          is_staple: item.is_staple,
+          value_tier: item.value_tier,
+          value_note: item.value_note,
+        },
+      });
+      await api(`/ingredients/${keeper.id}/merge`, { method: "POST", body: { duplicate_ids: [item.id] } });
+      toast(
+        keeper.name === typed.toLowerCase()
+          ? `Renamed “${item.name}” to “${keeper.name}”.`
+          : `Renamed “${item.name}” to “${keeper.name}” — the catalogue files “${typed}” under that.`,
+        "ok",
+      );
+    }
+  } catch (error) {
+    toast(error.detail || error.message, "error");
+  }
+  refresh();
 }
 
 // One line of curation context per ingredient, so a merge choice is made

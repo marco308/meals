@@ -510,6 +510,26 @@ final class AccountLifecycleTests: XCTestCase {
         )
     }
 
+    func testIngredientExactLookupSendsTheNameParameter() async throws {
+        StubProtocol.handler = { request in
+            let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(items, [URLQueryItem(name: "name", value: "fresh mint")])
+            return (
+                200,
+                Data(
+                    #"[{"id": "61931d47-4154-418a-a43f-f734a0e3d888", "name": "mint", "aisle": "🥬", "aisle_label": "Fruit & veg", "is_staple": false, "value_tier": "any", "value_tier_label": "No strong opinion", "value_note": null}]"#
+                    .utf8
+                )
+            )
+        }
+        let found = try await client(protocolClass: StubProtocol.self).ingredient(named: "fresh mint")
+        XCTAssertEqual(found?.name, "mint", "the server folds the lookup; the caller sees where it lands")
+
+        StubProtocol.handler = { _ in (200, Data("[]".utf8)) }
+        let missing = try await client(protocolClass: StubProtocol.self).ingredient(named: "dragon fruit")
+        XCTAssertNil(missing)
+    }
+
     func testMergePostsTheDuplicateIds() async throws {
         let keeper = UUID(uuidString: "61931D47-4154-418A-A43F-F734A0E3D888")!
         let duplicate = UUID(uuidString: "4F45EFCD-6475-46AA-9668-34EC9C40103E")!

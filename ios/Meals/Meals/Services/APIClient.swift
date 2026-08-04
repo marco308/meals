@@ -292,6 +292,17 @@ extension APIClient {
         try await send("GET", "/ingredients/\(id.uuidString.lowercased())", as: IngredientInfo.self)
     }
 
+    /// Exact lookup, folded the same way a write is: `named: "fresh mint"`
+    /// finds the "mint" it would be filed under. nil when no ingredient would
+    /// claim that name.
+    func ingredient(named name: String) async throws -> IngredientInfo? {
+        try await send(
+            "GET", "/ingredients",
+            query: [URLQueryItem(name: "name", value: name)],
+            as: [IngredientInfo].self
+        ).first
+    }
+
     /// The household's ingredient catalogue. `valueTier` nil means any verdict.
     func ingredients(
         search: String? = nil,
