@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # What TestFlight/the App Store currently has, so an older-but-still-allowed
     # app can nudge the user without being locked out. Track `CFBundleVersion`
     # in ios/project.yml when that is bumped for an upload.
-    current_ios_build: int = 22
+    current_ios_build: int = 23
     ios_upgrade_url: str | None = None
 
     # Timeout for fetching external recipe pages during ingestion.

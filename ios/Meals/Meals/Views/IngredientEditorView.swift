@@ -34,7 +34,29 @@ struct IngredientEditorView: View {
         List {
             if let info {
                 Section {
-                    LabeledContent("Ingredient", value: info.name)
+                    // Tapping the name renames, like the web app — but through the
+                    // fold-aware alert flow (see rename(to:)), never an in-place
+                    // text field: the name is an identity key, not a plain field.
+                    Button {
+                        renameDraft = info.name
+                        showRename = true
+                    } label: {
+                        HStack {
+                            // Color.primary/.secondary, not the hierarchical
+                            // styles — inside a list Button those resolve
+                            // against the tint and the whole row goes green.
+                            Text("Ingredient")
+                                .foregroundStyle(Color.primary)
+                            Spacer()
+                            Text(info.name)
+                                .foregroundStyle(Color.secondary)
+                            Image(systemName: "pencil")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .disabled(isSaving)
+                    .accessibilityHint("Renames the ingredient everywhere it appears")
                     Toggle(isOn: stapleBinding) {
                         Label("Staple", systemImage: "cabinet")
                     }
@@ -86,13 +108,6 @@ struct IngredientEditorView: View {
 
                 Section {
                     Button {
-                        renameDraft = info.name
-                        showRename = true
-                    } label: {
-                        Label("Rename…", systemImage: "pencil")
-                    }
-                    .disabled(isSaving)
-                    Button {
                         showMerge = true
                     } label: {
                         Label("Merge into another ingredient…", systemImage: "arrow.triangle.merge")
@@ -100,10 +115,10 @@ struct IngredientEditorView: View {
                     .disabled(isSaving)
                 } footer: {
                     Text(
-                        "Renaming keeps every recipe and list line pointing at the same food; "
-                            + "if the new name already exists, the two fold together. Merge is for "
-                            + "duplicates spelled too differently for the finder — 'beef mince' "
-                            + "next to 'minced beef'."
+                        "To rename, tap the name at the top — every recipe and list line "
+                            + "follows it, and if the new name already exists the two fold "
+                            + "together. Merge is for duplicates spelled too differently for "
+                            + "the finder — 'beef mince' next to 'minced beef'."
                     )
                 }
 
