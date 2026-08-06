@@ -73,11 +73,20 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
+def _rate_limit_key(request: Request) -> str:
+    """Who to charge. `request.client.host` is the real caller only when uvicorn
+    has been told which proxies to trust (`FORWARDED_ALLOW_IPS`). Behind an
+    untrusted proxy it is the *proxy's* address, so every caller in the world
+    collapses into a single bucket and the limit becomes global rather than
+    per-client."""
+    return request.client.host if request.client else "unknown"
+
+
 def auth_rate_limit(request: Request) -> None:
     limit = get_settings().auth_rate_limit_per_minute
     if limit <= 0:
         return
-    key = request.client.host if request.client else "unknown"
+    key = _rate_limit_key(request)
     now = time.monotonic()
     window = _attempts[key]
     while window and now - window[0] > 60:
@@ -88,3 +97,26 @@ def auth_rate_limit(request: Request) -> None:
             detail="too many auth attempts; wait a minute and try again",
         )
     window.append(now)
+
+
+def forgive_auth_attempt(request: Request) -> None:
+    """Refund the attempt `auth_rate_limit` charged, once the caller has proved
+    they hold the credential.
+
+    The limiter is brute-force protection, and brute force is a stream of
+    *failures*. Charging successes too meant ten genuine sign-ins in a minute
+    locked the user out of their own account — which is exactly what someone
+    does when a transient error makes them retry, App Store reviewers included.
+
+    Deliberately a refund rather than "only count failures": the charge is taken
+    up front, so an endpoint that never refunds is merely stricter than it needs
+    to be. Forgetting a refund can't leave a path unthrottled. Only endpoints
+    that verified a password or a reset code should call it — `register` and the
+    reset *request* are abusable whether or not they succeed, so they keep
+    paying.
+    """
+    if get_settings().auth_rate_limit_per_minute <= 0:
+        return  # nothing was charged, so there is nothing to refund
+    window = _attempts.get(_rate_limit_key(request))
+    if window:
+        window.pop()

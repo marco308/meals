@@ -2,11 +2,11 @@ import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
 
 from app.config import get_settings
-from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit
+from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit, forgive_auth_attempt
 from app.models import AuthToken, Household, HouseholdInvite, User
 from app.schemas.auth import (
     AcceptedOut,
@@ -122,11 +122,14 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
 
 
 @router.post("/login", response_model=AuthOut)
-async def login(payload: LoginIn, db: DbSession, _: None = Depends(auth_rate_limit)) -> AuthOut:
+async def login(payload: LoginIn, request: Request, db: DbSession, _: None = Depends(auth_rate_limit)) -> AuthOut:
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="incorrect email or password")
+    # Right password: this wasn't an attack, so don't spend the caller's budget
+    # on it. Someone retrying a flaky sign-in must not lock themselves out.
+    forgive_auth_attempt(request)
     token = _session_token(user)
     db.add(token)
     await db.commit()
@@ -135,7 +138,7 @@ async def login(payload: LoginIn, db: DbSession, _: None = Depends(auth_rate_lim
 
 @router.post("/password", response_model=AuthOut)
 async def change_password(
-    payload: PasswordChangeIn, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+    payload: PasswordChangeIn, request: Request, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
 ) -> AuthOut:
     """Change the signed-in user's password. Knowing the current password is
     required, so this is also the brute-force surface — hence the rate limit.
@@ -150,6 +153,7 @@ async def change_password(
         raise HTTPException(status_code=401, detail="current password is incorrect")
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="new password must be different from the current one")
+    forgive_auth_attempt(request)  # current password checked out; not a brute-force attempt
     user.password_hash = hash_password(payload.new_password)
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "session"))
     token = _session_token(user)
@@ -226,7 +230,7 @@ async def request_password_reset(
 
 @router.post("/password/reset-confirm", response_model=AuthOut)
 async def confirm_password_reset(
-    payload: PasswordResetConfirmIn, db: DbSession, _: None = Depends(auth_rate_limit)
+    payload: PasswordResetConfirmIn, request: Request, db: DbSession, _: None = Depends(auth_rate_limit)
 ) -> AuthOut:
     """Redeem a reset code from `POST /auth/password-reset` and set a new
     password. Returns a fresh session token, so the app is logged straight in.
@@ -247,6 +251,7 @@ async def confirm_password_reset(
                 "Request a fresh one from POST /auth/password-reset."
             ),
         )
+    forgive_auth_attempt(request)  # valid reset code; not a brute-force attempt
     user = reset.user
     user.password_hash = hash_password(payload.new_password)
     # Drop the reset code (single use) and every session token, then issue one.
@@ -264,7 +269,7 @@ async def me(user: CurrentUser) -> UserOut:
 
 @router.delete("/me", response_model=AccountDeletedOut)
 async def delete_account(
-    payload: AccountDeleteIn, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+    payload: AccountDeleteIn, request: Request, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
 ) -> AccountDeletedOut:
     """Delete your account permanently (decision Q20). **This cannot be undone**
     and there is no grace period — confirm with the person before calling it.
@@ -284,6 +289,7 @@ async def delete_account(
     """
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
+    forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
     household_deleted = await delete_user(db, user)
     await db.commit()
     return AccountDeletedOut(
