@@ -27,9 +27,9 @@ Current state, verified against the App Store Connect API on 2026-08-06:
   content rights, manual release.
 - **Submitted 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC** under
   guideline 2.1(a) — a server fault, not an app one, diagnosed and fixed in
-  full at [ios/CHANGELOG.md](../CHANGELOG.md#the-21a-rejection). Editing the
-  rejected version is what moved it out of `REJECTED`; **it is not submitted**.
-  The reply is drafted in [resolution-center.md](resolution-center.md).
+  full at [ios/CHANGELOG.md](../CHANGELOG.md#the-21a-rejection). Replied to in
+  Resolution Center (kept in [resolution-center.md](resolution-center.md)) and
+  **resubmitted 2026-08-06 21:27 UTC**, now `WAITING_FOR_REVIEW`.
 - **Build 23** is attached now (uploaded 2026-08-05, `VALID`), replacing the
   one App Store Connect calls **18**. Builds 1–15 are on TestFlight at
   marketing version **0.1**, so none of them can attach to the 1.0 record at
@@ -112,7 +112,17 @@ number**. Apple requires it in international format and rejects the request
 without one. The rest of that section (contact name and email, the demo
 account, the notes) goes in with it.
 
-### 6. Submit, then wait — submitted 2026-07-27, **rejected 2026-08-06**
+### 6. Submit, then wait — rejected 2026-08-06, **resubmitted the same day**
+
+Submitting is three API calls: `POST /v1/reviewSubmissions`, then
+`POST /v1/reviewSubmissionItems` naming the submission and the version, then
+`PATCH` the submission with `{"submitted": true}`. **After a rejection there is
+a fourth**, and it comes first: the rejected submission still owns the version,
+so cancel it with `PATCH /v1/reviewSubmissions/<old>` `{"canceled": true}` and
+*wait for it to leave `CANCELING`*. Until it reaches `COMPLETE` the version is
+locked and every attempt to add it returns 409
+`ITEM_PART_OF_ANOTHER_SUBMISSION`. Removing the item directly is refused too.
+
 
 Typically 24–48 hours; this one took ten days. If it's rejected, the reply
 arrives in Resolution Center; answer it there rather than resubmitting blind —

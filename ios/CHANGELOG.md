@@ -105,10 +105,10 @@ onwards as recorded, and anything earlier as best effort.
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
 | Registered name | **Yet Another Meal Planner** — the rename landed; App Review's correspondence uses it (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | 1.0, `PREPARE_FOR_SUBMISSION`, **build 23 attached** (was ASC-18). Editing a rejected version moves it out of `REJECTED` on its own; it is not submitted until someone submits it. |
-| Review submission | `556775c4-63cc-431c-8caf-5a7e4b6339bf`, state `UNRESOLVED_ISSUES` — the rejected one. Resubmitting opens a new submission. |
+| Version record | 1.0, `WAITING_FOR_REVIEW`, **build 23 attached** (was ASC-18) |
+| Review submission | `46eacb99-2954-48bb-8bc3-948fc2cbf703`, submitted 2026-08-06 21:27 UTC. The rejected one, `556775c4-…`, is `COMPLETE`. |
 | Review notes | Filled in 2026-08-06 from [AppStore/review-notes.md](AppStore/review-notes.md), 1784 chars. They were `null` for the whole first review. |
-| Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC. |
+| Ever submitted? | Twice — 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC; resubmitted 2026-08-06 21:27 UTC. |
 | Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record now holds a rejection with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and resubmits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
 
 ### The 2.1(a) rejection
@@ -139,9 +139,21 @@ was green throughout.
 
 Fixed in `backend/app/database.py`; verified both ways against real Postgres by
 killing the pooled connections with `pg_terminate_backend` and retrying the
-login (500 before, 200 after). **The fix must be deployed before 1.0 is
-resubmitted** — the binary needs no change, though attaching a current build is
-free and sensible.
+login (500 before, 200 after). The binary needed no change, though build 23 was
+attached anyway, being better in every way and free.
+
+Deployed, replied to in Resolution Center, and **resubmitted 2026-08-06 21:27
+UTC** as submission `46eacb99-2954-48bb-8bc3-948fc2cbf703`.
+
+**Resubmitting through the API takes one step the docs don't lead with.** A
+rejected submission still *owns* the version, so `POST /v1/reviewSubmissionItems`
+returns 409 `ITEM_PART_OF_ANOTHER_SUBMISSION`, and `DELETE`-ing the item out of
+it returns 409 too while it sits in `UNRESOLVED_ISSUES`. The way through is to
+cancel the old submission — `PATCH /v1/reviewSubmissions/<old>` with
+`{"canceled": true}` — which is what the web UI's "Submit for Review" does
+behind the glass. That is **asynchronous**: it answers 200 with state
+`CANCELING` and the version stays locked until it reaches `COMPLETE`, so poll
+before adding the item rather than assuming the 200 finished the job.
 
 Two things this exposed that are worth fixing on their own schedule:
 

@@ -19,7 +19,11 @@ Submission `556775c4-63cc-431c-8caf-5a7e4b6339bf`, reviewed on an iPad Air
 the server was handing out dead pooled database connections and the reviewer's
 single sign-in attempt got one.
 
-**Status: drafted, not sent.**
+**Status: sent 2026-08-06, and 1.0 resubmitted the same day** as submission
+`46eacb99-2954-48bb-8bc3-948fc2cbf703`. The reply goes in by hand: the App Store
+Connect API has no Resolution Center endpoint, so this is web UI only, and it is
+worth doing *before* resubmitting — a reply usually earns a same-day second
+look where a silent resubmission joins the back of the queue.
 
 ```
 Thank you for the detailed report. The review device and timestamp let us
