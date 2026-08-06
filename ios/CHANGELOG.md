@@ -60,6 +60,7 @@ number involved. All four steps, in order:
 | **Local** | Built on a laptop. Nobody else has it. Freely rewritable. |
 | **TestFlight** | Uploaded. Testers can install it. Cannot be recalled. |
 | **In review** | Submitted to App Review, awaiting a verdict. |
+| **Rejected** | App Review returned it with issues. Still attached; resubmittable. |
 | **App Store** | Public. Cannot be recalled; only superseded. |
 
 ## Builds
@@ -71,7 +72,7 @@ number involved. All four steps, in order:
 | 21 | 1.0 | 2026-08-04 | TestFlight | **The web app's features, ported** (PR #39). New Ingredients tab: the catalogue with search, staples/verdict filters, name/aisle/verdict sorting, delete, the duplicates sweep (Q21) and manual merge from the ingredient editor. Settings grows Supermarkets & aisle order (save stores, drag their walks, pick the active one — Q2), an invites list with revoke, and AI access (mint/reveal-once/revoke API tokens). Shopping list: "sorting aisles for" switcher in the menu, Previous shops, and offline-queued delete for ad-hoc lines. Plan: rename, and past plans open read-only. Recipes: tag and under-30-min filters; meal-library rows in the add sheet gain edit/delete. All additive against the API — any server can serve this build. Delivery UUID `d294f722-8e5d-4340-9f34-4c99805affe4`, uploaded 2026-08-04 19:21 UTC. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 20 | 1.0 | 2026-07-30 | TestFlight | **"Add to this week's plan" works with no active plan.** From a recipe, that tap said "Added to plan" and did nothing whenever the household had no plan: `PlanStore.addMeal` returned early on a nil plan while the recipe screen showed its success alert regardless, leaving an orphan meal in the library and nothing on the shopping list. It now resolves the plan from the server and starts one, labelled "This week's options", when there genuinely isn't one; the alert names the plan, and a real failure gets an error instead of a false success. Also fixes the same dead tap when a plan did exist but the Plan tab hadn't been opened yet that session. Only iOS changed, so any server can serve this build. Delivery UUID `ee327728-3b3b-4d98-966a-bd7fa2312f88`, uploaded 2026-07-30 07:55 UTC and VALID, listed in App Store Connect as 20, so `CFBundleVersion` and the ASC number stay in step. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 19 | 1.0 | 2026-07-29 | TestFlight | **Shopping list: checked-off items leave the aisle.** Ticking something off used to leave it in place with a strikethrough, so the aisle you were standing in kept showing what was already in the trolley. It now drops out of the list into a collapsed "In the basket (N)" section at the foot of it, and one tap there puts it back in its aisle. The "Show checked-off" menu toggle is gone, replaced by that section. Also: the whole row is tappable now (the gap between the name and the quantity used to be dead space), and check-offs animate out. **18 is taken in App Store Connect, so this is 19, not 18** — the `CFBundleVersion`/ASC divergence closes here: it uploaded as 19 and App Store Connect lists it as 19. Delivery UUID `a9d80ccf-84a5-4089-91a4-023adfa9e39d`. TestFlight only — it is **not** attached to the 1.0 review, which still carries ASC-18. |
-| 17 → **ASC 18** | 1.0 | 2026-07-27 | **In review** | **The first genuinely iPhone-only build**, submitted to App Review 2026-07-27 19:35 UTC. Builds up to here all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. **Its `CFBundleVersion` is 17 but App Store Connect lists it as build 18** — see the numbering note below. |
+| 17 → **ASC 18** | 1.0 | 2026-07-27 | **Rejected** | **The first genuinely iPhone-only build**, submitted to App Review 2026-07-27 19:35 UTC, **rejected 2026-08-06 under guideline 2.1(a)** — see [The 2.1(a) rejection](#the-21a-rejection) below. Nothing was wrong with this binary. Builds up to here all shipped `UIDeviceFamily = [1, 2]`: `TARGETED_DEVICE_FAMILY: "1"` was set at the *project* level in `project.yml`, and xcodegen writes `"1,2"` onto every iOS target, which wins. So the app claimed iPad support it was never designed or tested for. App Store Connect noticed, and demanded 13" iPad screenshots. **Its `CFBundleVersion` is 17 but App Store Connect lists it as build 18** — see the numbering note below. |
 | — (ASC 17) | 1.0 | 2026-07-26 | TestFlight | **Not built from this repo**, and not accounted for here: it appeared six minutes after build 16 and matches no upload recorded in this session. It predates the iPad fix, so treat it as iPhone+iPad and do not submit it. |
 | 16 | 1.0 | 2026-07-26 | TestFlight | First build aimed at App Review, and the first at version 1.0 — so the first that can attach to the App Store record at all. Superseded before submission; **claims iPad support**. Defaults to `https://meals.marcuslab.uk` instead of localhost; login screen explains the server field and self-hosting; account settings (password, sign-out, delete) moved into a Settings screen reachable from every tab; marketing version raised 0.1 → 1.0 so the build can attach to the 1.0 App Store record. |
 | 15 | 0.1 | 2026-07-25 | TestFlight | Password reset and account deletion flows in the app (decision Q20). |
@@ -99,10 +100,56 @@ onwards as recorded, and anything earlier as best effort.
 | | |
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
-| Registered name | **Meal Options Planner** — to be renamed before submission (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | 1.0, `WAITING_FOR_REVIEW`, build ASC-18 attached |
-| Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC. |
-| Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record is still waiting on review with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and submits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
+| Registered name | **Yet Another Meal Planner** — the rename landed; App Review's correspondence uses it (see [AppStore/metadata.md](AppStore/metadata.md)) |
+| Version record | 1.0, `REJECTED`, build ASC-18 attached |
+| Review submission | `556775c4-63cc-431c-8caf-5a7e4b6339bf`, state `UNRESOLVED_ISSUES` |
+| Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC. |
+| Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record now holds a rejection with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and resubmits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
+
+### The 2.1(a) rejection
+
+Rejected 2026-08-06 for *Performance — App Completeness*, on one sentence:
+"an error message is displayed when attempting to log in". Reviewed on an
+**iPad Air 11-inch (M3), iPadOS 26.6** — an iPhone-only app runs there in
+compatibility mode, and Apple reviews it there anyway.
+
+**It was not an app bug, and not an iPad bug. It was the server.** The reviewer's
+session is in the API log in full:
+
+```
+08:16:22 GET  /client-config      200
+08:16:23 POST /auth/login         500   asyncpg ConnectionDoesNotExistError
+08:19:08 rejection email
+```
+
+`create_async_engine` was built with no `pool_pre_ping` and no `pool_recycle`,
+so the pool held Postgres connections that the overlay network had already
+dropped. The first request to check one out died; `/client-config` survived a
+second earlier only because it touches no database. Traffic is low enough that
+"the first request after a quiet spell" is a real category of user, and on that
+morning it was App Review. Four 500s in the preceding 24 hours, all the same
+fault, all first-of-the-morning. `/healthz` touches no database either, so the
+container healthcheck — the same one that gates the zero-downtime rollout —
+was green throughout.
+
+Fixed in `backend/app/database.py`; verified both ways against real Postgres by
+killing the pooled connections with `pg_terminate_backend` and retrying the
+login (500 before, 200 after). **The fix must be deployed before 1.0 is
+resubmitted** — the binary needs no change, though attaching a current build is
+free and sensible.
+
+Two things this exposed that are worth fixing on their own schedule:
+
+- **App Review notes were never submitted.** `appStoreReviewDetail.notes` is
+  `null` on the 1.0 record, so the whole block in
+  [AppStore/review-notes.md](AppStore/review-notes.md) — self-hosting, where
+  account deletion lives, why 4.8 doesn't apply — never reached a reviewer.
+- **The auth rate limit is a single global bucket.** `deps.auth_rate_limit`
+  keys on `request.client.host`, and uvicorn only trusts forwarded headers from
+  `127.0.0.1` while Traefik connects from the overlay. So every client on the
+  server shares one 10/min allowance, and one person retrying a password can
+  lock everyone out of logging in. Not what caused this rejection, but it is
+  the same shape of thing.
 
 The 1.0 listing metadata — name, subtitle, categories, age rating, description,
 keywords, URLs, screenshots, copyright, content rights — was set through the
