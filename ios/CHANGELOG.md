@@ -34,7 +34,11 @@ What that leaves standing:
 - **Attach builds by id, not by number.** `ios/AppStore/` scripts identify the
   build by the delivery UUID `altool` prints, because matching on the number
   silently attached the wrong binary once already. The UUIDs are in the rows
-  below from build 19 onward.
+  below from build 19 onward. Handily they *are* the App Store Connect build
+  ids: attaching build 23 on 2026-08-06 resolved `filter[version]=23` to
+  `c55cc542-33f6-4414-be75-2734f21c32e9`, the same UUID this file already had
+  in its row. Cross-check the upload date against the row before attaching and
+  the two identifiers confirm each other.
 
 ## The ritual when you bump a build
 
@@ -101,8 +105,9 @@ onwards as recorded, and anything earlier as best effort.
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
 | Registered name | **Yet Another Meal Planner** — the rename landed; App Review's correspondence uses it (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | 1.0, `REJECTED`, build ASC-18 attached |
-| Review submission | `556775c4-63cc-431c-8caf-5a7e4b6339bf`, state `UNRESOLVED_ISSUES` |
+| Version record | 1.0, `PREPARE_FOR_SUBMISSION`, **build 23 attached** (was ASC-18). Editing a rejected version moves it out of `REJECTED` on its own; it is not submitted until someone submits it. |
+| Review submission | `556775c4-63cc-431c-8caf-5a7e4b6339bf`, state `UNRESOLVED_ISSUES` — the rejected one. Resubmitting opens a new submission. |
+| Review notes | Filled in 2026-08-06 from [AppStore/review-notes.md](AppStore/review-notes.md), 1784 chars. They were `null` for the whole first review. |
 | Ever submitted? | Yes — first submission 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC. |
 | Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record now holds a rejection with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and resubmits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
 
