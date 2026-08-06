@@ -15,23 +15,31 @@ sections refuse an API key with these permissions — **App Privacy** and
 | [metadata.md](metadata.md) | The listing: name, subtitle, description, keywords, URLs, categories, and every field on the form |
 | [review-notes.md](review-notes.md) | What App Review is told, the demo account, and how to provision it |
 | [app-privacy.md](app-privacy.md) | The App Privacy questionnaire, answer by answer, with the reasoning |
+| [resolution-center.md](resolution-center.md) | Replies to App Review, and what evidence backs each claim in them |
 
-Current state, verified against the App Store Connect API on 2026-07-27:
+Current state, verified against the App Store Connect API on 2026-08-06:
 
 - App record `com.marcuslab.meals` (id **6794266229**), renamed to
   **"Yet Another Meal Planner"**.
-- Version **1.0** in `PREPARE_FOR_SUBMISSION`, fully populated: subtitle,
+- Version **1.0** back in `PREPARE_FOR_SUBMISSION`, fully populated: subtitle,
   Food & Drink / Productivity, 4+, description, keywords, promotional text,
   privacy + support + marketing URLs, five 6.9" screenshots, copyright,
   content rights, manual release.
-- **Submitted 2026-07-27 19:35 UTC** — `WAITING_FOR_REVIEW`, with the
-  iPhone-only build attached.
-- Builds 1–15 are on TestFlight at marketing version **0.1**, so **none of them
-  can attach to the 1.0 record**. The attached build is the one App Store
-  Connect calls **18** (uploaded 2026-07-27, `VALID`) — the first that is
-  really iPhone-only. Its `CFBundleVersion` is 17; the numbering diverged, see
-  [ios/CHANGELOG.md](../CHANGELOG.md). Builds 16 and 17 claim iPad support and
-  would oblige you to supply 13" iPad screenshots.
+- **Submitted 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC** under
+  guideline 2.1(a) — a server fault, not an app one, diagnosed and fixed in
+  full at [ios/CHANGELOG.md](../CHANGELOG.md#the-21a-rejection). Replied to in
+  Resolution Center (kept in [resolution-center.md](resolution-center.md)) and
+  **resubmitted 2026-08-06 21:27 UTC**, now `WAITING_FOR_REVIEW`.
+- **Build 23** is attached now (uploaded 2026-08-05, `VALID`), replacing the
+  one App Store Connect calls **18**. Builds 1–15 are on TestFlight at
+  marketing version **0.1**, so none of them can attach to the 1.0 record at
+  all, and builds 16 and 17 claim iPad support and would oblige you to supply
+  13" iPad screenshots.
+- **The App Review notes are filled in**, from
+  [review-notes.md](review-notes.md). They were `null` for the whole first
+  review, so nothing explaining self-hosting or pointing at account deletion
+  reached the reviewer. Writing them in this repo is not submitting them —
+  check the field, not the file.
 
 ## Order of operations
 
@@ -61,11 +69,11 @@ in the form in step 5.
 make ios-testflight
 ```
 
-The iPhone-only build was uploaded on 2026-07-27, is `VALID`, and is attached.
-`current_ios_build` in `backend/app/config.py` is `17` — it is compared against
-the `CFBundleVersion` *inside* the installed app, so it tracks that number and
-not the one App Store Connect displays. It only goes live on the next
-`make deploy`.
+**Build 23** was uploaded on 2026-08-05, is `VALID`, and is the one attached.
+`current_ios_build` in `backend/app/config.py` is `23` and is live — it is
+compared against the `CFBundleVersion` *inside* the installed app, so it tracks
+that number and not the one App Store Connect displays. Changing it only goes
+live on the next `make deploy`.
 
 Next time: move the new row in [ios/CHANGELOG.md](../CHANGELOG.md) from
 **Local** to **TestFlight** and bump `current_ios_build` with it.
@@ -104,12 +112,37 @@ number**. Apple requires it in international format and rejects the request
 without one. The rest of that section (contact name and email, the demo
 account, the notes) goes in with it.
 
-### 6. Submit, then wait — ✅ done 2026-07-27
+### 6. Submit, then wait — rejected 2026-08-06, **resubmitted the same day**
 
-Typically 24–48 hours. If it's rejected, the reply arrives in Resolution
-Center; answer it there rather than resubmitting blind — a reply usually gets a
-same-day second look, whereas a silent resubmission goes to the back of the
-queue.
+Submitting is three API calls: `POST /v1/reviewSubmissions`, then
+`POST /v1/reviewSubmissionItems` naming the submission and the version, then
+`PATCH` the submission with `{"submitted": true}`. **After a rejection there is
+a fourth**, and it comes first: the rejected submission still owns the version,
+so cancel it with `PATCH /v1/reviewSubmissions/<old>` `{"canceled": true}` and
+*wait for it to leave `CANCELING`*. Until it reaches `COMPLETE` the version is
+locked and every attempt to add it returns 409
+`ITEM_PART_OF_ANOTHER_SUBMISSION`. Removing the item directly is refused too.
+
+
+Typically 24–48 hours; this one took ten days. If it's rejected, the reply
+arrives in Resolution Center; answer it there rather than resubmitting blind —
+a reply usually gets a same-day second look, whereas a silent resubmission goes
+to the back of the queue. Keep the reply in
+[resolution-center.md](resolution-center.md).
+
+The rejection also has a lesson for step 1. **Deploying is not the same as
+being reliable afterwards.** The 2.1(a) rejection was a 500 from `/auth/login`
+caused by dead pooled database connections, on a server that had been up for
+days and whose `/healthz` was green the entire time, because `/healthz` touches
+no database. The curl checks in step 1 would all have passed that morning. If
+you want a check that would have caught it, hit an endpoint that reads the
+database with the review credentials, not just `/healthz`:
+
+```bash
+curl -fsS -X POST https://meals.marcuslab.uk/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"apple.review@marcuslab.uk","password":"<the one in the form>"}'
+```
 
 ### 7. After approval
 
@@ -124,7 +157,7 @@ been done about each.
 
 | Risk | Guideline | Mitigation |
 |---|---|---|
-| Reviewer can't sign in | 2.1 | Demo account provisioned per submission, server pre-filled on the sign-in screen, credentials tested on a device first |
+| Reviewer can't sign in | 2.1 | **This is what happened on 2026-08-06.** Demo account provisioned per submission, server pre-filled on the sign-in screen, credentials tested on a device first — and none of that helps if the *server* fails the one request they make. Sign in against production immediately before submitting |
 | "The app requires a server we don't have" | 2.1 / 4.2 | Subtitle, description and review notes all say it up front; the demo account means they never have to set one up |
 | Account creation with no way to delete | 5.1.1(v) | Settings → Delete account, deletes immediately, called out in the review notes |
 | Missing or unreachable privacy policy | 5.1.1 | Served at `/privacy`, checked in step 1 |

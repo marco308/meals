@@ -57,6 +57,42 @@ class TestRegisterAndLogin:
         assert response.status_code == 429
         _attempts.clear()
 
+    async def test_successful_logins_do_not_consume_the_budget(self, client, settings_override):
+        """Signing in correctly must never lock you out of your own account.
+
+        The limiter is brute-force protection and brute force is a stream of
+        failures, so a success refunds its attempt. This is not hypothetical:
+        a stale-connection 500 on /auth/login sent one caller through ten
+        retries in a minute, nine of which succeeded, and the tenth got a 429
+        because successes were being charged.
+        """
+        await register(client, email="repeat@example.com")
+        settings_override(AUTH_RATE_LIMIT_PER_MINUTE="3")
+        from app.deps import _attempts
+
+        _attempts.clear()
+        payload = {"email": "repeat@example.com", "password": "a-strong-password"}
+        for _ in range(10):  # comfortably past the limit of 3
+            response = await client.post("/auth/login", json=payload)
+            assert response.status_code == 200, response.text
+        _attempts.clear()
+
+    async def test_failures_still_count_when_mixed_with_successes(self, client, settings_override):
+        """The refund must not hand an attacker a reset: a wrong password stays
+        charged even if correct ones are interleaved with it."""
+        await register(client, email="mixed@example.com")
+        settings_override(AUTH_RATE_LIMIT_PER_MINUTE="3")
+        from app.deps import _attempts
+
+        _attempts.clear()
+        for _ in range(3):
+            await client.post("/auth/login", json={"email": "mixed@example.com", "password": "wrong-password"})
+            # A success in between must not wipe the failures already banked.
+            await client.post("/auth/login", json={"email": "mixed@example.com", "password": "a-strong-password"})
+        response = await client.post("/auth/login", json={"email": "mixed@example.com", "password": "wrong-password"})
+        assert response.status_code == 429
+        _attempts.clear()
+
 
 class TestChangePassword:
     async def test_change_password_switches_credentials(self, client):

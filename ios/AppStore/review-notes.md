@@ -33,7 +33,7 @@ a shopping list, created for this review. It shares no data with any other
 account on that server.
 
 WHERE THINGS ARE
-- Account deletion: Settings tab (fourth) > Delete account. It asks for the
+- Account deletion: Settings tab (last) > Delete account. It asks for the
   password and for the word DELETE to be typed, then deletes immediately with
   no grace period. Please note it is permanent — if you delete the demo
   account, tell us and we will provision another.
@@ -109,6 +109,11 @@ Checked before submitting, because each one is a rejection rather than a note:
 - **The privacy URL 404s.** It's served by the backend, so it only exists once
   a build carrying `PRIVACY.md` is deployed. Open it in a browser.
 - **Account deletion can't be found.** It's in the Settings tab, and the notes
-  above say so explicitly.
+  above say so explicitly. Say "last" rather than a tab *number* — build 21
+  added an Ingredients tab and turned the fourth tab into the fifth, which the
+  notes would otherwise still be getting wrong.
+- **The notes box is empty.** Writing them here is not submitting them:
+  `appStoreReviewDetail.notes` was `null` for the whole first review, so none
+  of this reached the reviewer. Check it after filling the form in.
 - **`MIN_IOS_BUILD` above 0 on the deployment.** The client gate would 426 the
   reviewer's build and they'd see an upgrade wall instead of the app.
