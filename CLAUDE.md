@@ -61,8 +61,15 @@ handler — every response carries `X-Request-ID`). Don't add per-request log
 lines elsewhere; for the handful of moments worth finding by name
 (registration, deletion, ingest outcome…) call `log_event(...)` with ids and
 enums as fields — never emails, tokens, URLs, or other personal data, which is
-a promise `/privacy` makes. `/healthz` 2xx/3xx are deliberately not logged
-(two healthcheckers poll it forever).
+a promise `/privacy` makes. `/healthz` and `/metrics` 2xx/3xx are deliberately
+not logged or counted (they exist to be polled).
+
+Metrics are the same story's numbers (`app/metrics.py`): `log_event` already
+increments `meals_events_total`, and the request middleware feeds the request
+counter/histogram — with route *template* labels only, never raw paths.
+`GET /metrics` serves the registry behind `METRICS_TOKEN` (404 when unset;
+the endpoint shares the public host). Naming an event is all the
+instrumentation a new feature usually needs.
 
 ### Domain invariants worth knowing before editing
 

@@ -42,6 +42,7 @@ from typing import Any
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
+from app import metrics
 from app.config import get_settings
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -140,7 +141,12 @@ def log_event(event: str, **fields: Any) -> None:
     Use for the handful of moments worth finding by name later —
     registrations, account deletions, ingest outcomes — not as a general
     logger. Field values should be ids and enums, never free text from a user.
+
+    Every event also increments `meals_events_total` (with the `outcome`
+    field when there is one), so a new event is graphable without separate
+    instrumentation.
     """
+    metrics.count_event(event, outcome=str(fields.get("outcome", "")))
     _events_logger.info(event, extra=fields)
 
 
@@ -148,6 +154,9 @@ def log_event(event: str, **fields: Any) -> None:
 # bounded length. Anything else gets a fresh id rather than a 400 — the id is
 # a courtesy, not a contract.
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+# Endpoints that exist to be polled: quiet unless they fail.
+_QUIET_PATHS = frozenset({"/healthz", "/metrics"})
 
 
 async def request_logging_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -184,25 +193,37 @@ async def request_logging_middleware(request: Request, call_next: Callable[[Requ
         duration_ms = round((time.perf_counter() - start) * 1000, 1)
         response.headers["X-Request-ID"] = request_id
 
-        # The swarm healthcheck (5s) and Traefik's LB check (30s) poll
-        # /healthz forever; logging their 200s would be ~20k identical lines a
-        # day drowning everything else. A *failing* healthz is always logged.
+        # /healthz is polled forever by the swarm healthcheck (5s) and
+        # Traefik's LB check (30s), and /metrics by whatever scrapes it —
+        # logging or counting those 2xx would drown everything else in
+        # self-observation. Failures on either are always logged.
         path = request.url.path
-        if path == "/healthz" and response.status_code < 400:
+        if path in _QUIET_PATHS and response.status_code < 400:
             return response
+
+        # The matched route template ("/recipes/{recipe_id}") groups by
+        # endpoint. The log line falls back to the raw path when nothing
+        # matched (404s, gate rejections) — useful for debugging; the metric
+        # label collapses those to "unmatched", because every scanner probing
+        # /wp-login.php must not mint a new timeseries.
+        route_template = getattr(request.scope.get("route"), "path", None)
+        client = getattr(request.state, "client", None)
+        metrics.observe_request(
+            request.method,
+            route_template or "unmatched",
+            response.status_code,
+            client.platform if client is not None else None,
+            duration_ms / 1000,
+        )
 
         fields: dict[str, Any] = {
             "request_id": request_id,
             "method": request.method,
             "path": path,
-            # The matched route template ("/recipes/{recipe_id}") so lines
-            # group by endpoint; falls back to the raw path when nothing
-            # matched (404s, gate rejections).
-            "route": getattr(request.scope.get("route"), "path", path),
+            "route": route_template or path,
             "status": response.status_code,
             "duration_ms": duration_ms,
         }
-        client = getattr(request.state, "client", None)
         if client is not None:
             fields["client_platform"] = client.platform
             fields["client_version"] = client.version

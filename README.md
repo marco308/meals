@@ -114,6 +114,16 @@ logs` pipes straight into a log shipper; anywhere else they're plain text.
 `LOG_FORMAT=json|text` overrides, `LOG_LEVEL=INFO` is the default. Logs carry
 ids, never emails, tokens, or what anyone is cooking.
 
+### Metrics
+
+Set `METRICS_TOKEN` and `GET /metrics` serves Prometheus text format to
+`Authorization: Bearer <that token>`; unset (the default), the endpoint 404s
+and no metrics work runs at all. You get request counts and latency
+histograms by route template, a counter per named event from the log, process
+metrics, and slow-moving usage gauges (households, users, recipes) refreshed
+once a minute. Scrapes and healthchecks don't count themselves, so a quiet
+family server's graphs show the family, not the monitoring.
+
 ## Repo layout
 
 | Directory | Contents |

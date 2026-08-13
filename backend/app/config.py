@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
 
+    # Prometheus metrics (app/metrics.py). Unset, GET /metrics 404s and no
+    # background work runs; set, the endpoint answers to
+    # `Authorization: Bearer <METRICS_TOKEN>` only — it shares the public
+    # host, so it must be safe while reachable from the internet.
+    metrics_token: str | None = None
+
     # Wide open on purpose. This is a bearer-token API with no cookies and no
     # session state, so a browser never attaches a credential of its own — a
     # cross-origin page can only reach it by already holding a token, which CORS
