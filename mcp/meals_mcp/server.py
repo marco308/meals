@@ -21,10 +21,12 @@ Config (env):
 
 import os
 import uuid
+from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer, ServerRequestContext
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
@@ -34,8 +36,35 @@ from starlette.responses import PlainTextResponse, Response
 # tell an assistant its installed skill snapshot has gone stale.
 PLAYBOOK_VERSION = 12
 
-mcp = FastMCP(
+# The caller's HTTP headers for the request being served, or None over stdio
+# (and in direct tool-function calls), where env-token auth applies.
+#
+# The SDK used to expose the live request through a contextvar of its own
+# (mcp.server.lowlevel.server.request_ctx, read via FastMCP.get_context());
+# since SDK 2.0 a handler only sees the request context if it declares a
+# Context parameter, which every tool and every helper below would have to
+# thread through. _capture_caller_headers puts it back in one place, and the
+# contextvar is now ours rather than an SDK internal that can move again.
+_caller_headers_var: ContextVar[Mapping[str, str] | None] = ContextVar("meals_caller_headers", default=None)
+
+
+async def _capture_caller_headers(
+    context: ServerRequestContext[Any, Any],
+    call_next: Callable[[ServerRequestContext[Any, Any]], Awaitable[Any]],
+) -> Any:
+    """Server middleware: publish this request's headers for the duration of
+    the handler. `context.request` is the Starlette request over streamable
+    HTTP and None over stdio."""
+    token = _caller_headers_var.set(getattr(context.request, "headers", None))
+    try:
+        return await call_next(context)
+    finally:
+        _caller_headers_var.reset(token)
+
+
+mcp = MCPServer(
     "meals",
+    middleware=[_capture_caller_headers],
     instructions=(
         f"Meal planning and shopping tools. Playbook v{PLAYBOOK_VERSION} is current: if "
         "an installed meal-planner skill or prompt pack states a lower version, it is "
@@ -51,22 +80,20 @@ class ApiError(Exception):
     """Raised with the backend's rich error text so the assistant can act on it."""
 
 
-def _http_request() -> Request | None:
-    """The live HTTP request when serving streamable HTTP; None over stdio
-    (and in direct tool-function calls), where env-token auth applies."""
-    try:
-        return mcp.get_context().request_context.request
-    except ValueError:
-        return None
+def _caller_headers() -> Mapping[str, str] | None:
+    """The connecting client's HTTP headers when serving streamable HTTP; None
+    over stdio (and in direct tool-function calls), where env-token auth
+    applies."""
+    return _caller_headers_var.get()
 
 
 def _client() -> httpx.AsyncClient:
-    request = _http_request()
-    if request is not None:
+    caller_headers = _caller_headers()
+    if caller_headers is not None:
         # Remote mode: act as the connecting user. Forward their bearer header
         # verbatim and never fall back to a server-side token — a baked-in
         # token would make every client act as that token's owner.
-        auth = request.headers.get("authorization")
+        auth = caller_headers.get("authorization")
         headers = {"Authorization": auth} if auth else {}
     else:
         token = os.environ.get("MEALS_API_TOKEN", "")
@@ -82,7 +109,7 @@ async def _call(method: str, path: str, **kwargs: Any) -> Any:
     async with _client() as client:
         response = await client.request(method, path, **kwargs)
     if response.status_code == 401:
-        if _http_request() is not None:
+        if _caller_headers() is not None:
             raise ApiError(
                 "authentication failed: connect to this MCP server with an "
                 "'Authorization: Bearer <token>' header — create a personal API "
@@ -833,21 +860,32 @@ async def healthz(request: Request) -> Response:
     return PlainTextResponse("ok")
 
 
-def _configure_http_mode() -> None:
-    """Remote-mode settings. Bind beyond loopback (Traefik fronts us), drop the
-    SDK's localhost-only DNS-rebinding allowlist (the Host header is the public
-    domain), and go stateless so restarts and replicas never strand a session."""
-    mcp.settings.host = os.environ.get("MEALS_MCP_HOST", "0.0.0.0")
-    mcp.settings.port = int(os.environ.get("MEALS_MCP_PORT", "8000"))
-    mcp.settings.stateless_http = True
-    mcp.settings.transport_security = None
+def http_app_settings() -> dict[str, Any]:
+    """Remote-mode settings for the streamable-HTTP app. Bind beyond loopback
+    (Traefik fronts us), and go stateless so restarts and replicas never strand
+    a session.
+
+    transport_security=None drops the SDK's DNS-rebinding allowlist, which it
+    would otherwise auto-enable — but only for a loopback host, so passing the
+    real bind address is what disables it. Our Host header is the public domain,
+    not localhost. Since SDK 2.0 these are per-app arguments rather than
+    mutations of a settings object, so the tests build the app through this
+    same function to get the deployed configuration."""
+    return {
+        "host": os.environ.get("MEALS_MCP_HOST", "0.0.0.0"),
+        "stateless_http": True,
+        "transport_security": None,
+    }
 
 
 def main() -> None:
     transport = os.environ.get("MEALS_MCP_TRANSPORT", "stdio")
     if transport == "http":
-        _configure_http_mode()
-        mcp.run(transport="streamable-http")
+        mcp.run(
+            transport="streamable-http",
+            port=int(os.environ.get("MEALS_MCP_PORT", "8000")),
+            **http_app_settings(),
+        )
     else:
         mcp.run()
 
