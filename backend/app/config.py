@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     app_name: str = "Meals"
     environment: str = "development"
 
+    # Logging (app/observability.py). LOG_FORMAT is "json" or "text"; unset,
+    # it follows the environment — JSON in production for whatever ships the
+    # container logs, text everywhere a human is reading the terminal.
+    log_level: str = "INFO"
+    log_format: str = ""
+
     # SQLite by default so a bare `make run` works with zero services;
     # docker-compose overrides this with the Postgres URL.
     database_url: str = "sqlite+aiosqlite:///./data/meals.db"

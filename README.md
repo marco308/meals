@@ -104,6 +104,16 @@ SMTP_PASSWORD=<16-character app password>
 SMTP_FROM=you@gmail.com
 ```
 
+### Logs
+
+Everything goes to stdout, one line per record: an access line per request
+(with a request id, echoed as `X-Request-ID` and quoted in any 500), and named
+events for the moments worth finding later — registrations, deletions, ingest
+outcomes. In production (`ENVIRONMENT=production`) lines are JSON so `docker
+logs` pipes straight into a log shipper; anywhere else they're plain text.
+`LOG_FORMAT=json|text` overrides, `LOG_LEVEL=INFO` is the default. Logs carry
+ids, never emails, tokens, or what anyone is cooking.
+
 ## Repo layout
 
 | Directory | Contents |

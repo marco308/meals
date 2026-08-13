@@ -1,11 +1,13 @@
 import uuid
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import nullsfirst, select
 
 from app.deps import CurrentUser, DbSession
 from app.models import MealRecipe, Recipe
+from app.observability import log_event
 from app.schemas.catalog import IngestIn, IngestOut, RecipeCreate, RecipeOut, RecipeSummary, RecipeUpdate
 from app.serializers import recipe_out, recipe_summary
 from app.services import recipe_parser
@@ -44,8 +46,13 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     not public) — and the detail tells the calling AI to read the page itself
     and submit the structured recipe via POST /recipes."""
     url = payload.url.strip()
+    # The event logs the host, never the full URL: which *sites* parse, block,
+    # or lack JSON-LD is the operational question, and full URLs are what the
+    # household is having for dinner.
+    host = urlparse(url).hostname
     cached = await _find_by_url(db, user.household_id, url)
     if cached is not None:
+        log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
         return IngestOut(recipe=recipe_out(cached), cached=True)
 
     try:
@@ -54,10 +61,12 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
         # 422, not 502: proxies in front of a deployment (Cloudflare) replace
         # origin 5xx bodies with their own error page, which would strip the
         # read-the-page-yourself guidance — and that guidance is the product.
+        log_event("recipe.ingested", outcome="fetch_failed", host=host)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         parsed = recipe_parser.extract_recipe(html, url)
     except NoRecipeFound as exc:
+        log_event("recipe.ingested", outcome="no_jsonld", host=host)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     from app.services.catalog import parsed_recipe_to_payload
@@ -66,6 +75,7 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     recipe = await create_recipe_from_payload(db, user.household_id, user.id, recipe_payload)
     recipe.parse_source = "jsonld"
     await db.commit()
+    log_event("recipe.ingested", outcome="parsed", host=host, recipe_id=recipe.id)
     fresh = await get_recipe(db, user.household_id, recipe.id)
     assert fresh is not None
     return IngestOut(recipe=recipe_out(fresh), cached=False)
@@ -85,6 +95,12 @@ async def create_recipe(payload: RecipeCreate, user: CurrentUser, db: DbSession,
             return recipe_out(existing)
     recipe = await create_recipe_from_payload(db, user.household_id, user.id, payload)
     await db.commit()
+    if payload.parse_source == "ai" and payload.source_url is not None:
+        # The other half of the ingest funnel: /recipes/ingest 422'd on this
+        # page and an AI read it itself, as the error told it to.
+        log_event(
+            "recipe.ingested", outcome="ai_parsed", host=urlparse(payload.source_url).hostname, recipe_id=recipe.id
+        )
     fresh = await get_recipe(db, user.household_id, recipe.id)
     assert fresh is not None
     return recipe_out(fresh)

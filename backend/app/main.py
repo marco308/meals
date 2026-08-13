@@ -6,12 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import client_gate
+from app import client_gate, observability
 from app.config import get_settings
+from app.observability import log_event
 from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
 from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
+observability.setup_logging()
 
 app = FastAPI(
     title="Meals API",
@@ -42,11 +44,21 @@ async def client_compatibility(request: Request, call_next: Callable[[Request], 
     """Reject clients older than `min_ios_build`, and tell every identified
     client where the floor is so it can nudge the user before that happens."""
     client = client_gate.parse_client_header(request.headers.get(client_gate.CLIENT_HEADER))
+    request.state.client = client  # the access log reads this after the fact
     if client is None:  # curl, assistants, the MCP server — never gated
         return await call_next(request)
 
     config = get_settings()
     if client.platform == "ios" and client.build < config.min_ios_build and not client_gate.is_exempt(request.url.path):
+        # Every one of these is an install locked out until its human updates
+        # — the log is how the operator sees which builds are still knocking.
+        log_event(
+            "client.gated",
+            platform=client.platform,
+            build=client.build,
+            min_build=config.min_ios_build,
+            path=request.url.path,
+        )
         return JSONResponse(
             status_code=426,  # Upgrade Required
             content={
@@ -61,6 +73,13 @@ async def client_compatibility(request: Request, call_next: Callable[[Request], 
     response.headers["X-Meals-Min-Client-Build"] = str(config.min_ios_build)
     response.headers["X-Meals-Current-Client-Build"] = str(config.current_ios_build)
     return response
+
+
+# Registered last so it is the *outermost* middleware (Starlette builds the
+# stack in reverse): the access log must see every response, including 426s
+# the gate above short-circuits, and it is the last resort for exceptions
+# nothing else caught.
+app.middleware("http")(observability.request_logging_middleware)
 
 
 app.include_router(auth.router)

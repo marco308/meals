@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models import AuthToken, User
+from app.observability import log_event
 from app.services.security import hash_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -22,6 +23,7 @@ AUTHENTICATING_KINDS = ("session", "api")
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
@@ -51,6 +53,10 @@ async def get_current_user(
         )
     token.last_used_at = now
     await db.commit()
+    # Who this request acted as, for the access log (app/observability.py).
+    # Ids only — they mean nothing off this server, unlike an email.
+    request.state.user_id = token.user.id
+    request.state.household_id = token.user.household_id
     return token.user
 
 
@@ -92,6 +98,9 @@ def auth_rate_limit(request: Request) -> None:
     while window and now - window[0] > 60:
         window.popleft()
     if len(window) >= limit:
+        # The brute-force alarm. `bucket` is the proxy-reported address — see
+        # _rate_limit_key for how honest that is behind a given deployment.
+        log_event("auth.rate_limited", bucket=key, path=request.url.path)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="too many auth attempts; wait a minute and try again",

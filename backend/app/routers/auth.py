@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from app.config import get_settings
 from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit, forgive_auth_attempt
 from app.models import AuthToken, Household, HouseholdInvite, User
+from app.observability import log_event
 from app.schemas.auth import (
     AcceptedOut,
     AccountDeletedOut,
@@ -118,6 +119,7 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     token = _session_token(user)
     db.add(token)
     await db.commit()
+    log_event("user.registered", user_id=user.id, household_id=household.id, joined_existing=invite is not None)
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
 
@@ -126,6 +128,10 @@ async def login(payload: LoginIn, request: Request, db: DbSession, _: None = Dep
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
+        # No email in the event: it would put every typo'd address in the log.
+        # A run of these is what brute force looks like before the rate limit
+        # trips (auth.rate_limited in deps.py).
+        log_event("auth.login_failed")
         raise HTTPException(status_code=401, detail="incorrect email or password")
     # Right password: this wasn't an attack, so don't spend the caller's budget
     # on it. Someone retrying a flaky sign-in must not lock themselves out.
@@ -220,6 +226,9 @@ async def request_password_reset(
     # end the user can retry past, while a delivered code with no row behind it
     # is one they cannot.
     await db.commit()
+    # Operator-side only — the HTTP response stays identical either way, and
+    # that anti-oracle property is about the response, not the server's logs.
+    log_event("password_reset.requested", user_id=user.id)
     # Suppressed, not ignored: mailer.py logs the reason. The response must not
     # vary with delivery success or the endpoint becomes an account oracle.
     with contextlib.suppress(EmailNotConfigured, EmailSendFailed):
@@ -293,8 +302,11 @@ async def delete_account(
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
     forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
+    user_id, household_id = user.id, user.household_id  # read before the row is gone
     household_deleted = await delete_user(db, user)
     await db.commit()
+    # The one destructive, irreversible act in the API — always worth a line.
+    log_event("user.deleted", user_id=user_id, household_id=household_id, household_deleted=household_deleted)
     return AccountDeletedOut(
         household_deleted=household_deleted,
         detail=(
@@ -322,6 +334,7 @@ async def create_invite(payload: InviteCreateIn, user: CurrentUser, db: DbSessio
     )
     db.add(invite)
     await db.commit()
+    log_event("invite.created", household_id=user.household_id, invite_id=invite.id)
     return InviteCreatedOut(
         id=invite.id,
         created_at=invite.created_at,

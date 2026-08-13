@@ -54,6 +54,16 @@ Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
 Pydantic I/O only. Auth is `CurrentUser`/`DbSession` annotated dependencies
 from `deps.py`; every query filters on `user.household_id`.
 
+Logging is `app/observability.py` and nothing else: stdout only, JSON in
+production, one access line per request (its middleware is registered **last**
+in `main.py` so it wraps everything, and it is also the last-resort 500
+handler — every response carries `X-Request-ID`). Don't add per-request log
+lines elsewhere; for the handful of moments worth finding by name
+(registration, deletion, ingest outcome…) call `log_event(...)` with ids and
+enums as fields — never emails, tokens, URLs, or other personal data, which is
+a promise `/privacy` makes. `/healthz` 2xx/3xx are deliberately not logged
+(two healthcheckers poll it forever).
+
 ### Domain invariants worth knowing before editing
 
 - **Household scoping.** All data hangs off a `Household` (Q16), and since
