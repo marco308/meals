@@ -1,12 +1,15 @@
-from collections.abc import Awaitable, Callable
+import asyncio
+import contextlib
+import secrets
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import client_gate, observability
+from app import client_gate, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
 from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
@@ -15,7 +18,24 @@ from app.routers.skill import base_url, playbook_version
 settings = get_settings()
 observability.setup_logging()
 
+
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # The usage gauges only surface through /metrics, so with metrics off
+    # there is nothing to refresh and no task to run. Tests drive the app
+    # through ASGITransport, which skips lifespan — also on purpose.
+    refresher: asyncio.Task | None = None
+    if get_settings().metrics_token:
+        refresher = asyncio.create_task(metrics.usage_gauge_refresher())
+    yield
+    if refresher is not None:
+        refresher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await refresher
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Meals API",
     version="0.1.0",
     description=(
@@ -156,6 +176,30 @@ async def root(request: Request) -> Response:
 @app.get("/healthz", tags=["meta"])
 async def healthcheck() -> dict:
     return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
+
+
+# Out of the OpenAPI schema on purpose: /docs is for API consumers and AIs,
+# and this endpoint is for whoever operates the server.
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint(request: Request) -> Response:
+    """Prometheus exposition, for the operator's scraper. Enabled by setting
+    METRICS_TOKEN; the scraper sends it as `Authorization: Bearer <token>`."""
+    token = get_settings().metrics_token
+    if not token:
+        # Indistinguishable from the endpoint not existing: an unset token
+        # means this deployment has no metrics story, and there is nothing
+        # useful to tell an anonymous caller about that.
+        raise HTTPException(status_code=404, detail="Not Found")
+    provided = request.headers.get("Authorization", "")
+    scheme, _, credential = provided.partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(credential.strip(), token):
+        raise HTTPException(
+            status_code=401,
+            detail="metrics are enabled on this server but need its METRICS_TOKEN: Authorization: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    body, content_type = metrics.render()
+    return Response(content=body, media_type=content_type)
 
 
 @app.get("/client-config", tags=["meta"])
