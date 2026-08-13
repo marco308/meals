@@ -71,6 +71,8 @@ make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 Only password reset sends any, and it's plain SMTP so any relay works. Leave it
 unset and `POST /auth/password-reset` returns a 503 explaining what's missing;
 everything else, including changing a password you *know*, works without it.
+`GET /client-config` reports which of the two you are as `password_reset_enabled`,
+so a client can hide the option rather than offer a door that doesn't open.
 
 ```bash
 SMTP_HOST=smtp.example.com
@@ -80,6 +82,26 @@ SMTP_USERNAME=...       # if your relay authenticates
 SMTP_PASSWORD=...
 SMTP_START_TLS=true     # default
 PASSWORD_RESET_TTL_MINUTES=30   # default
+```
+
+Two relays that need no server of your own. **Resend** — verify your domain,
+then the username is literally `resend` and the password is the API key:
+
+```bash
+SMTP_HOST=smtp.resend.com
+SMTP_USERNAME=resend
+SMTP_PASSWORD=re_...
+SMTP_FROM=meals@your-domain
+```
+
+**Gmail** — needs 2FA, then an app password from Google Account → Security → App
+passwords. `SMTP_FROM` must be the account itself; Google rejects any other From.
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=<16-character app password>
+SMTP_FROM=you@gmail.com
 ```
 
 ## Repo layout

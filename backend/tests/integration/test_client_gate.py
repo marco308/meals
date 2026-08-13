@@ -124,6 +124,13 @@ class TestClientConfig:
     async def test_needs_no_auth(self, client):
         assert (await client.get("/client-config")).status_code == 200
 
+    async def test_reports_whether_the_server_can_send_email(self, client, settings_override):
+        """So a client can hide "Forgot password?" rather than walk someone into
+        a 503 they can do nothing about."""
+        assert (await client.get("/client-config")).json()["password_reset_enabled"] is False
+        settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
+        assert (await client.get("/client-config")).json()["password_reset_enabled"] is True
+
     async def test_identified_clients_learn_the_floor_from_any_response(self, auth_client, min_build):
         """The advisory headers let the app nudge without a second round trip."""
         min_build(1, current=2)
