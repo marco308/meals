@@ -85,6 +85,33 @@ final class ClientGateTests: XCTestCase {
         let config = try await client(protocolClass: StubProtocol.self).clientConfig()
         XCTAssertEqual(config, ClientConfig(apiVersion: "0.1.0", minIosBuild: 2, currentIosBuild: 4, upgradeUrl: nil))
     }
+
+    /// A server that can't send email says so, and the app hides the reset door
+    /// rather than leading people to a 503 they can do nothing about (#49).
+    func testClientConfigCarriesWhetherTheServerCanSendEmail() async throws {
+        let body = #"{"api_version": "0.1.0", "min_ios_build": 0, "current_ios_build": 4, "#
+            + #""upgrade_url": null, "password_reset_enabled": false}"#
+        StubProtocol.handler = { _ in (200, Data(body.utf8)) }
+        let config = try await client(protocolClass: StubProtocol.self).clientConfig()
+        XCTAssertEqual(config.passwordResetEnabled, false)
+        XCTAssertFalse(config.offersPasswordReset)
+    }
+
+    /// The whole config must survive a server that predates the flag — an
+    /// unknown answer is not a decode failure, and it is not a "no" either.
+    func testAServerTooOldToAnswerStillDecodesAndKeepsTheButton() async throws {
+        StubProtocol.handler = { _ in
+            (
+                200,
+                Data(
+                    #"{"api_version": "0.1.0", "min_ios_build": 0, "current_ios_build": 4, "upgrade_url": null}"#.utf8
+                )
+            )
+        }
+        let config = try await client(protocolClass: StubProtocol.self).clientConfig()
+        XCTAssertNil(config.passwordResetEnabled)
+        XCTAssertTrue(config.offersPasswordReset)
+    }
 }
 
 final class UpgradeStateTests: XCTestCase {

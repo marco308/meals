@@ -70,7 +70,11 @@ struct LoginView: View {
                     }
                     .font(.callout)
 
-                    if !isRegistering {
+                    // Hidden, not disabled, when the server can't send email:
+                    // there is nothing the person at this screen could do to
+                    // make it work, so explaining the door is worse than not
+                    // showing one (#49).
+                    if !isRegistering && session.passwordResetEnabled {
                         Button("Forgot password?") { showForgotPassword = true }
                             .font(.callout)
                     }

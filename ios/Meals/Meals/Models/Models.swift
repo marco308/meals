@@ -127,6 +127,15 @@ struct ClientConfig: Codable, Equatable, Sendable {
     let minIosBuild: Int
     let currentIosBuild: Int
     let upgradeUrl: String?
+    /// Whether the server can send email at all, and so whether a reset code
+    /// can ever arrive. Optional because a server older than this build doesn't
+    /// send the key, and a missing key must not take the whole config down.
+    var passwordResetEnabled: Bool? = nil
+
+    /// Absent means a server that predates the flag, and the honest answer there
+    /// is "offer it": hiding the button on every un-upgraded server is a worse
+    /// mistake than the 503 it was meant to avoid.
+    var offersPasswordReset: Bool { passwordResetEnabled ?? true }
 }
 
 struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {

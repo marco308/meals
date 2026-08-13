@@ -13,6 +13,7 @@ final class Session {
             // A verdict belongs to the server that gave it — pointing the app
             // at localhost must not inherit the homelab's floor, or vice versa.
             upgrade = .ok
+            passwordResetEnabled = true
             Task { await checkClientCompatibility() }
         }
     }
@@ -49,6 +50,12 @@ final class Session {
     }
 
     private(set) var upgrade: Upgrade = .ok
+
+    /// Whether this server can send a reset code at all (#49). Read from
+    /// `/client-config` alongside the build floor, and true until told
+    /// otherwise — unreachable or too old to answer both mean "offer it".
+    private(set) var passwordResetEnabled = true
+
     // Written once in init, read once in deinit (which is nonisolated), so it
     // steps outside the actor rather than dragging the rest of Session with it.
     @ObservationIgnored private nonisolated(unsafe) var upgradeObserver: (any NSObjectProtocol)?
@@ -129,12 +136,14 @@ final class Session {
     // MARK: - Version alignment
 
     /// Ask the server what it expects of this build. Called at launch and on
-    /// every foreground, so a deploy that raises the floor is noticed before
-    /// the user hits a wall mid-task. Silent when offline — a server we can't
-    /// reach can't refuse us either.
+    /// every foreground — logged out too, because the login screen is where
+    /// "Forgot password?" lives — so a deploy that raises the floor is noticed
+    /// before the user hits a wall mid-task. Silent when offline: a server we
+    /// can't reach can't refuse us either.
     func checkClientCompatibility() async {
         guard let config = try? await api.clientConfig() else { return }
         upgrade = Upgrade(config: config, build: ClientIdentity.buildNumber)
+        passwordResetEnabled = config.offersPasswordReset
     }
 
     func dismissUpgradeNudge() {
