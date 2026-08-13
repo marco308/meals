@@ -70,7 +70,11 @@ struct LoginView: View {
                     }
                     .font(.callout)
 
-                    if !isRegistering {
+                    // Hidden on a server with no SMTP configured, which is the
+                    // normal state of a fresh self-hosted one: the endpoint
+                    // 503s there, and a button that cannot work is better
+                    // hidden than explained.
+                    if !isRegistering && session.canResetPassword {
                         Button("Forgot password?") { showForgotPassword = true }
                             .font(.callout)
                     }
