@@ -4,12 +4,13 @@ version = "0.1.0"
 description = "MCP server wrapping the Meals REST API with task-level tools for AI assistants"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.2",
+    "mcp>=2.0",
     "httpx>=0.27",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.5",
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "respx>=0.21",

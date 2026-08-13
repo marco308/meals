@@ -194,7 +194,13 @@ do instead (see the 409 in `routers/shopping.py` for the shape).
 The MCP server (`mcp/meals_mcp/server.py`) runs in two modes: **stdio** with
 `MEALS_API_TOKEN` from the env, and **http** (deployed at `/mcp`) which holds
 no credentials and forwards each request's `Authorization` header to the API
-verbatim — never add a server-side token fallback in http mode.
+verbatim — never add a server-side token fallback in http mode. That header
+reaches the tools through the `_capture_caller_headers` middleware, which
+publishes them in a contextvar for the life of the request: SDK 2.0 only hands
+the request context to a handler that declares a `Context` parameter, and the
+alternative is threading one through all 27 tools and their helpers. Keep the
+middleware registered — without it every remote call silently drops to the
+stdio env-token path.
 
 `skill/` is shipped inside the backend image (hence `docker build` uses the
 **repo root** as context, not `backend/`) and served unauthenticated with
