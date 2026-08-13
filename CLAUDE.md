@@ -45,7 +45,7 @@ is what keeps the API complete and the views consistent.
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
-| `planning/` | Product plan and the **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q20 |
+| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q22, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`

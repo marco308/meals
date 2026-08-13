@@ -20,6 +20,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the last deploy.
+
+## 2026-08-13 — password reset, live
+
+Deployed to `meals.marcuslab.uk`. No migration.
+
+### Added
+
+- `GET /client-config` now publishes `password_reset_enabled`, so a client can
+  tell whether the server it is pointed at can send email at all rather than
+  offering a "Forgot password?" link that always 503s. Self-hosted servers
+  without SMTP are the normal case, not the broken one.
+
+### Changed
+
+- **Password reset works on the deployment.** `SMTP_*` is configured against
+  Resend on the verified `marcuslab.uk` domain, so `POST /auth/password-reset`
+  emails a code instead of returning 503. Closes
+  [#7](https://github.com/marco308/meals/issues/7).
+
+## 2026-08-06 — the web app, policy pages, and the 2.1(a) fix
+
+Deployed to `meals.marcuslab.uk`. No migration. This is the deploy that App
+Review's second look landed on, and the one that carried everything merged
+since 25 July.
+
 ### Added
 
 - **A web app**, served by the API itself at `/app` (`web/` in the repo) — the
@@ -59,9 +85,35 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - CI now checks `/privacy` and `/support` against the built image. They render
   markdown that is COPYed into the image separately from `app/`, so forgetting
   them is a live App Store listing pointing at a 404.
+- **Per-store aisle orders** (`/supermarkets`). A household can save a walking
+  order per shop and pick the active one in settings; that order drives the
+  shopping-list sort and `GET /aisles`, which is how iOS learns a new order
+  without an app update. The emoji vocabulary itself stays central. An order
+  saved before an aisle existed gains it at the end, so adding an aisle can
+  never invalidate a saved supermarket.
+- **❄️ Chilled**, walking between meat & fish and dairy: houmous, fresh dips
+  and fresh pasta had no shelf and fell to ❓, or worse, mis-filed under dry
+  goods on the bare "pasta" keyword. A data migration re-files ❓ rows with
+  those exact names and never touches a tag a person set.
+- **Ingredient rename** in both clients. A name is the identity key (every
+  write finds-or-creates by its folded form, Q21), so this resolves what the
+  typed name folds to rather than PATCHing the column: same row, existing row
+  (a merge, which asks first), or a free name (created carrying this row's
+  aisle, staple flag and verdict). References follow in every case, so recipes,
+  meals and old shops never dangle. No API change; both clients orchestrate the
+  lookup, POST and merge the skill already teaches.
+- Sorting the ingredient catalogue by aisle or by value verdict, not just name.
 
 ### Changed
 
+- **The duplicates dialog lets you pick the keeper** instead of fixing one per
+  group: every spelling gets a radio with the suggested keeper pre-selected,
+  per-row curation shown, and a warning when the pick isn't the canonical name
+  (new writes would quietly recreate the row you just merged away). Each
+  catalogue row also gains a manual "merge…" picker for the pairs the finder
+  deliberately won't claim (Q21).
+- 🥛 is now plain **Dairy**, not "Dairy & eggs". UK stores don't chill eggs.
+- The staples check shows only staples, which is what it says on the button.
 - The iOS app now defaults to `https://meals.marcuslab.uk` rather than
   `http://localhost:8000`. A public download that opens on a dead localhost URL
   looks broken; the field is still editable, which is the whole point of a
@@ -71,13 +123,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - Account settings (password, sign-out, deletion) moved out of the Plan tab's
   overflow menu into a Settings tab. App Review expects account deletion to be
   findable, and buried in a plan menu it was findable by neither them nor a user.
-- iOS marketing version 0.1 → **1.0**, build 15 → **17**, and
-  `current_ios_build` with it. A build can only attach to an App Store version
-  record whose version string it matches, which makes every 0.1 build
-  TestFlight-only forever.
+- iOS marketing version 0.1 → **1.0**, build 15 → **23** over the course of
+  this window, and `current_ios_build` with it. A build can only attach to an
+  App Store version record whose version string it matches, which makes every
+  0.1 build TestFlight-only forever. Per-build detail is in
+  [ios/CHANGELOG.md](ios/CHANGELOG.md); **1.0 carrying build 23 was approved
+  2026-08-12** and is on the App Store.
 
 ### Fixed
 
+- **The stale-connection 500 that got 1.0 rejected under guideline 2.1(a).**
+  The engine was built with no `pool_pre_ping` and no `pool_recycle`, so the
+  pool kept Postgres connections the swarm's overlay network had already
+  dropped as idle, and the first request after a quiet spell got one. On a
+  low-traffic server that is a real category of user, and one morning it was
+  App Review. `/healthz` touches no database, so the healthcheck gating the
+  zero-downtime rollout stayed green through four of these in 24 hours.
+  Postgres only: recycling in-memory SQLite would discard the tests' schema.
+  Full diagnosis at
+  [ios/CHANGELOG.md](ios/CHANGELOG.md#the-21a-rejection).
+- **A successful sign-in no longer spends the brute-force budget.** The other
+  half of the same incident: the reviewer's retries after the 500 hit
+  `auth_rate_limit_per_minute`, so they locked themselves out of their own
+  account purely by trying again. Brute force is a stream of failures, so a
+  success now refunds its attempt. Per-IP keying would not have helped, since
+  one person retrying ten times exhausts their own bucket however precisely
+  you identify them.
 - **The app claimed to support iPad.** `TARGETED_DEVICE_FAMILY: "1"` was set at
   the project level in `ios/Meals/project.yml`, but xcodegen writes `"1,2"`
   onto every iOS target and a target setting beats a project one — so every

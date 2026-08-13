@@ -1,5 +1,13 @@
 # 05 — Build Status (2026-07-24)
 
+> **A snapshot, deliberately not maintained.** This records that the plan in
+> `01`–`03` was actually built, as it stood at the first deployment. It is
+> evidence, not a status page, so the numbers below are the numbers of that
+> day and are left alone. For what the thing does *now*: shipped work is in
+> [../CHANGELOG.md](../CHANGELOG.md), what's left is in
+> [../BACKLOG.md](../BACKLOG.md) and
+> [GitHub issues](https://github.com/marco308/meals/issues).
+
 Traceability from the plan to what's built. Evidence: 201 backend tests (98%
 coverage), 34 iOS tests, 11 MCP tests — all green — plus live verification in
 the iPhone simulator against the Docker stack (including an offline round-trip
@@ -64,7 +72,7 @@ explicitly so multi-tenancy stays cheap later).
 | FastAPI + async SQLAlchemy + Alembic, one container (Q9) | ✅ | `make dev` (Docker: Postgres+API), `make run` (SQLite, zero deps) |
 | Postgres (Q10) | ✅ | compose stack; full flows verified live on Postgres |
 | Native SwiftUI iOS, offline list hard requirement (Q11) | ✅ | queued ops, disk persistence, relaunch survival, ordered replay w/ id-remapping — proven with the API stopped |
-| Public exposure via Swarm+Traefik on `*.marcuslab.uk` (Q12) | ✅ | **deployed 2026-07-24**: `https://meals.marcuslab.uk` (swarm stack behind Traefik, Postgres 17, Cloudflare-resolved TLS); `make deploy` redeploys. Registration is open and safe to leave open since Q19 — a signup creates its own household |
+| Public exposure via Swarm+Traefik on `*.marcuslab.uk` (Q12) | ✅ | **deployed 2026-07-24**: `https://meals.marcuslab.uk` (swarm stack behind Traefik, Postgres 17, Cloudflare-resolved TLS); `make deploy` redeploys. Q19 made open registration *safe* (a signup creates its own household), though this deployment sets `REGISTRATION_ENABLED=false` anyway and admits people by invite |
 | Remote MCP over HTTPS (Q15) | ✅ | the public API is live, so MCP works remotely today with `MEALS_API_URL=https://meals.marcuslab.uk` + a PAT (stdio or streamable-HTTP per instance); a single hosted multi-user MCP endpoint stays on the backlog |
 | Open-source readiness | ✅ | AGPL-3.0 with an `ios/` carve-out for the App Store, CONTRIBUTING + SECURITY policies, permissive deps, env config, no machine-specific config in the repo (see Q19 for the tenancy fix that made publishing safe) |
 
@@ -77,7 +85,7 @@ sharing, imports.
 
 `https://meals.marcuslab.uk` — swarm stack behind Traefik, deployed with
 `make deploy` (the stack file is local-only and gitignored; `docker-compose.yml`
-is the public reference). Verified live: health, docs, auth guard, TLS.
-Post-deploy tail (see BACKLOG.md): deploy the Q19 tenancy change; point the iOS
-app at the domain; add a pg_dump backup. The plan is now fully implemented and
-live.
+is the public reference). Verified live: health, docs, auth guard, TLS. The
+plan is now fully implemented and live. The post-deploy tail as it stood that
+day (Q19 tenancy, pointing iOS at the domain, backups) has since been worked
+through or moved to the tracker — see [../BACKLOG.md](../BACKLOG.md).
