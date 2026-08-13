@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 26 July 2026**
+**Last updated: 13 August 2026**
 
 Meals is a meal planner you run on your own server. The iOS app is a client:
 it talks to whichever server you point it at, and to nothing else. There is no
@@ -10,9 +10,11 @@ That shape is the whole privacy story, so it is worth being precise about it.
 
 ## The short version
 
-- The app contains **no analytics, no advertising, no tracking, no crash
-  reporting, and no third-party SDKs of any kind**. Nothing is collected about
-  you by the app's developer.
+- The app contains **no advertising, no tracking, and no third-party SDKs of
+  any kind**: no analytics or crash-reporting code ships in it. The only
+  usage information the developer ever sees is the aggregated, opt-in
+  statistics Apple offers every App Store developer, described
+  [below](#app-store-analytics-and-crash-reports).
 - Everything you enter goes to **the server you chose**, and stays there.
 - If you run that server, you hold the data and nobody else can read it.
 - You can delete your account, and everything belonging to it, from inside the
@@ -70,6 +72,27 @@ asked for:
 If you connect an AI assistant to the API with a personal token, that assistant
 sees whatever it asks for. That connection is yours to make and yours to revoke
 — delete the token and it stops working immediately.
+
+## App Store analytics and crash reports
+
+If you installed the app through the App Store or TestFlight, Apple offers its
+developer the same opt-in statistics it offers every developer: aggregated
+usage figures (installs, sessions, active devices, retention) and crash
+reports. To be clear about what that is and is not:
+
+- **It is Apple's collection, not the app's.** The app ships no analytics or
+  crash-reporting code; iOS itself gathers this for every app on the phone.
+- **It is opt-in.** Apple only shares it if you enabled *Share with App
+  Developers* when setting up your device. You can check or change this any
+  time in Settings → Privacy & Security → Analytics & Improvements.
+- **It is aggregated and anonymous.** The developer sees counts and crash
+  traces, never your identity, your Meals account, or any of your content:
+  no recipes, no lists, no plans.
+- **It never involves your server.** A self-built or sideloaded install, or an
+  opted-out device, shares nothing at all.
+
+The developer uses it for exactly what you'd hope: knowing whether the app
+crashes and roughly how many people use it.
 
 ## Who is responsible for your data
 

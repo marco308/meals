@@ -155,6 +155,13 @@ since 25 July.
   0.1 build TestFlight-only forever. Per-build detail is in
   [ios/CHANGELOG.md](ios/CHANGELOG.md); **1.0 carrying build 23 was approved
   2026-08-12** and is on the App Store.
+- **Privacy policy** (13 Aug 2026): disclosed that the developer reads the
+  aggregated, opt-in usage statistics and crash reports Apple provides through
+  App Store Connect and Xcode. Nothing changed in the app: it still ships no
+  analytics, crash-reporting or third-party code, and the App Store privacy
+  questionnaire answers are unchanged. The policy previously implied the
+  developer saw nothing at all, which would have stopped being true the moment
+  those free Apple dashboards were opened.
 
 ### Fixed
 

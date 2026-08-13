@@ -60,7 +60,7 @@ app.
 Explicitly not, and worth being able to say so:
 
 - No Identifiers (no device id, no advertising id, no user id beyond the account)
-- No Usage Data (no analytics of any kind — no first-party telemetry either)
+- No Usage Data (no analytics code in the app, first- or third-party)
 - No Diagnostics (no crash reporting SDK)
 - No Location, Contacts, Health, Financial Info, Purchases, Search History,
   Browsing History, Sensitive Info, Photos, Audio
@@ -71,6 +71,21 @@ Explicitly not, and worth being able to say so:
 Nothing is combined with data from other companies' apps or sites, and nothing
 is shared with data brokers. The app never calls `ATTrackingManager`, has no
 `NSUserTrackingUsageDescription`, and needs neither.
+
+## Apple's own analytics don't change these answers
+
+The developer does read what App Store Connect offers for free: App Analytics
+(installs, sessions, active devices, retention), TestFlight metrics, and the
+opt-in crash reports that surface in Xcode's Organizer. None of it is declared
+above, deliberately: the questionnaire covers data *you or your third-party
+partners* collect, and this is Apple's own OS-level collection under Apple's
+own consent prompt ("Share with App Developers"). Apple's guidance is explicit
+that data collected by Apple is not yours to declare. The app still ships no
+analytics or crash-reporting code, so the answers stay "not collected".
+
+[PRIVACY.md](../../PRIVACY.md) discloses this to users anyway (the "App Store
+analytics and crash reports" section), because the policy speaks for the
+developer, not just the binary. Keep the two in step if either changes.
 
 ## Privacy Policy URL
 
