@@ -127,6 +127,11 @@ struct ClientConfig: Codable, Equatable, Sendable {
     let minIosBuild: Int
     let currentIosBuild: Int
     let upgradeUrl: String?
+    /// Whether this server can send email at all. Optional is load-bearing: a
+    /// server older than this build doesn't send the key, and absent has to
+    /// mean "assume it works" rather than a decode failure that would take the
+    /// whole config — including the upgrade floor — down with it.
+    let passwordResetEnabled: Bool?
 }
 
 struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {

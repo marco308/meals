@@ -83,13 +83,52 @@ final class ClientGateTests: XCTestCase {
             )
         }
         let config = try await client(protocolClass: StubProtocol.self).clientConfig()
-        XCTAssertEqual(config, ClientConfig(apiVersion: "0.1.0", minIosBuild: 2, currentIosBuild: 4, upgradeUrl: nil))
+        XCTAssertEqual(
+            config,
+            ClientConfig(
+                apiVersion: "0.1.0", minIosBuild: 2, currentIosBuild: 4, upgradeUrl: nil,
+                passwordResetEnabled: nil
+            )
+        )
+    }
+
+    /// A server older than the field must decode, not throw: the config also
+    /// carries the upgrade floor, so a strict decode here would blind the app
+    /// to a hard block rather than merely to a button.
+    func testClientConfigDecodesWithoutPasswordResetFlag() async throws {
+        StubProtocol.handler = { _ in
+            (
+                200,
+                Data(
+                    #"{"api_version": "0.1.0", "min_ios_build": 2, "current_ios_build": 4, "upgrade_url": null}"#.utf8
+                )
+            )
+        }
+        let config = try await client(protocolClass: StubProtocol.self).clientConfig()
+        XCTAssertNil(config.passwordResetEnabled)
+    }
+
+    func testClientConfigCarriesPasswordResetFlag() async throws {
+        StubProtocol.handler = { _ in
+            (
+                200,
+                Data(
+                    #"{"api_version": "0.1.0", "min_ios_build": 0, "current_ios_build": 0, "upgrade_url": null, "password_reset_enabled": false}"#
+                        .utf8
+                )
+            )
+        }
+        let config = try await client(protocolClass: StubProtocol.self).clientConfig()
+        XCTAssertEqual(config.passwordResetEnabled, false)
     }
 }
 
 final class UpgradeStateTests: XCTestCase {
     private func config(min: Int, current: Int, url: String? = nil) -> ClientConfig {
-        ClientConfig(apiVersion: "0.1.0", minIosBuild: min, currentIosBuild: current, upgradeUrl: url)
+        ClientConfig(
+            apiVersion: "0.1.0", minIosBuild: min, currentIosBuild: current, upgradeUrl: url,
+            passwordResetEnabled: nil
+        )
     }
 
     func testBuildBelowTheFloorIsBlocked() {

@@ -11,8 +11,10 @@ final class Session {
         didSet {
             UserDefaults.standard.set(serverURL, forKey: "serverURL")
             // A verdict belongs to the server that gave it — pointing the app
-            // at localhost must not inherit the homelab's floor, or vice versa.
+            // at localhost must not inherit the homelab's floor, or its ability
+            // to send email, or vice versa.
             upgrade = .ok
+            canResetPassword = true
             Task { await checkClientCompatibility() }
         }
     }
@@ -49,6 +51,13 @@ final class Session {
     }
 
     private(set) var upgrade: Upgrade = .ok
+
+    /// Whether this server can send a reset code. Optimistic until told
+    /// otherwise: the login screen is drawn before `/client-config` answers,
+    /// and offering a button that turns out to be unavailable is a better
+    /// failure than hiding one that would have worked.
+    private(set) var canResetPassword = true
+
     // Written once in init, read once in deinit (which is nonisolated), so it
     // steps outside the actor rather than dragging the rest of Session with it.
     @ObservationIgnored private nonisolated(unsafe) var upgradeObserver: (any NSObjectProtocol)?
@@ -135,6 +144,9 @@ final class Session {
     func checkClientCompatibility() async {
         guard let config = try? await api.clientConfig() else { return }
         upgrade = Upgrade(config: config, build: ClientIdentity.buildNumber)
+        // Absent means an older server that never published the key, and those
+        // do send reset codes — so only an explicit false takes the button away.
+        canResetPassword = config.passwordResetEnabled ?? true
     }
 
     func dismissUpgradeNudge() {
