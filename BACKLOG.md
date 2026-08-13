@@ -33,7 +33,7 @@ what it deliberately doesn't do yet:
 
 ## Account lifecycle
 
-- [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so. **Not yet set on the deployment**, so reset is unavailable in production until it is
+- [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so, and `GET /client-config` reports which way it went as `password_reset_enabled`. **Live on the deployment since 13 Aug 2026**, relayed through Resend on the verified `marcuslab.uk` domain
 - [x] ~~**Account deletion**~~ — ✅ shipped (Q20): `DELETE /auth/me`, and in the app's account menu, which is what App Store review actually requires
 - [ ] **Household admin** — inviting someone is now a button (Settings → Invite someone), but that's still all: no rename after signup, no way to leave a household without deleting your account, no way to remove someone you invited by mistake, no list of who's in it, and the iOS register screen can't set `household_name` (it takes the "Home" default)
 
