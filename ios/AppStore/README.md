@@ -25,13 +25,16 @@ Current state, verified against the App Store Connect API on 2026-08-06:
   Food & Drink / Productivity, 4+, description, keywords, promotional text,
   privacy + support + marketing URLs, five 6.9" screenshots, copyright,
   content rights, manual release.
-- **Submitted 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC** under
+- **1.0 is `READY_FOR_SALE` — the app is live**, approved 2026-08-12 00:12 UTC.
+- Submitted 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC under
   guideline 2.1(a) — a server fault, not an app one, diagnosed and fixed in
   full at [ios/CHANGELOG.md](../CHANGELOG.md#the-21a-rejection). Replied to in
   Resolution Center (kept in [resolution-center.md](resolution-center.md)) and
-  **resubmitted 2026-08-06 21:27 UTC**, now `WAITING_FOR_REVIEW`.
-- **Build 23** is attached now (uploaded 2026-08-05, `VALID`), replacing the
-  one App Store Connect calls **18**. Builds 1–15 are on TestFlight at
+  resubmitted 2026-08-06 21:27 UTC. Five days in the queue, then thirteen
+  minutes in review.
+- **Build 23** is the public one (uploaded 2026-08-05, `VALID`), attached in
+  place of the one App Store Connect calls **18**. Builds 1–15 are on
+  TestFlight at
   marketing version **0.1**, so none of them can attach to the 1.0 record at
   all, and builds 16 and 17 claim iPad support and would oblige you to supply
   13" iPad screenshots.
@@ -146,9 +149,24 @@ curl -fsS -X POST https://meals.marcuslab.uk/auth/login \
 
 ### 7. After approval
 
-Delete the review household (see
-[review-notes.md](review-notes.md#after-approval)), and move the shipped row in
-[ios/CHANGELOG.md](../CHANGELOG.md) to **App Store**.
+Move the shipped row in [ios/CHANGELOG.md](../CHANGELOG.md) to **App Store** —
+done for build 23 — and delete the review household (see
+[review-notes.md](review-notes.md#after-approval)). **The household is still
+there**; it only wants deleting once no submission is in flight, and it costs
+nothing but a stale account until then.
+
+### When a new version is *not* the answer
+
+The app is a client for a REST API, so anything that lives on the server
+reaches every install the moment it deploys. No build, no review, no version
+record. That covers the whole backend: endpoints, validation, aisle order,
+error strings, the skill, and both fixes that came out of the 2.1(a) rejection.
+
+A new App Store version is only worth opening when the **Swift** changes. If
+`git log <last-shipped-build>..main -- ios/Meals/Meals ios/Meals/project.yml`
+is empty, there is nothing a submission could deliver, and resubmitting an
+identical binary just buys another turn in the review queue and another chance
+to be rejected.
 
 ## The rejections this app is most likely to get
 

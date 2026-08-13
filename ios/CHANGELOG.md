@@ -71,7 +71,7 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
-| 23 | 1.0 | 2026-08-05 | TestFlight | **Rename by tapping the ingredient's name** (PR #41). The editor's name row now opens the fold-aware rename alert directly, with a pencil glyph as the affordance; the "Rename…" button at the foot of the screen is gone, and the merge section's footer teaches the tap. Rename itself is unchanged from build 22. iOS-only view change, no API change; any server can serve this build. Delivery UUID `c55cc542-33f6-4414-be75-2734f21c32e9`, uploaded 2026-08-05 07:43 UTC and VALID. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
+| 23 | 1.0 | 2026-08-05 | **App Store** | **The first build ever to reach the public**, approved 2026-08-12 00:12 UTC. **Rename by tapping the ingredient's name** (PR #41). The editor's name row now opens the fold-aware rename alert directly, with a pencil glyph as the affordance; the "Rename…" button at the foot of the screen is gone, and the merge section's footer teaches the tap. Rename itself is unchanged from build 22. iOS-only view change, no API change; any server can serve this build. Delivery UUID `c55cc542-33f6-4414-be75-2734f21c32e9`, uploaded 2026-08-05 07:43 UTC and VALID. Attached to the 1.0 record on 2026-08-06, replacing ASC-18. |
 | 22 | 1.0 | 2026-08-04 | TestFlight | **Ingredient rename**, as sugar over create-and-merge (Q21): "Rename…" in the ingredient editor resolves what the typed name folds to — same row explains itself, an existing row asks before merging (its curation wins), a free name is created carrying this row's curation and the old row folds in. The editor hands over to the survivor, so further edits land on the right row. No API change; any server can serve this build. Delivery UUID `6e78a7cf-e78e-4e05-8752-ef98fd8baadc`, uploaded 2026-08-04 21:14 UTC. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 21 | 1.0 | 2026-08-04 | TestFlight | **The web app's features, ported** (PR #39). New Ingredients tab: the catalogue with search, staples/verdict filters, name/aisle/verdict sorting, delete, the duplicates sweep (Q21) and manual merge from the ingredient editor. Settings grows Supermarkets & aisle order (save stores, drag their walks, pick the active one — Q2), an invites list with revoke, and AI access (mint/reveal-once/revoke API tokens). Shopping list: "sorting aisles for" switcher in the menu, Previous shops, and offline-queued delete for ad-hoc lines. Plan: rename, and past plans open read-only. Recipes: tag and under-30-min filters; meal-library rows in the add sheet gain edit/delete. All additive against the API — any server can serve this build. Delivery UUID `d294f722-8e5d-4340-9f34-4c99805affe4`, uploaded 2026-08-04 19:21 UTC. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 20 | 1.0 | 2026-07-30 | TestFlight | **"Add to this week's plan" works with no active plan.** From a recipe, that tap said "Added to plan" and did nothing whenever the household had no plan: `PlanStore.addMeal` returned early on a nil plan while the recipe screen showed its success alert regardless, leaving an orphan meal in the library and nothing on the shopping list. It now resolves the plan from the server and starts one, labelled "This week's options", when there genuinely isn't one; the alert names the plan, and a real failure gets an error instead of a false success. Also fixes the same dead tap when a plan did exist but the Plan tab hadn't been opened yet that session. Only iOS changed, so any server can serve this build. Delivery UUID `ee327728-3b3b-4d98-966a-bd7fa2312f88`, uploaded 2026-07-30 07:55 UTC and VALID, listed in App Store Connect as 20, so `CFBundleVersion` and the ASC number stay in step. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
@@ -105,11 +105,24 @@ onwards as recorded, and anything earlier as best effort.
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
 | Registered name | **Yet Another Meal Planner** — the rename landed; App Review's correspondence uses it (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | 1.0, `WAITING_FOR_REVIEW`, **build 23 attached** (was ASC-18) |
-| Review submission | `46eacb99-2954-48bb-8bc3-948fc2cbf703`, submitted 2026-08-06 21:27 UTC. The rejected one, `556775c4-…`, is `COMPLETE`. |
+| Version record | **1.0, `READY_FOR_SALE`, build 23** — approved 2026-08-12 00:12 UTC |
+| Review submission | `46eacb99-2954-48bb-8bc3-948fc2cbf703`, submitted 2026-08-06 21:27 UTC, `COMPLETE`. The rejected one, `556775c4-…`, is `COMPLETE` too. |
 | Review notes | Filled in 2026-08-06 from [AppStore/review-notes.md](AppStore/review-notes.md), 1784 chars. They were `null` for the whole first review. |
-| Ever submitted? | Twice — 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC; resubmitted 2026-08-06 21:27 UTC. |
-| Nothing is public yet | **No build has ever reached the App Store.** Every row above is TestFlight-only. The 1.0 record now holds a rejection with ASC-18 attached, so anything uploaded after it (build 19 onward) is testers-only until someone attaches it to a version and resubmits. Uploading to TestFlight does not touch a submission in review: `make ios-testflight` archives, exports and uploads, and nothing more. |
+| Ever submitted? | Twice — 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC; resubmitted 2026-08-06 21:27 UTC and approved. |
+| **The app is public** | Build 23 is on the App Store. It sat `WAITING_FOR_REVIEW` for five days, then went from *In Review* (23:59:31) to *Ready for Distribution* (00:12:42) in **thirteen minutes**. Queue time is the variable here, not review time. |
+
+**What is public is build 23, so everything through it is shipped**: the
+Ingredients tab and duplicate sweep, supermarkets and aisle order, invites and
+AI tokens, the basket section on the shopping list, plan rename, and
+tap-to-rename. Builds 19–22 never needed their own submission; attaching the
+newest build to the version record carried all of them at once.
+
+**Server changes do not need any of this.** The app is a client for a REST API,
+so a backend deploy reaches every install immediately — no build, no review, no
+version record. The two fixes that came out of the rejection, the connection
+pool and the rate limiter, went live that way and are already in every user's
+hands. Only a change to the Swift in `ios/Meals/Meals` needs a new build, and
+only a new build needs a new App Store version.
 
 ### The 2.1(a) rejection
 
