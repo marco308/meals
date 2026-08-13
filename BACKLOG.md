@@ -30,11 +30,11 @@ what it deliberately doesn't do yet:
 - [ ] **Offline** — it's online-only by design (the iPhone in the supermarket
   is the offline story; the web app is the kitchen/desk screen). If that ever
   changes, the `PendingOp` queue semantics from iOS (Q11) are the model
-- [ ] **Servings scaling UI** — same gap as iOS; the API has no first-class
-  support yet (see "Servings scaling" below), the meal editor only exposes the
-  per-recipe `scale` factor
-- [ ] **Re-ingest from the recipe page** — blocked on the same "Re-parse
-  endpoint" item below
+- [ ] **Servings scaling UI** — same gap as iOS, and blocked on the same
+  missing API ([#53](https://github.com/marco308/meals/issues/53)); the meal
+  editor only exposes the per-recipe `scale` factor
+- [ ] **Re-ingest from the recipe page** — blocked on the re-parse endpoint
+  ([#54](https://github.com/marco308/meals/issues/54))
 - [x] ~~**Marketing site mention**~~ — ✅ `docs/` sells it now ("Web ships in
   the box: your server serves the web app itself at `/app`")
 
@@ -42,18 +42,18 @@ what it deliberately doesn't do yet:
 
 - [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so, and `GET /client-config` reports which way it went as `password_reset_enabled`. **Live on the deployment since 13 Aug 2026**, relayed through Resend on the verified `marcuslab.uk` domain
 - [x] ~~**Account deletion**~~ — ✅ shipped (Q20): `DELETE /auth/me`, and in the app's account menu, which is what App Store review actually requires
-- [ ] **Household admin** — inviting someone is now a button (Settings → Invite someone), but that's still all: no rename after signup, no way to leave a household without deleting your account, no way to remove someone you invited by mistake, no list of who's in it, and the iOS register screen can't set `household_name` (it takes the "Home" default)
+- [ ] **Household admin** — [#52](https://github.com/marco308/meals/issues/52). Inviting is a button; renaming, leaving, removing a member and even listing who's in it are not. The tenancy is done (Q19), the product on top of it isn't
 
 ## Next (product tail from the plan)
 
 - [ ] **Cooked → release ingredients** (F2 nice-to-have): marking a meal cooked optionally checks off / removes its outstanding list items
-- [ ] **Un-cook** — no way to undo a mistaken "cooked" today (v1 accepted this; it already bit us once). Now also wrong in the cooked history: a mis-tap permanently inflates `times_cooked`. The fix is to delete the `cooked_events` rows for that plan-meal and re-derive the counters (`app/services/cooking.py` already recomputes rather than increments)
-- [ ] **Servings scaling** — scale a recipe's quantities when adding to a meal ("×2 for batch cooking"); skill/prompt pack tells AIs to confirm scaling, the API has no first-class support
-- [ ] **Archived shopping lists in iOS** — API has `GET /shopping-list/archived`; no screen for "what did we buy last week"
-- [ ] **Re-parse endpoint** — refresh a cached recipe from its URL on demand (edits win; needs an explicit force flag)
-- [ ] **Duplicate ingredients in iOS** — `GET /ingredients/duplicates` and the merge endpoint clean the catalogue up (Q21), and the MCP exposes both, but the app has no screen for it: today the tidy-up only happens if you ask an AI
+- [ ] **Un-cook** — [#51](https://github.com/marco308/meals/issues/51). No way to undo a mistaken "cooked", so a mis-tap permanently inflates `times_cooked`. v1 accepted this; the cooked history made it a correctness problem
+- [ ] **Servings scaling** — [#53](https://github.com/marco308/meals/issues/53). The skill tells AIs to confirm scaling, the API has no first-class support
+- [ ] **Archived shopping lists in iOS** — [#56](https://github.com/marco308/meals/issues/56). `GET /shopping-list/archived` exists, the screen doesn't
+- [ ] **Re-parse endpoint** — [#54](https://github.com/marco308/meals/issues/54). Refresh a cached recipe from its URL on demand; edits still win
+- [ ] **Duplicate ingredients in iOS** — [#57](https://github.com/marco308/meals/issues/57). API, MCP and web all have it (Q21); on the phone the tidy-up only happens if you ask an AI
 - [ ] **One ingredient, two units on the list** — folding names (Q21) makes "mint" one ingredient, but "1 bunch" and "10 g" are still two lines, because merging is exact-unit-only by design (Q2). Converting bunches to grams means guessing at densities, which is the wrong fix; grouping an ingredient's lines together in the iOS list is the right one
-- [ ] **Premium/budget browse screen in iOS** — `GET /ingredients?value_tier=premium` and the MCP `list_ingredients_by_value` read the tagged set back (Q17); the app only shows a tier on ingredients you happen to open
+- [ ] **Premium/budget browse screen in iOS** — [#58](https://github.com/marco308/meals/issues/58). The verdicts (Q17) are readable through the API and the MCP, but write-only in practice on the client you'd use in the shop
 - [ ] **iOS offline breadth** — plan and recipe library are online-only by design (Q11); cache read-only copies so the whole app opens signal-less
 - [x] ~~**Remote MCP multi-user auth**~~ — ✅ shipped (issue #6): the stack serves streamable HTTP at `https://meals.marcuslab.uk/mcp` and forwards each caller's own bearer PAT per request; stdio stays for local dev
 - [ ] **MCP OAuth** — [#8](https://github.com/marco308/meals/issues/8). claude.ai custom connectors want OAuth; the remote MCP is bearer-header-only today
@@ -74,6 +74,6 @@ what it deliberately doesn't do yet:
 - [ ] **Image pipeline** — images are built on the swarm node by hand; a registry (or at least a pinned tag scheme) would make rollbacks sane
 - [ ] **Rate limiting is per-process in-memory** — fine for one replica; revisit if the API ever scales out
 - [x] ~~**Ingredient-line parser tail**~~ — ✅ the regex learned the `<n> <food> <unit>` shape (Q21): "3 garlic cloves" is now 3 cloves of garlic rather than ×3 of an ingredient called "garlic cloves", except where the last word is load-bearing ("2 bay leaves")
-- [ ] **Ingestion has no response-size cap** — `fetch_page` reads the whole body into memory with only the 15s timeout as a bound; a pathological page is a memory spike. Wants a streamed read with a byte ceiling (a few MB covers any real recipe page)
+- [ ] **Ingestion has no response-size cap** — [#55](https://github.com/marco308/meals/issues/55). `fetch_page` reads the whole body into memory with only the timeout as a bound; the last unbounded input on a path that takes a user-supplied URL
 - [x] ~~**Flaky provision password test**~~ — ✅ fixed by asserting on the alphabet rather than on one draw from it: `8` is gone from `PASSWORD_ALPHABET`, and the test now checks that `PASSWORD_ALPHABET` and `AMBIGUOUS_CHARACTERS` are disjoint, which a re-introduced look-alike can't slip past
 - [ ] **Demo/test data hygiene in prod** — if a smoke-test account was used during deploy verification, remove it. Since Q19 a stray registration lands in its own empty household rather than the family's, so this is now tidiness rather than exposure; the Apple Review account made by `python -m app.provision` is the deliberate version of the same thing
