@@ -144,11 +144,16 @@ async def client_config() -> dict:
     """What this deployment expects of native clients. The iOS app reads this
     at launch: below `min_ios_build` it is blocked (426 on everything except
     the offline-queue endpoints), below `current_ios_build` it shows a
-    dismissible nudge. Unauthenticated, and never gated itself."""
+    dismissible nudge. Unauthenticated, and never gated itself.
+
+    `password_reset_enabled` says whether this server can send email at all. A
+    client that shows "Forgot password?" regardless leads people to a 503 they
+    can do nothing about, so it can ask here first and hide the door instead."""
     config = get_settings()
     return {
         "api_version": app.version,
         "min_ios_build": config.min_ios_build,
         "current_ios_build": config.current_ios_build,
         "upgrade_url": config.ios_upgrade_url,
+        "password_reset_enabled": config.email_configured,
     }

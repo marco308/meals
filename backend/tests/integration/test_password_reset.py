@@ -74,8 +74,13 @@ class TestRequestingAReset:
         await register(client)
         response = await request_reset(client)
         assert response.status_code == 503
-        assert "SMTP_HOST" in response.json()["detail"]
-        assert "POST /auth/password" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "SMTP_HOST" in detail
+        assert "POST /auth/password" in detail
+        # The app shows this string verbatim, so it opens with what the person
+        # reading it can act on rather than with an env var.
+        assert detail.split(".")[0] == "this server isn't set up to send email, so it can't send a reset code"
+        assert "password_reset_enabled" in detail
 
     async def test_requesting_again_supersedes_the_first_code(self, client, outbox):
         await register(client)

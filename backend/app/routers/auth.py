@@ -177,16 +177,19 @@ async def request_password_reset(
 
     The exception is a server with no SMTP configured at all, which returns 503:
     that says something about the *server*, not about any account, and a
-    self-hoster needs to be told rather than left wondering.
+    self-hoster needs to be told rather than left wondering. `GET /client-config`
+    publishes the same fact as `password_reset_enabled`, so a client can avoid
+    offering the option on a server that can't honour it.
     """
     settings = get_settings()
     if not settings.email_configured:
         raise HTTPException(
             status_code=503,
             detail=(
-                "this server cannot send email, so password reset is unavailable — "
-                "the operator needs to set SMTP_HOST and SMTP_FROM (see README). "
-                "A signed-in user can still change their password with POST /auth/password."
+                "this server isn't set up to send email, so it can't send a reset code. "
+                "Whoever runs it can turn this on by setting SMTP_HOST and SMTP_FROM (see README); "
+                "GET /client-config reports it as password_reset_enabled. In the meantime a password "
+                "you do know can still be changed with POST /auth/password."
             ),
         )
 
