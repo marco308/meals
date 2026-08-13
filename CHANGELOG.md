@@ -48,6 +48,54 @@ new sidecar next to the database, plus the procedure for getting the data back.
   API's event log (`logger=meals.backup`, `outcome=ok|error`, and a `stage` when
   it failed). The deployment alerts on the absence of a successful one.
 
+## 2026-08-13 (later the same day) — observability, metrics, MCP SDK 2.0
+
+Deployed to `meals.marcuslab.uk`. No migration. Verified across the rollout by
+polling `/healthz` through Traefik every 200ms: **1401/1401 requests 200**, no
+failures, which is the `start-first` + `lbswarm=true` pair still holding.
+
+### Added
+
+- **Structured logging and request observability**, with no new dependencies.
+  JSON lines in production and readable text for `make run` and tests
+  (`LOG_FORMAT` / `LOG_LEVEL`). One access line per request carrying the matched
+  route *template*, duration, the `X-Meals-Client` fields and — once
+  authenticated — user and household ids; healthy `/healthz` polls stay quiet
+  so the 5s container healthcheck doesn't drown the log. Every response now
+  carries `X-Request-ID`, and an unhandled exception logs its traceback and
+  answers with a 500 quoting that id, which is the difference between "a
+  reviewer got an error" and the diagnosis in
+  [ios/CHANGELOG.md](ios/CHANGELOG.md#the-21a-rejection).
+- **Named domain events** via `log_event()`: registrations, invites, deletions,
+  failed logins, rate-limit trips, client-gate rejections, and the recipe
+  ingest funnel including the `ai_parsed` step that closes the 422 loop. Ids
+  and enums only — never emails, tokens or full URLs, matching what `/privacy`
+  promises.
+- **`GET /metrics`**, Prometheus format, guarded by `METRICS_TOKEN`: unset (the
+  default, and what a self-hoster gets) it 404s and the refresh task never
+  starts. Request counters and latency histograms are labelled by route
+  template with everything unmatched collapsed to `unmatched`, so a scanner
+  probing random paths can't mint timeseries. `log_event()` also increments
+  `meals_events_total{event, outcome}`, making every named event graphable
+  without extra instrumentation. Process, platform and GC collectors ride
+  along, plus whole-server usage gauges (households, users, recipes) refreshed
+  once a minute by a lifespan task.
+
+### Changed
+
+- **The MCP server is ported to SDK 2.0.** `FastMCP` became `MCPServer`, the
+  `settings.host` / `port` / `stateless_http` / `transport_security` knobs
+  became per-app keyword arguments, and the `request_ctx` contextvar is gone —
+  a handler only sees the request context if it declares a `Context` parameter.
+  That last one is the one that mattered: http mode exists to forward the
+  calling client's own `Authorization` header (Q15), and every tool reaches the
+  API through helpers several frames below the handler. Rather than thread a
+  `Context` through all 27 tools and their lookup helpers for no behaviour
+  change, a server middleware publishes the request's headers in a contextvar
+  of our own for the life of the request. Verified on the deployment: a full
+  streamable-HTTP session (initialize, initialized, `tools/list`) returns all
+  **27 tools**.
+
 ## 2026-08-13 — password reset, live
 
 Deployed to `meals.marcuslab.uk`. No migration.
