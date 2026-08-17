@@ -30,11 +30,13 @@ what it deliberately doesn't do yet:
 - [ ] **Offline** — it's online-only by design (the iPhone in the supermarket
   is the offline story; the web app is the kitchen/desk screen). If that ever
   changes, the `PendingOp` queue semantics from iOS (Q11) are the model
-- [ ] **Servings scaling UI** — same gap as iOS, and blocked on the same
-  missing API ([#53](https://github.com/marco308/meals/issues/53)); the meal
-  editor only exposes the per-recipe `scale` factor
-- [ ] **Re-ingest from the recipe page** — blocked on the re-parse endpoint
-  ([#54](https://github.com/marco308/meals/issues/54))
+- [x] ~~**Servings scaling UI**~~ — ✅ shipped with the API it was blocked on
+  ([#53](https://github.com/marco308/meals/issues/53)): the meal editor asks in
+  portions when the recipe declares servings and in multiples when it doesn't,
+  showing the multiplier either way
+- [x] ~~**Re-ingest from the recipe page**~~ — ✅ shipped with the endpoint it
+  was blocked on ([#54](https://github.com/marco308/meals/issues/54)):
+  "↻ Re-read the page" on the recipe, which asks before replacing edits
 - [x] ~~**Marketing site mention**~~ — ✅ `docs/` sells it now ("Web ships in
   the box: your server serves the web app itself at `/app`")
 
