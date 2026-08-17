@@ -348,15 +348,25 @@ struct PlanMealRow: View {
             }
             .tint(.orange)
         }
-        // allowsFullSwipe off: a stray horizontal drag while scrolling must
-        // not silently mark a meal cooked (there is no un-cook in v1).
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            Button {
-                Task { await store.markCooked(planMeal) }
-            } label: {
-                Label("Cooked", systemImage: "checkmark")
+        // Full swipe is on now that a stray drag is undoable (#51) — the same
+        // gesture takes it back, so the worst case is a swipe, not a permanent
+        // dent in "what do we actually eat".
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if planMeal.cookedAt == nil {
+                Button {
+                    Task { await store.markCooked(planMeal) }
+                } label: {
+                    Label("Cooked", systemImage: "checkmark")
+                }
+                .tint(.green)
+            } else {
+                Button {
+                    Task { await store.undoCooked(planMeal) }
+                } label: {
+                    Label("Not cooked", systemImage: "arrow.uturn.backward")
+                }
+                .tint(.orange)
             }
-            .tint(.green)
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack {

@@ -336,6 +336,15 @@ struct RecipeDetailView: View {
                         } label: {
                             Label("Mark as cooked", systemImage: "checkmark")
                         }
+                    } else {
+                        Button {
+                            Task {
+                                await planStore.undoCooked(planMeal)
+                                dismiss()
+                            }
+                        } label: {
+                            Label("Not cooked after all", systemImage: "arrow.uturn.backward")
+                        }
                     }
                     Button(role: .destructive) {
                         Task {

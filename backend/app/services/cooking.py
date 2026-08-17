@@ -85,3 +85,32 @@ async def record_cooked(
     await refresh_meal_stats(db, meal.id)
     for link in meal.recipe_links:
         await refresh_recipe_stats(db, link.recipe_id)
+
+
+async def undo_cooked(db: AsyncSession, plan_meal: PlanMeal) -> None:
+    """Take back one cooking: delete this plan-meal's events and re-derive
+    (issue #51).
+
+    Deleting is right here even though `cooked_events` is otherwise
+    append-only. The rows say "we ate this"; a mis-tap means we didn't, so
+    there is no event to keep — a compensating row would leave the history
+    saying both. Because the counters are recomputed rather than decremented,
+    re-deriving from what's left is the whole correction.
+
+    The events are the source of truth, so this reads the meal and recipes
+    *from them* rather than from the meal as it stands now: the meal may have
+    been edited since, and it is the recipes that were cooked whose counts
+    must come back down.
+    """
+    result = await db.execute(select(CookedEvent).where(CookedEvent.plan_meal_id == plan_meal.id))
+    events = list(result.scalars())
+    meal_ids = {event.meal_id for event in events if event.meal_id}
+    recipe_ids = {event.recipe_id for event in events if event.recipe_id}
+    for event in events:
+        await db.delete(event)
+    await db.flush()
+
+    for meal_id in meal_ids:
+        await refresh_meal_stats(db, meal_id)
+    for recipe_id in recipe_ids:
+        await refresh_recipe_stats(db, recipe_id)

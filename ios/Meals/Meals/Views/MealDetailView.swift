@@ -108,6 +108,17 @@ struct MealDetailView: View {
                     } label: {
                         Label("Mark as cooked", systemImage: "checkmark")
                     }
+                } else {
+                    // Undo lives where the mistake is noticed (#51): this is the
+                    // screen showing the "Cooked" badge someone didn't expect.
+                    Button {
+                        Task {
+                            await planStore.undoCooked(planMeal)
+                            dismiss()
+                        }
+                    } label: {
+                        Label("Not cooked after all", systemImage: "arrow.uturn.backward")
+                    }
                 }
                 Button(role: .destructive) {
                     Task {
