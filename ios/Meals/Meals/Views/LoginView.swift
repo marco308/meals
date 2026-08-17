@@ -98,11 +98,17 @@ struct LoginView: View {
                 // setting. But it is the one thing nobody can guess, so it
                 // explains itself rather than sitting there unlabelled.
                 Section {
+                    // Shrinks rather than truncates: at accessibility text
+                    // sizes a monospaced URL outgrows the row, and a server
+                    // address cut off mid-host ("https://meals.marcusla…") is
+                    // unreadable exactly when someone is trying to check it.
                     TextField("Server URL", text: $session.serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.callout.monospaced())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                     Link(destination: AppLinks.support(server: session.serverURL)) {
                         Label("How do I get a server?", systemImage: "questionmark.circle")
                             .font(.callout)
