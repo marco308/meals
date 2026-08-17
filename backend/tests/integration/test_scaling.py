@@ -123,6 +123,91 @@ class TestBuyableRounding:
         assert item_by_name(await get_list(auth_client), "minced beef")["display"] == "750 g"
 
 
+class TestServingsScaling:
+    """Saying it in portions instead of multiples (issue #53). The stored
+    truth is still `scale`; servings is the arithmetic done server-side so the
+    clients don't each round it their own way."""
+
+    async def test_servings_becomes_the_matching_multiple(self, auth_client):
+        recipe = await create_recipe(auth_client)  # serves 4, 500 g beef
+        meal = await create_meal(auth_client, name="Sunday six", recipes=[{"recipe_id": recipe["id"], "servings": 6}])
+        assert meal["recipes"][0]["scale"] == 1.5
+        assert meal["recipes"][0]["scaled_servings"] == 6
+        await _plan_with(auth_client, meal)
+        assert item_by_name(await get_list(auth_client), "minced beef")["quantity"] == 750
+
+    async def test_fewer_servings_scales_down(self, auth_client):
+        """The half-a-recipe case, which a whole-number multiplier can't say."""
+        recipe = await create_recipe(auth_client)
+        meal = await create_meal(auth_client, name="Just us", recipes=[{"recipe_id": recipe["id"], "servings": 2}])
+        assert meal["recipes"][0]["scale"] == 0.5
+        await _plan_with(auth_client, meal)
+        assert item_by_name(await get_list(auth_client), "minced beef")["quantity"] == 250
+
+    async def test_the_recipe_itself_keeps_its_own_servings(self, auth_client):
+        """Scaling belongs to the meal, exactly like the multiple does."""
+        recipe = await create_recipe(auth_client)
+        meal = await create_meal(auth_client, name="Sunday six", recipes=[{"recipe_id": recipe["id"], "servings": 6}])
+        assert meal["recipes"][0]["servings"] == 4  # inherited, untouched
+        assert meal["recipes"][0]["scaled_servings"] == 6
+        fresh = await auth_client.get(f"/recipes/{recipe['id']}")
+        assert fresh.json()["servings"] == 4
+
+    async def test_scaled_servings_follows_a_plain_scale_too(self, auth_client):
+        recipe = await create_recipe(auth_client)
+        meal = await create_meal(auth_client, name="Batch bol", recipes=[{"recipe_id": recipe["id"], "scale": 2}])
+        assert meal["recipes"][0]["scaled_servings"] == 8
+
+    async def test_scaled_servings_is_null_when_the_recipe_doesnt_say(self, auth_client):
+        recipe = await create_recipe(auth_client, servings=None)
+        meal = await create_meal(auth_client, name="Mystery", recipes=[{"recipe_id": recipe["id"], "scale": 2}])
+        assert meal["recipes"][0]["scaled_servings"] is None
+
+    async def test_recipe_without_servings_is_refused_with_the_way_out(self, auth_client):
+        recipe = await create_recipe(auth_client, title="Mystery stew", servings=None)
+        response = await auth_client.post(
+            "/meals", json={"name": "For six", "recipes": [{"recipe_id": recipe["id"], "servings": 6}]}
+        )
+        assert response.status_code == 422
+        assert "Mystery stew" in response.text
+        assert "scale" in response.text  # tells the caller what to send instead
+
+    async def test_servings_over_the_scale_ceiling_is_refused(self, auth_client):
+        recipe = await create_recipe(auth_client)  # serves 4, so 100 would be ×25
+        response = await auth_client.post(
+            "/meals", json={"name": "Banquet", "recipes": [{"recipe_id": recipe["id"], "servings": 100}]}
+        )
+        assert response.status_code == 422
+        assert "20" in response.text
+
+    async def test_scale_and_servings_together_is_a_422(self, auth_client):
+        recipe = await create_recipe(auth_client)
+        response = await auth_client.post(
+            "/meals",
+            json={"name": "Ambiguous", "recipes": [{"recipe_id": recipe["id"], "scale": 2, "servings": 6}]},
+        )
+        assert response.status_code == 422
+        assert "not both" in response.text
+
+    async def test_patching_with_servings_resyncs_the_list(self, auth_client):
+        recipe = await create_recipe(auth_client)
+        meal = await create_meal(auth_client, name="Spag bol", recipe_ids=[recipe["id"]])
+        await _plan_with(auth_client, meal)
+
+        response = await auth_client.patch(
+            f"/meals/{meal['id']}", json={"recipes": [{"recipe_id": recipe["id"], "servings": 6}]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["recipes"][0]["scaled_servings"] == 6
+        assert item_by_name(await get_list(auth_client), "minced beef")["quantity"] == 750
+
+    async def test_a_third_of_a_recipe_reads_back_as_one_serving(self, auth_client):
+        """Rounding on the way out, so float noise never reaches a client."""
+        recipe = await create_recipe(auth_client, servings=3)
+        meal = await create_meal(auth_client, name="Just me", recipes=[{"recipe_id": recipe["id"], "servings": 1}])
+        assert meal["recipes"][0]["scaled_servings"] == 1
+
+
 class TestCompatibility:
     async def test_recipe_ids_still_means_scale_one(self, auth_client):
         recipe = await create_recipe(auth_client)

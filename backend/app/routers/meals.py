@@ -10,6 +10,7 @@ from app.schemas.common import IngredientLineIn
 from app.schemas.planning import MealCreate, MealOut, MealRecipeIn, MealUpdate
 from app.serializers import meal_out
 from app.services.catalog import get_or_create_ingredient, get_recipe
+from app.services.scaling import ScalingError, scale_for_servings
 from app.services.shopping import get_active_list, remove_meal_contributions, resync_meal_contributions
 
 router = APIRouter(prefix="/meals", tags=["meals"])
@@ -39,7 +40,15 @@ async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, li
                 status_code=422,
                 detail=f"recipe {line.recipe_id} not found; browse the library via GET /recipes or ingest one first",
             )
-        db.add(MealRecipe(meal_id=meal.id, recipe_id=line.recipe_id, scale=line.scale))
+        # Portions are resolved here rather than in the schema: the divisor is
+        # the recipe's own servings, which only exists once it's been fetched.
+        scale = line.scale
+        if line.servings is not None:
+            try:
+                scale = scale_for_servings(recipe.title, recipe.servings, line.servings)
+            except ScalingError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        db.add(MealRecipe(meal_id=meal.id, recipe_id=line.recipe_id, scale=scale))
     await db.flush()
 
 
@@ -63,7 +72,12 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
 
     Use `recipes: [{recipe_id, scale}]` instead of `recipe_ids` to batch-cook:
     scale 2 doubles that recipe's quantities on the shopping list without
-    touching the recipe or any other meal using it."""
+    touching the recipe or any other meal using it.
+
+    `{recipe_id, servings}` says the same thing in portions — 6 servings of a
+    recipe that serves 4 is stored as scale 1.5 — and needs the recipe to say
+    how many it serves. Send one or the other, never both. Each recipe comes
+    back with its `scale` and the `scaled_servings` that follows from it."""
     meal = Meal(household_id=user.household_id, name=payload.name.strip(), slot=_clean_slot(payload.slot))
     db.add(meal)
     await db.flush()
@@ -106,7 +120,8 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
 
     Changing a recipe's `scale` is a composition change: send the whole
     `recipes: [{recipe_id, scale}]` list, and the list follows — ×1 to ×2
-    re-surfaces exactly the doubled lines and leaves everything else ticked."""
+    re-surfaces exactly the doubled lines and leaves everything else ticked.
+    `{recipe_id, servings}` scales the same way in portions instead."""
     meal = await get_meal(db, user.household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=404, detail="meal not found; list meals via GET /meals")

@@ -132,12 +132,23 @@ struct MealEditorView: View {
                         }
                         // Batch cooking (#32): the multiple belongs to this
                         // meal, so the recipe and any other meal using it are
-                        // untouched.
+                        // untouched. Asked in portions when the recipe says how
+                        // many it serves, because that's how it comes up
+                        // ("there'll be six of us"), and in multiples when it
+                        // doesn't (#53).
                         if selectedRecipes.contains(recipe.id) {
-                            Stepper(value: scaleBinding(recipe.id), in: 1...10, step: 1) {
-                                Text(scaleLabel(recipe))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            if let servings = recipe.servings {
+                                Stepper(value: servingsBinding(recipe.id, servings), in: 1...100, step: 1) {
+                                    Text(scaleLabel(recipe))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Stepper(value: scaleBinding(recipe.id), in: 0.5...20, step: 0.5) {
+                                    Text(scaleLabel(recipe))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
@@ -145,8 +156,8 @@ struct MealEditorView: View {
             } header: {
                 Text("Recipes")
             } footer: {
-                if selectedRecipes.contains(where: { (scales[$0] ?? 1) > 1 }) {
-                    Text("Scaled recipes put more on the shopping list. The recipe itself doesn't change.")
+                if selectedRecipes.contains(where: { (scales[$0] ?? 1) != 1 }) {
+                    Text("Scaling changes what this meal puts on the shopping list. The recipe itself doesn't change.")
                 }
             }
 
@@ -267,11 +278,27 @@ struct MealEditorView: View {
         Binding(get: { scales[recipeId] ?? 1 }, set: { scales[recipeId] = $0 })
     }
 
+    /// Portions in, multiples out. The division is done here rather than sent
+    /// as the API's `servings` deliberately: this app can be newer than the
+    /// server it talks to, and one that predates servings-scaling would ignore
+    /// the key and save ×1 — quietly buying the wrong amount of food is worse
+    /// than doing the arithmetic locally. The server-side field is there for
+    /// callers that ship with it (the web app, an AI over MCP).
+    private func servingsBinding(_ recipeId: UUID, _ recipeServings: Int) -> Binding<Int> {
+        Binding(
+            get: { max(1, Int((Double(recipeServings) * (scales[recipeId] ?? 1)).rounded())) },
+            set: { scales[recipeId] = Double($0) / Double(recipeServings) }
+        )
+    }
+
     private func scaleLabel(_ recipe: RecipeSummary) -> String {
         let scale = scales[recipe.id] ?? 1
         let multiple = "×\(IngredientLineEditor.amountText(scale))"
         guard let servings = recipe.servings else { return "\(multiple) — batch cooking" }
-        return "\(multiple) — serves \(IngredientLineEditor.amountText(Double(servings) * scale))"
+        let feeds = "Serves \(IngredientLineEditor.amountText((Double(servings) * scale).rounded()))"
+        // The multiple is what the shopping list works in, so keep it visible
+        // once it stops being ×1.
+        return scale == 1 ? "\(feeds) — the recipe's own" : "\(feeds) — \(multiple)"
     }
 
     private func addLooseLine() {

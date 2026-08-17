@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 12
+PLAYBOOK_VERSION = 13
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -295,6 +295,7 @@ async def create_meal(
     recipe_ids: list[str] | None = None,
     loose_ingredients: list[dict] | None = None,
     recipe_scales: dict[str, float] | None = None,
+    recipe_servings: dict[str, int] | None = None,
 ) -> str:
     """Create a meal — the unit of planning. A meal can combine recipes and
     loose ingredients: 'cottage pie with peas' = the cottage pie recipe plus
@@ -303,12 +304,24 @@ async def create_meal(
     recipe_scales maps a recipe id to a multiplier for batch cooking: {"<id>":
     2} doubles that recipe's quantities on the shopping list, leaving the
     recipe itself and every other meal using it untouched. Confirm scaling with
-    the user before applying it."""
+    the user before applying it.
+
+    recipe_servings says the same thing in portions — {"<id>": 6} of a recipe
+    that serves 4 is ×1.5 — which is usually how people ask ('enough for six').
+    It needs the recipe to say how many it serves; use recipe_scales for one
+    that doesn't. Give a recipe one or the other, not both."""
     scales = recipe_scales or {}
+    servings = recipe_servings or {}
+
+    def _amount(rid: str) -> dict:
+        if rid in servings:
+            return {"recipe_id": rid, "servings": servings[rid]}
+        return {"recipe_id": rid, "scale": scales.get(rid, 1.0)}
+
     payload = {
         "name": name,
         "slot": slot,
-        "recipes": [{"recipe_id": rid, "scale": scales.get(rid, 1.0)} for rid in (recipe_ids or [])],
+        "recipes": [_amount(rid) for rid in (recipe_ids or [])],
         "loose_ingredients": loose_ingredients or [],
     }
     try:
@@ -328,6 +341,7 @@ async def update_meal(
     add_loose_ingredients: list[dict] | None = None,
     remove_loose_ingredients: list[str] | None = None,
     scale_recipes: dict[str, float] | None = None,
+    recipe_servings: dict[str, int] | None = None,
 ) -> str:
     """Change an existing meal: rename it, move it to another slot, add and
     remove recipes and loose sides ('add garlic bread to the cottage pie',
@@ -337,7 +351,12 @@ async def update_meal(
 
     scale_recipes maps a recipe name or id to a multiplier: {"cottage pie": 2}
     doubles that recipe's quantities on the list without touching the recipe or
-    any other meal using it. Ask before changing a scale."""
+    any other meal using it. Ask before changing a scale.
+
+    recipe_servings says it in portions instead — {"cottage pie": 6} feeds six
+    from a recipe that serves four — which is how 'we've got people coming' is
+    usually meant. It needs the recipe to say how many it serves. Give a recipe
+    one or the other, not both."""
     try:
         meal = await _find_meal(meal_name)
         payload: dict[str, Any] = {}
@@ -346,10 +365,11 @@ async def update_meal(
         if slot:
             payload["slot"] = slot
 
-        if add_recipes or remove_recipes or scale_recipes:
+        if add_recipes or remove_recipes or scale_recipes or recipe_servings:
             # Carry the existing scales through: adding garlic bread must not
             # quietly reset the ×2 on the curry.
             scales = {r["id"]: r.get("scale", 1.0) for r in meal["recipes"]}
+            portions: dict[str, int] = {}
             recipe_ids = [r["id"] for r in meal["recipes"]]
             for recipe in await _resolve_recipes(add_recipes or []):
                 if recipe["id"] not in recipe_ids:
@@ -358,15 +378,23 @@ async def update_meal(
             for recipe in await _resolve_recipes(remove_recipes or []):
                 if recipe["id"] in recipe_ids:
                     recipe_ids.remove(recipe["id"])
-            wanted = {key.lower().strip(): value for key, value in (scale_recipes or {}).items()}
-            for recipe in await _resolve_recipes(list(scale_recipes or {})):
-                requested = wanted.get(recipe["title"].lower(), wanted.get(recipe["id"].lower()))
-                if requested is None:
-                    continue
-                if recipe["id"] not in recipe_ids:
-                    return f"'{recipe['title']}' isn't in '{meal['name']}' — add it first, then scale it."
-                scales[recipe["id"]] = requested
-            payload["recipes"] = [{"recipe_id": rid, "scale": scales.get(rid, 1.0)} for rid in recipe_ids]
+            for asked, into in ((scale_recipes, scales), (recipe_servings, portions)):
+                wanted = {key.lower().strip(): value for key, value in (asked or {}).items()}
+                for recipe in await _resolve_recipes(list(asked or {})):
+                    requested = wanted.get(recipe["title"].lower(), wanted.get(recipe["id"].lower()))
+                    if requested is None:
+                        continue
+                    if recipe["id"] not in recipe_ids:
+                        return f"'{recipe['title']}' isn't in '{meal['name']}' — add it first, then scale it."
+                    into[recipe["id"]] = requested
+            # Portions win where both were asked for, and the API refuses to
+            # take the two of them for the same recipe anyway.
+            payload["recipes"] = [
+                {"recipe_id": rid, "servings": portions[rid]}
+                if rid in portions
+                else {"recipe_id": rid, "scale": scales.get(rid, 1.0)}
+                for rid in recipe_ids
+            ]
 
         if add_loose_ingredients or remove_loose_ingredients:
             # PATCH replaces the whole list, so rebuild it from what's there.

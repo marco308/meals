@@ -64,7 +64,10 @@ struct MealDetailView: View {
                                 }
                             }
                             HStack(spacing: 8) {
-                                if let servings = recipe.servings {
+                                // The scaled figure when there is one: on a meal
+                                // screen "serves 6" means this meal, not the
+                                // recipe's own printed yield (#53).
+                                if let servings = recipe.scaledServings ?? recipe.servings {
                                     Label("\(servings)", systemImage: "person.2")
                                 }
                                 if let minutes = recipe.totalMinutes {

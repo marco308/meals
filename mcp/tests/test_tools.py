@@ -449,6 +449,51 @@ class TestMealEditing:
         assert {line["recipe_id"]: line["scale"] for line in sent["recipes"]} == {"r1": 2.0, "r2": 3}
 
     @respx.mock
+    async def test_serving_one_recipe_leaves_the_others_on_their_scale(self):
+        """'Enough curry for six' goes up as servings for the curry and the
+        untouched multiplier for everything else — the API refuses both keys
+        on one line, so they must not be mixed per recipe."""
+        import json
+
+        respx.get(f"{API}/meals").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "m1",
+                        "name": "Curry night",
+                        "slot": "dinner",
+                        "recipes": [
+                            {"id": "r1", "title": "Curry", "scale": 1.0},
+                            {"id": "r2", "title": "Rice", "scale": 2.0},
+                        ],
+                        "loose_ingredients": [],
+                    }
+                ],
+            )
+        )
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Curry"), _library_recipe("r2", "Rice")])
+        )
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "m1",
+                    "name": "Curry night",
+                    "slot": "dinner",
+                    "recipes": [{"title": "Curry"}, {"title": "Rice"}],
+                    "loose_ingredients": [],
+                },
+            )
+        )
+        await server.update_meal("curry night", recipe_servings={"Curry": 6})
+        sent = json.loads(route.calls.last.request.content)
+        lines = {line["recipe_id"]: line for line in sent["recipes"]}
+        assert lines["r1"] == {"recipe_id": "r1", "servings": 6}
+        assert lines["r2"] == {"recipe_id": "r2", "scale": 2.0}
+
+    @respx.mock
     async def test_remove_loose_ingredient_by_name(self):
         import json
 

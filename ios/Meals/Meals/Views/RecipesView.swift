@@ -222,6 +222,19 @@ struct RecipeDetailView: View {
     @State private var deleteError: String?
     @State private var showEditor = false
 
+    /// "×1.5 — serves 6" when the meal this screen stands in for scales the
+    /// recipe, nil when it doesn't or when the recipe was opened from the
+    /// library. `scaledServings` is absent on a backend that predates it, so
+    /// the multiple alone is the fallback.
+    private var mealScaling: String? {
+        guard let link = planContext?.meal.recipes.first(where: { $0.id == recipeId }),
+              let scale = link.scale, scale != 1
+        else { return nil }
+        let multiple = "×\(IngredientLineEditor.amountText(scale))"
+        guard let feeds = link.scaledServings else { return multiple }
+        return "\(multiple) — serves \(feeds)"
+    }
+
     var body: some View {
         Group {
             if let recipe {
@@ -260,6 +273,14 @@ struct RecipeDetailView: View {
             Section {
                 if let servings = recipe.servings {
                     LabeledContent("Serves", value: "\(servings)")
+                }
+                // A single-recipe meal opens this screen instead of the meal
+                // screen, so scaling set on the meal would otherwise be
+                // invisible exactly where it matters (#53). The amounts below
+                // stay the recipe's own — the scaled quantities are on the
+                // shopping list, which is what the scale is for.
+                if let scaled = mealScaling {
+                    LabeledContent("This meal", value: scaled)
                 }
                 if let prep = recipe.prepMinutes {
                     LabeledContent("Prep", value: "\(prep) min")

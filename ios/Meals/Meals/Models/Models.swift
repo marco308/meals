@@ -153,6 +153,10 @@ struct RecipeSummary: Codable, Identifiable, Equatable, Sendable {
     /// multiple for *that* meal (#32). nil means ×1, which is what a backend
     /// without scaling means too.
     var scale: Double? = nil
+    /// How many that scaled share feeds (#53) — `servings` above stays the
+    /// recipe's own figure, so this is a separate key rather than a redefined
+    /// one. nil on a backend without it, or a recipe that doesn't say.
+    var scaledServings: Int? = nil
 
     var totalMinutes: Int? {
         let total = (prepMinutes ?? 0) + (cookMinutes ?? 0)
