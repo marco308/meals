@@ -40,6 +40,32 @@ What that leaves standing:
   in its row. Cross-check the upload date against the row before attaching and
   the two identifiers confirm each other.
 
+## 1.0 is closed: new builds need a higher marketing version
+
+`CFBundleShortVersionString` was `1.0` for builds 16–23 and **must not be
+again**. Once 1.0 went `READY_FOR_SALE` (2026-08-12) App Store Connect closed
+its pre-release train, and an upload carrying 1.0 is refused twice over:
+
+```
+Validation failed (409) Invalid Pre-Release Train.
+    The train version '1.0' is closed for new build submissions
+Validation failed (409) This bundle is invalid. The value for key
+    CFBundleShortVersionString [1.0] … must contain a higher version
+    than that of the previously approved version [1.0]
+```
+
+Build 24 went up as **1.1**, which created that train. What follows:
+
+- **The train is made by the upload, not by a version record.** There is no 1.1
+  record in App Store Connect and TestFlight didn't need one — testers get the
+  build regardless. A record only becomes necessary to *submit for review*, and
+  creating it is a deliberate act, not a side effect of uploading.
+- **Raise the marketing version whenever the current one has been released.**
+  The old rule in `CLAUDE.md` ("must match the App Store version record") held
+  only while 1.0 was pending; matching a *released* version is now the thing
+  that fails.
+- Builds 1–15 went up as `0.1` and can never attach to any of this.
+
 ## The ritual when you bump a build
 
 `CFBundleVersion` in [Meals/project.yml](Meals/project.yml) is not the only
@@ -71,6 +97,7 @@ number involved. All four steps, in order:
 
 | Build | Version | Uploaded | Status | What's in it |
 |---:|---|---|---|---|
+| 24 | **1.1** | 2026-08-17 | TestFlight | **The first build on the 1.1 train** — see [1.0 is closed](#10-is-closed-new-builds-need-a-higher-marketing-version) below; uploading it as 1.0 is a 409. Delivery UUID `d8c88125-be79-4820-b1ac-79e5e18d95a7`, uploaded 2026-08-17 19:48 UTC and VALID, listed as build 24 so `CFBundleVersion` and the ASC number stay in step. TestFlight only: **there is no 1.1 version record yet**, so it is attached to nothing and submitting it means creating that record first. Contents: **cooking for a number of people** (issue #53) and the **hidden "Forgot password?"** (issue #49, PR #64, written for build 23 but never uploaded). The meal editor asks in portions when a recipe says how many it serves — "Serves 6 — ×1.5" — and in multiples when it doesn't; either way **fractional scales are now reachable**, so halving a recipe works, which the old whole-numbers-1-to-10 stepper could not express. A single-recipe meal opens the recipe screen rather than the meal screen, so its scaling used to be invisible: that screen now carries "This meal — ×1.5 — serves 6". The login screen hides the reset button on a server with no SMTP configured, reading `password_reset_enabled` from `/client-config`. **Any server can serve this build**: the app converts portions to a multiple itself rather than sending the new `servings` field, precisely so an older self-hosted server can't ignore the key and silently save ×1, and the flag it reads is optional (absent means "assume it works"). |
 | 23 | 1.0 | 2026-08-05 | **App Store** | **The first build ever to reach the public**, approved 2026-08-12 00:12 UTC. **Rename by tapping the ingredient's name** (PR #41). The editor's name row now opens the fold-aware rename alert directly, with a pencil glyph as the affordance; the "Rename…" button at the foot of the screen is gone, and the merge section's footer teaches the tap. Rename itself is unchanged from build 22. iOS-only view change, no API change; any server can serve this build. Delivery UUID `c55cc542-33f6-4414-be75-2734f21c32e9`, uploaded 2026-08-05 07:43 UTC and VALID. Attached to the 1.0 record on 2026-08-06, replacing ASC-18. |
 | 22 | 1.0 | 2026-08-04 | TestFlight | **Ingredient rename**, as sugar over create-and-merge (Q21): "Rename…" in the ingredient editor resolves what the typed name folds to — same row explains itself, an existing row asks before merging (its curation wins), a free name is created carrying this row's curation and the old row folds in. The editor hands over to the survivor, so further edits land on the right row. No API change; any server can serve this build. Delivery UUID `6e78a7cf-e78e-4e05-8752-ef98fd8baadc`, uploaded 2026-08-04 21:14 UTC. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
 | 21 | 1.0 | 2026-08-04 | TestFlight | **The web app's features, ported** (PR #39). New Ingredients tab: the catalogue with search, staples/verdict filters, name/aisle/verdict sorting, delete, the duplicates sweep (Q21) and manual merge from the ingredient editor. Settings grows Supermarkets & aisle order (save stores, drag their walks, pick the active one — Q2), an invites list with revoke, and AI access (mint/reveal-once/revoke API tokens). Shopping list: "sorting aisles for" switcher in the menu, Previous shops, and offline-queued delete for ad-hoc lines. Plan: rename, and past plans open read-only. Recipes: tag and under-30-min filters; meal-library rows in the add sheet gain edit/delete. All additive against the API — any server can serve this build. Delivery UUID `d294f722-8e5d-4340-9f34-4c99805affe4`, uploaded 2026-08-04 19:21 UTC. TestFlight only: it is **not** attached to the 1.0 review, which still carries ASC-18. |
@@ -105,7 +132,7 @@ onwards as recorded, and anything earlier as best effort.
 |---|---|
 | App record | `com.marcuslab.meals`, App Store Connect app id `6794266229` |
 | Registered name | **Yet Another Meal Planner** — the rename landed; App Review's correspondence uses it (see [AppStore/metadata.md](AppStore/metadata.md)) |
-| Version record | **1.0, `READY_FOR_SALE`, build 23** — approved 2026-08-12 00:12 UTC |
+| Version record | **1.0, `READY_FOR_SALE`, build 23** — approved 2026-08-12 00:12 UTC. Still the only record: **1.1 exists as a TestFlight train, not a version**, so nothing needs reviewing until someone creates the 1.1 record and submits build 24. |
 | Review submission | `46eacb99-2954-48bb-8bc3-948fc2cbf703`, submitted 2026-08-06 21:27 UTC, `COMPLETE`. The rejected one, `556775c4-…`, is `COMPLETE` too. |
 | Review notes | Filled in 2026-08-06 from [AppStore/review-notes.md](AppStore/review-notes.md), 1784 chars. They were `null` for the whole first review. |
 | Ever submitted? | Twice — 2026-07-27 19:35 UTC, rejected 2026-08-06 08:19 UTC; resubmitted 2026-08-06 21:27 UTC and approved. |

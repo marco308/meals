@@ -200,8 +200,12 @@ is also the record of which builds actually reached TestFlight or the App Store.
 In short: bump above the highest build *in App Store Connect* (uploads have come
 from outside this repo), add a ledger row, upload, then move
 `current_ios_build` to match, or nobody is ever told a newer build exists.
-`CFBundleShortVersionString` is `1.0` and must match the App Store version
-record — builds 1–15 went up as `0.1` and can never attach to it.
+`CFBundleShortVersionString` must be **higher than the released App Store
+version**, not equal to it: 1.0 is `READY_FOR_SALE`, so its pre-release train
+is closed and an upload carrying 1.0 is a 409. Build 24 opened the `1.1` train,
+which the upload itself created — no version record needed until something is
+actually submitted for review. (Builds 1–15 went up as `0.1` and can never
+attach to any of it.)
 
 ### AI-facing surfaces
 
