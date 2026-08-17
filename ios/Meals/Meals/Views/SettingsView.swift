@@ -46,14 +46,21 @@ struct SettingsView: View {
                 // able to ask", not "you're signed out".
                 Text("Signed in").foregroundStyle(.secondary)
             }
-            Button("Change password…") { showChangePassword = true }
+            Button {
+                showChangePassword = true
+            } label: {
+                Label("Change password…", systemImage: "key")
+            }
         }
     }
 
     private var householdSection: some View {
+        // Headed like Account and Shopping either side of it, so the household
+        // name reads as this group's "Name" rather than a row that repeats the
+        // word the header already says.
         Section {
             if let name = session.user?.householdName {
-                LabeledContent("Household", value: name)
+                LabeledContent("Name", value: name)
             }
             Button {
                 showInvite = true
@@ -65,6 +72,8 @@ struct SettingsView: View {
             } label: {
                 Label("Invites", systemImage: "envelope")
             }
+        } header: {
+            Text("Household")
         } footer: {
             Text(
                 "Everyone in a household shares its recipes, plan and shopping list, "

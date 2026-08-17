@@ -110,8 +110,17 @@ struct LoginView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                     Link(destination: AppLinks.support(server: session.serverURL)) {
-                        Label("How do I get a server?", systemImage: "questionmark.circle")
-                            .font(.callout)
+                        // Not a Label: at accessibility sizes its default
+                        // layout puts the icon alone on the first line and
+                        // wraps the text underneath it. Aligning to the first
+                        // baseline keeps the icon beside the text and lets the
+                        // text wrap in its own column.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "questionmark.circle")
+                            Text("How do I get a server?")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.callout)
                     }
                 } header: {
                     Text("Server")
