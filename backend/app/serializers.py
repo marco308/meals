@@ -5,6 +5,7 @@ from app.schemas.catalog import IngredientOut, RecipeLineOut, RecipeOut, RecipeS
 from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
+from app.services.scaling import scaled_servings
 from app.services.units import format_buy_quantity, format_quantity
 from app.services.values import value_tier_label
 
@@ -87,7 +88,12 @@ def meal_out(meal: Meal) -> MealOut:
         name=meal.name,
         slot=meal.slot,
         recipes=[
-            MealRecipeOut(**recipe_summary(link.recipe).model_dump(), scale=link.scale) for link in meal.recipe_links
+            MealRecipeOut(
+                **recipe_summary(link.recipe).model_dump(),
+                scale=link.scale,
+                scaled_servings=scaled_servings(link.recipe.servings, link.scale),
+            )
+            for link in meal.recipe_links
         ],
         loose_ingredients=[
             _line_out(link.ingredient, link.quantity, link.unit, None) for link in meal.ingredient_links

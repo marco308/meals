@@ -7,6 +7,13 @@ import { linesEditor } from "./lines.js";
 
 let query = { search: "", slot: "" };
 
+// The multiplier behind a portion count, shown next to it because the
+// shopping list works in multiples and "×1.5" is how batch cooking is said.
+function timesLabel(entry) {
+  const scale = (entry.wanted ?? entry.servings) / entry.servings;
+  return scale === 1 ? "" : `×${Number(scale.toFixed(2))}`;
+}
+
 export async function renderMeals(root) {
   render(root, html`
     <div class="page narrow">
@@ -127,7 +134,7 @@ export async function renderMealDetail(root, mealId) {
                   <span class="rc-emoji" aria-hidden="true">📖</span>
                   <div class="rc-main">
                     <div class="rc-title">${recipe.title}${recipe.scale && recipe.scale !== 1 ? html` <span class="chip butter">×${recipe.scale}</span>` : ""}</div>
-                    <div class="rc-sub">${recipe.servings ? `serves ${recipe.servings}` : ""}${recipe.times_cooked > 0 ? ` · cooked ${recipe.times_cooked}×` : ""}</div>
+                    <div class="rc-sub">${recipe.scaled_servings ?? recipe.servings ? `serves ${recipe.scaled_servings ?? recipe.servings}` : ""}${recipe.times_cooked > 0 ? ` · cooked ${recipe.times_cooked}×` : ""}</div>
                   </div>
                 </a>
               `,
@@ -186,7 +193,19 @@ export async function renderMealDetail(root, mealId) {
 export async function renderMealEditor(root, mealId) {
   render(root, skeleton());
   const meal = mealId ? await api(`/meals/${mealId}`) : null;
-  let picked = meal ? meal.recipes.map((r) => ({ recipe_id: r.id, title: r.title, scale: r.scale ?? 1 })) : [];
+  // `servings` is the recipe's own figure and never changes; `wanted` is how
+  // many this meal is for. When the recipe says how many it serves we ask in
+  // portions and let the server do the division (issue #53) — a multiplier is
+  // only the right question when there's nothing to divide by.
+  let picked = meal
+    ? meal.recipes.map((r) => ({
+        recipe_id: r.id,
+        title: r.title,
+        servings: r.servings ?? null,
+        scale: r.scale ?? 1,
+        wanted: r.scaled_servings ?? null,
+      }))
+    : [];
 
   render(root, html`
     <div class="page narrow">
@@ -227,8 +246,12 @@ export async function renderMealEditor(root, mealId) {
             <li>
               <span aria-hidden="true">📖</span>
               <div class="p-main"><div class="p-title">${entry.title}</div></div>
-              <label class="check-line" title="Scale — ×2 for batch cooking">×
-                <input type="number" step="0.5" min="0.5" value="${entry.scale}" data-scale="${index}" class="scale-input"></label>
+              ${entry.servings
+                ? html`<label class="check-line" title="How many this meal is for — the recipe serves ${entry.servings}">serves
+                    <input type="number" step="1" min="1" max="100" value="${entry.wanted ?? entry.servings}" data-wanted="${index}" class="scale-input">
+                    <span class="sub" data-times="${index}">${timesLabel(entry)}</span></label>`
+                : html`<label class="check-line" title="Scale — ×2 for batch cooking">×
+                    <input type="number" step="0.5" min="0.5" value="${entry.scale}" data-scale="${index}" class="scale-input"></label>`}
               <button type="button" class="icon-btn warm" data-unpick="${index}">remove</button>
             </li>
           `,
@@ -238,6 +261,16 @@ export async function renderMealEditor(root, mealId) {
     for (const input of pickedBox.querySelectorAll("[data-scale]")) {
       input.oninput = () => {
         picked[Number(input.dataset.scale)].scale = Number(input.value) || 1;
+      };
+    }
+    for (const input of pickedBox.querySelectorAll("[data-wanted]")) {
+      input.oninput = () => {
+        const index = Number(input.dataset.wanted);
+        const entry = picked[index];
+        entry.wanted = Number(input.value) || entry.servings;
+        // Keep the multiplier visible: batch cooking is still how people talk
+        // about it, and it's the number the shopping list actually uses.
+        pickedBox.querySelector(`[data-times="${index}"]`).textContent = timesLabel(entry);
       };
     }
     for (const button of pickedBox.querySelectorAll("[data-unpick]")) {
@@ -265,14 +298,21 @@ export async function renderMealEditor(root, mealId) {
           <li>
             <span aria-hidden="true">📖</span>
             <div class="p-main"><div class="p-title">${recipe.title}</div></div>
-            ${already ? html`<span class="chip green">added</span>` : html`<button type="button" class="btn small" data-add-recipe="${recipe.id}" data-title="${recipe.title}">Add</button>`}
+            ${already ? html`<span class="chip green">added</span>` : html`<button type="button" class="btn small" data-add-recipe="${recipe.id}" data-title="${recipe.title}" data-servings="${recipe.servings ?? ""}">Add</button>`}
           </li>
         `;
       })}
     `);
     for (const button of results.querySelectorAll("[data-add-recipe]")) {
       button.onclick = () => {
-        picked.push({ recipe_id: button.dataset.addRecipe, title: button.dataset.title, scale: 1 });
+        const servings = Number(button.dataset.servings) || null;
+        picked.push({
+          recipe_id: button.dataset.addRecipe,
+          title: button.dataset.title,
+          servings,
+          scale: 1,
+          wanted: servings,
+        });
         recipeQuery.value = "";
         render(results, "");
         drawPicked();
@@ -293,7 +333,10 @@ export async function renderMealEditor(root, mealId) {
     const body = {
       name: data.name.trim(),
       slot: data.slot.trim() || null,
-      recipes: picked.map(({ recipe_id, scale }) => ({ recipe_id, scale })),
+      // One key or the other per recipe — the API refuses both together.
+      recipes: picked.map(({ recipe_id, servings, scale, wanted }) =>
+        servings ? { recipe_id, servings: wanted ?? servings } : { recipe_id, scale },
+      ),
       loose_ingredients: lines.read(),
     };
     try {
