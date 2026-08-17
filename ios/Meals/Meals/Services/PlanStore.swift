@@ -192,6 +192,15 @@ final class PlanStore {
         }
     }
 
+    func undoCooked(_ planMeal: PlanMeal) async {
+        guard let plan else { return }
+        do {
+            self.plan = try await api().undoCooked(planId: plan.id, planMealId: planMeal.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func createMeal(
         name: String,
         slot: String?,

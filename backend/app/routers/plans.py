@@ -11,7 +11,7 @@ from app.models.users import utcnow
 from app.routers.meals import get_meal
 from app.schemas.planning import AddMealIn, PlanCreate, PlanOut, PlanSummary
 from app.serializers import plan_out, plan_summary
-from app.services.cooking import record_cooked
+from app.services.cooking import record_cooked, undo_cooked
 from app.services.shopping import add_meal_contributions, get_active_list, remove_meal_contributions
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -179,6 +179,35 @@ async def mark_cooked(plan_meal_id: uuid.UUID, plan_id: uuid.UUID, user: Current
         meal = await get_meal(db, user.household_id, plan_meal.meal_id)
         if meal is not None:
             await record_cooked(db, user.household_id, plan_meal, meal, user.id)
+    await db.commit()
+    fresh = await get_plan(db, user.household_id, plan.id)
+    assert fresh is not None
+    return plan_out(fresh)
+
+
+@router.delete("/{plan_id}/meals/{plan_meal_id}/cooked", response_model=PlanOut)
+async def undo_mark_cooked(plan_meal_id: uuid.UUID, plan_id: uuid.UUID, user: CurrentUser, db: DbSession) -> PlanOut:
+    """Take back a mistaken 'cooked' (issue #51). Un-ticks the meal and removes
+    the cooking from the record, so `times_cooked` and `last_cooked_at` come
+    back down for the meal and for every recipe it held at the time.
+
+    This is for a mis-tap, not for un-eating something: it deletes the history
+    rather than logging a correction, so what's left says only what actually
+    happened. Idempotent — a meal that isn't marked cooked is already where you
+    want it. Cooking it again afterwards records a fresh event with the new
+    timestamp."""
+    plan = await get_plan(db, user.household_id, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="plan not found; list plans via GET /plans")
+    plan_meal = await db.get(PlanMeal, plan_meal_id)
+    if plan_meal is None or plan_meal.plan_id != plan.id:
+        raise HTTPException(
+            status_code=404,
+            detail="that meal is not in this plan; use the plan-meal ids from GET /plans/current",
+        )
+    if plan_meal.cooked_at is not None:
+        plan_meal.cooked_at = None
+        await undo_cooked(db, plan_meal)
     await db.commit()
     fresh = await get_plan(db, user.household_id, plan.id)
     assert fresh is not None

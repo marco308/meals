@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 14 -->
+<!-- playbook-version: 15 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v14, and this file is a snapshot** — once installed it never
+**This is playbook v15, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -153,16 +153,21 @@ meal, and the count outlives the plan. `list_recipes` shows "cooked 3× (last
   ("we ingested this and never tried it")
 
 The composition is captured at cook time, so editing a meal later never
-rewrites what was eaten. There is no un-cook yet — confirm before marking
-something cooked that the user only mentioned in passing.
+rewrites what was eaten. `undo_meal_cooked(meal_name)` takes back a cooking
+that shouldn't have been recorded: the meal is un-ticked and the counts come
+back down, for it and for every recipe it held at the time. Only that cooking
+goes — the same meal cooked another week keeps its count. It is for a mistake,
+not for un-eating something, so still confirm before marking cooked anything
+the user only mentioned in passing.
 
 ## When to ask vs act
 
 - Act without asking: ingesting shared links, adding requested meals,
   check-offs, ad-hoc adds the user stated.
 - Ask first: removing meals you weren't told to remove, archiving anything,
-  deleting recipes, meals or ingredients, marking cooked (it can't be undone),
-  changing servings/scaling, replacing a whole plan.
+  deleting recipes, meals or ingredients, marking cooked (undoable now, but
+  it's still their record of what they ate), changing servings/scaling,
+  replacing a whole plan.
 - Premium/budget tags are the household's taste and budget, not yours. Record
   what they tell you ("never skimp on parmesan" → premium, with their reason).
   You can *suggest* a tier when asked "is the expensive one worth it?" — say

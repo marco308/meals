@@ -96,6 +96,19 @@ export async function renderPlan(root, planId = null) {
       renderPlan(root);
     };
   }
+  // Un-cook (#51): the counts come back down server-side, so re-rendering the
+  // plan is the whole update.
+  for (const button of root.querySelectorAll("[data-uncooked]")) {
+    button.onclick = async () => {
+      try {
+        await api(`/plans/${plan.id}/meals/${button.dataset.uncooked}/cooked`, { method: "DELETE" });
+        toast("Off the record again.", "ok");
+        renderPlan(root);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+    };
+  }
   for (const button of root.querySelectorAll("[data-remove]")) {
     button.onclick = async () => {
       await api(`/plans/${plan.id}/meals/${button.dataset.remove}`, { method: "DELETE" });
@@ -120,7 +133,9 @@ function planMeal(pm, plan, isActive) {
       ${isActive &&
       html`
         <div class="m-actions">
-          ${!pm.cooked_at && html`<button class="icon-btn" data-cooked="${pm.id}" title="Mark cooked">✓ cooked</button>`}
+          ${pm.cooked_at
+            ? html`<button class="icon-btn" data-uncooked="${pm.id}" title="Take it back off the record — for a mis-click, not for un-eating it">↶ not cooked</button>`
+            : html`<button class="icon-btn" data-cooked="${pm.id}" title="Mark cooked">✓ cooked</button>`}
           <button class="icon-btn warm" data-remove="${pm.id}" title="Remove from plan">remove</button>
         </div>
       `}

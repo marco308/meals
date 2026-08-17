@@ -894,3 +894,32 @@ class TestReparse:
         result = await server.reparse_recipe("chilli")
         assert "edited here" in result
         assert "force" in result
+
+
+class TestUndoCooked:
+    """Un-cook (issue #51) — reachable by an assistant, since 'no, not that
+    one' arrives in conversation more often than in the app."""
+
+    def _plan(self):
+        return {
+            "id": "p1",
+            "label": "w/c 17 Aug",
+            "meals": [{"id": "pm1", "cooked_at": "2026-08-17T18:00:00Z", "meal": {"id": "m1", "name": "Spag bol"}}],
+        }
+
+    @respx.mock
+    async def test_undo_resolves_the_meal_and_deletes_the_cooking(self):
+        respx.get(f"{API}/plans/current").mock(return_value=httpx.Response(200, json=self._plan()))
+        route = respx.delete(f"{API}/plans/p1/meals/pm1/cooked").mock(
+            return_value=httpx.Response(200, json=self._plan())
+        )
+        result = await server.undo_meal_cooked("spag bol")
+        assert route.called
+        assert "no longer marked cooked" in result
+
+    @respx.mock
+    async def test_unknown_meal_lists_what_is_on_the_plan(self):
+        respx.get(f"{API}/plans/current").mock(return_value=httpx.Response(200, json=self._plan()))
+        result = await server.undo_meal_cooked("lasagne")
+        assert "No meal called 'lasagne'" in result
+        assert "Spag bol" in result

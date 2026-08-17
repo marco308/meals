@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 14
+PLAYBOOK_VERSION = 15
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -542,6 +542,27 @@ async def mark_meal_cooked(meal_name: str) -> str:
     except ApiError as exc:
         return str(exc)
     return f"Marked '{matches[0]['meal']['name']}' as cooked."
+
+
+@mcp.tool()
+async def undo_meal_cooked(meal_name: str) -> str:
+    """Take back a 'cooked' that shouldn't have been recorded — a mis-tap, or
+    one you marked in error. The meal is un-ticked and the cooking leaves the
+    record, so its count and every one of its recipes' counts come back down.
+
+    For a mistake, not for un-eating something: it deletes that cooking rather
+    than logging a correction. Only the cooking on this plan is affected; the
+    same meal cooked another week keeps its count."""
+    try:
+        plan = await _call("GET", "/plans/current")
+        matches = [e for e in plan["meals"] if e["meal"]["name"].lower() == meal_name.lower().strip()]
+        if not matches:
+            names = ", ".join(e["meal"]["name"] for e in plan["meals"]) or "(plan is empty)"
+            return f"No meal called '{meal_name}' in the current plan. Meals in plan: {names}"
+        await _call("DELETE", f"/plans/{plan['id']}/meals/{matches[0]['id']}/cooked")
+    except ApiError as exc:
+        return str(exc)
+    return f"'{matches[0]['meal']['name']}' is no longer marked cooked, and its count is back down."
 
 
 # ---------------------------------------------------------------- shopping list

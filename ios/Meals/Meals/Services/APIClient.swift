@@ -551,6 +551,15 @@ extension APIClient {
         )
     }
 
+    /// Take back a mistaken "cooked" (#51): the same path, deleted. The counts
+    /// come back down server-side, so the returned plan is the whole answer.
+    func undoCooked(planId: UUID, planMealId: UUID) async throws -> Plan {
+        try await send(
+            "DELETE", "/plans/\(planId.uuidString.lowercased())/meals/\(planMealId.uuidString.lowercased())/cooked",
+            as: Plan.self
+        )
+    }
+
     // MARK: Supermarkets
 
     /// The household's saved stores. The active one's aisle order drives the
