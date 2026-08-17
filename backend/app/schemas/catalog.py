@@ -160,3 +160,10 @@ class IngestIn(BaseModel):
 class IngestOut(BaseModel):
     recipe: RecipeOut
     cached: bool  # True when the URL was already in the library (parse once, reuse forever)
+
+
+class ReparseIn(BaseModel):
+    """`force` is the household saying its own corrections may go (issue #54).
+    Without it, a recipe marked `edited` is refused rather than overwritten."""
+
+    force: bool = False

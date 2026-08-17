@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 13
+PLAYBOOK_VERSION = 14
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -212,6 +212,25 @@ async def ingest_recipe(url: str) -> str:
     status = "already in the library (cached)" if result["cached"] else "parsed and saved"
     lines = "\n".join(f"  - {line['name']}{_fmt_qty(line)}" for line in recipe["ingredients"])
     return f"Recipe {status}: {_fmt_recipe_summary(recipe)}\nIngredients:\n{lines}"
+
+
+@mcp.tool()
+async def reparse_recipe(recipe: str, force: bool = False) -> str:
+    """Re-read a recipe from the page it came from, when the source has been
+    corrected. Recipes are parsed once and reused forever, so this is the only
+    way to pick up a change — and it is never automatic.
+
+    The recipe keeps its id, its cooked history and its place in any meal, and
+    the shopping list follows the new ingredients. A recipe the household has
+    edited is refused unless force=True, because re-parsing would replace those
+    corrections with whatever the page says now: ask before forcing it."""
+    try:
+        found = (await _resolve_recipes([recipe]))[0]
+        fresh = await _call("POST", f"/recipes/{found['id']}/reparse", json={"force": force})
+    except ApiError as exc:
+        return str(exc)
+    lines = "\n".join(f"  - {line['name']}{_fmt_qty(line)}" for line in fresh["ingredients"])
+    return f"Re-parsed from the source page: {_fmt_recipe_summary(fresh)}\nIngredients now:\n{lines}"
 
 
 @mcp.tool()

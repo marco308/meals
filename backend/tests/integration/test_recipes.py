@@ -1,7 +1,9 @@
+import uuid
+
 import pytest
 
 from app.services import recipe_parser
-from tests.conftest import create_recipe, fixture_html
+from tests.conftest import create_meal, create_plan, create_recipe, fixture_html, get_list, item_by_name
 
 
 class TestCreateRecipe:
@@ -187,3 +189,163 @@ class TestBrowseAndEdit:
         response = await auth_client.delete(f"/recipes/{recipe['id']}")
         assert response.status_code == 409
         assert "meals" in response.json()["detail"]
+
+
+class TestReparse:
+    """On-demand refresh from the source page (issue #54). Parse once, reuse
+    forever (Q3) is still the default — this is the deliberate exception, and
+    it must never quietly discard the household's own corrections."""
+
+    @pytest.fixture
+    def fetch_stub(self, monkeypatch):
+        """Swappable page content, so a test can 'correct' the source between
+        the first ingest and the re-parse."""
+        state = {"html": "", "calls": []}
+
+        async def fake_fetch(url: str) -> str:
+            state["calls"].append(url)
+            return state["html"]
+
+        monkeypatch.setattr(recipe_parser, "fetch_page", fake_fetch)
+
+        def serve(html: str):
+            state["html"] = html
+            return state
+
+        return serve
+
+    async def _ingested(self, client, fetch_stub):
+        fetch_stub(fixture_html("jsonld_simple.html"))
+        response = await client.post("/recipes/ingest", json={"url": "https://example.com/chilli"})
+        assert response.status_code == 200, response.text
+        return response.json()["recipe"]
+
+    async def test_reparse_takes_the_corrected_page(self, auth_client, fetch_stub):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        assert recipe["servings"] == 4
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 200, response.text
+        fresh = response.json()
+        assert fresh["servings"] == 6
+        assert fresh["prep_minutes"] == 20
+        beef = next(line for line in fresh["ingredients"] if line["name"] == "minced beef")
+        assert beef["quantity"] == 750
+        # The dropped ingredient is gone from the recipe.
+        assert not [line for line in fresh["ingredients"] if line["name"] == "red pepper"]
+
+    async def test_the_recipe_keeps_its_identity_and_history(self, auth_client, fetch_stub):
+        """Re-parsing into a new row would strand every meal and list line
+        pointing at this one."""
+        recipe = await self._ingested(auth_client, fetch_stub)
+        meal = await create_meal(auth_client, name="Chilli night", recipe_ids=[recipe["id"]])
+        plan = await create_plan(auth_client)
+        added = await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+        plan_meal = next(pm for pm in added.json()["meals"] if pm["meal"]["id"] == meal["id"])
+        await auth_client.post(f"/plans/{plan['id']}/meals/{plan_meal['id']}/cooked")
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        fresh = response.json()
+        assert fresh["id"] == recipe["id"]
+        assert fresh["source_url"] == recipe["source_url"]
+        assert fresh["times_cooked"] == 1  # cooked history is not the page's to rewrite
+
+    async def test_the_shopping_list_follows_the_new_ingredients(self, auth_client, fetch_stub):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        meal = await create_meal(auth_client, name="Chilli night", recipe_ids=[recipe["id"]])
+        plan = await create_plan(auth_client)
+        await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+        before = await get_list(auth_client)
+        assert item_by_name(before, "minced beef")["quantity"] == 500
+        # "2 x 400g tins" is converted to grams on the way in, so the list
+        # carries 800 g rather than a count of tins.
+        assert item_by_name(before, "chopped tomatoes")["quantity"] == 800
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        shopping_list = await get_list(auth_client)
+        assert item_by_name(shopping_list, "minced beef")["quantity"] == 750
+        assert item_by_name(shopping_list, "chopped tomatoes")["quantity"] == 1200
+
+    async def test_an_edited_recipe_is_refused_and_left_alone(self, auth_client, fetch_stub):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        await auth_client.patch(f"/recipes/{recipe['id']}", json={"title": "Dad's chilli"})
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 409
+        assert "force" in response.json()["detail"]  # says how to proceed anyway
+
+        after = await auth_client.get(f"/recipes/{recipe['id']}")
+        assert after.json()["title"] == "Dad's chilli"
+        assert after.json()["servings"] == 4  # nothing from the new page landed
+
+    async def test_force_reparses_an_edited_recipe(self, auth_client, fetch_stub):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        await auth_client.patch(f"/recipes/{recipe['id']}", json={"title": "Dad's chilli"})
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={"force": True})
+        assert response.status_code == 200, response.text
+        fresh = response.json()
+        assert fresh["title"] == "Best Ever Chilli Con Carne"
+        assert fresh["servings"] == 6
+        # The stored recipe is the page again, so it is no longer edited here.
+        assert fresh["edited"] is False
+        assert fresh["parse_source"] == "jsonld"
+
+    async def test_ingredient_curation_survives(self, auth_client, fetch_stub):
+        """Aisle, staple and value tier live on the ingredient, not the recipe
+        line, so a re-parse must not cost the household its curation (Q17)."""
+        recipe = await self._ingested(auth_client, fetch_stub)
+        beef_id = next(line for line in recipe["ingredients"] if line["name"] == "minced beef")["ingredient_id"]
+        await auth_client.patch(
+            f"/ingredients/{beef_id}",
+            json={"value_tier": "premium", "value_note": "the cheap stuff is all fat", "is_staple": True},
+        )
+
+        fetch_stub(fixture_html("jsonld_simple_corrected.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        beef = next(line for line in response.json()["ingredients"] if line["name"] == "minced beef")
+        assert beef["ingredient_id"] == beef_id
+        assert beef["value_tier"] == "premium"
+        assert beef["value_note"] == "the cheap stuff is all fat"
+
+    async def test_a_recipe_with_no_source_url_says_so(self, auth_client):
+        recipe = await create_recipe(auth_client)  # entered by hand
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 422
+        assert "no source_url" in response.json()["detail"]
+        assert "PATCH /recipes" in response.json()["detail"]  # what to do instead
+
+    async def test_a_failed_fetch_leaves_the_recipe_untouched(self, auth_client, fetch_stub, monkeypatch):
+        recipe = await self._ingested(auth_client, fetch_stub)
+
+        async def failing_fetch(url: str) -> str:
+            raise recipe_parser.RecipeFetchError(
+                f"fetching {url} failed with HTTP 403; if you can read the page yourself, "
+                "submit the structured recipe via POST /recipes"
+            )
+
+        monkeypatch.setattr(recipe_parser, "fetch_page", failing_fetch)
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 422
+        after = await auth_client.get(f"/recipes/{recipe['id']}")
+        assert after.json()["servings"] == 4
+        assert len(after.json()["ingredients"]) == len(recipe["ingredients"])
+
+    async def test_a_page_that_lost_its_jsonld_leaves_the_recipe_untouched(self, auth_client, fetch_stub):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        fetch_stub(fixture_html("no_jsonld.html"))
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 422
+        assert "POST /recipes" in response.json()["detail"]
+        after = await auth_client.get(f"/recipes/{recipe['id']}")
+        assert after.json()["title"] == "Best Ever Chilli Con Carne"
+        assert after.json()["servings"] == 4
+
+    async def test_unknown_recipe_is_a_404(self, auth_client):
+        response = await auth_client.post(f"/recipes/{uuid.uuid4()}/reparse", json={})
+        assert response.status_code == 404

@@ -61,6 +61,25 @@ async def create_recipe_from_payload(
     return recipe
 
 
+async def update_recipe_from_payload(db: AsyncSession, recipe: Recipe, payload: RecipeCreate) -> None:
+    """Replace a recipe's parsed content in place (issue #54).
+
+    In place, because the recipe's id is what meals and their shopping-list
+    contributions point at — re-parsing into a new row would strand every one
+    of them. So everything that isn't the page's to say survives: the id, the
+    `source_url` cache key (Q3), and the cooked history.
+    """
+    recipe.title = payload.title.strip()
+    recipe.servings = payload.servings
+    recipe.prep_minutes = payload.prep_minutes
+    recipe.cook_minutes = payload.cook_minutes
+    recipe.image_url = payload.image_url
+    recipe.instructions = payload.instructions
+    recipe.tags = payload.tags
+    await set_recipe_ingredients(db, recipe, payload.ingredients)
+    await db.flush()
+
+
 async def set_recipe_ingredients(db: AsyncSession, recipe: Recipe, lines: list[IngredientLineIn]) -> None:
     existing = await db.execute(select(RecipeIngredient).where(RecipeIngredient.recipe_id == recipe.id))
     for link in existing.scalars():
