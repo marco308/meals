@@ -44,7 +44,7 @@ targets:
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`. Then add a
         # row to ios/CHANGELOG.md and move current_ios_build in the backend.
-        CFBundleVersion: "24"
+        CFBundleVersion: "25"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
