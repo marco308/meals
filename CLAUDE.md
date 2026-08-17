@@ -45,6 +45,7 @@ is what keeps the API complete and the views consistent.
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
+| `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
 | `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q22, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
@@ -310,5 +311,25 @@ Two things follow from the fix and they constrain what you may deploy:
 
 Postgres stays stop-first on purpose — one replica on one local volume can't
 have two tasks at once.
+
+### Backups
+
+`backup/` is a sidecar in the same stack: nightly `pg_dump -Fc`, each dump read
+back with `pg_restore --list` before it counts, 7 daily + 4 weekly, and a gpg
+AES-256 copy pushed off the node with rclone (Google Drive here). Its one event
+line per run is `logger=meals.backup` in the same JSON shape as
+`app/observability.py` — that is what the freshness alert watches, so don't
+change its `outcome=ok|error` fields without moving the alert with it.
+
+Two rules constrain anything built on top:
+
+- **Restore whole, never piecemeal.** `household_id` columns carry no
+  `ondelete` and the deletion order lives in `services/accounts.py` (Q20), so
+  cherry-picking tables out of a dump can leave rows the app would never have
+  produced. `restore.sh` restores into a scratch database for exactly this
+  reason; copy out of that if you need surgery.
+- **The image tracks the db image.** `pg_dump` refuses to dump a server newer
+  than itself, so `backup/Dockerfile`'s `FROM postgres:17-alpine` and the `db`
+  service's tag move together.
 
 Open items and deferred work live in `BACKLOG.md`.

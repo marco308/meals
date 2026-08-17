@@ -31,6 +31,25 @@ services:
       db:
         condition: service_healthy
 
+  # Nightly pg_dump, verified and rotated (issue #9). Local-only as shipped —
+  # set RCLONE_REMOTE and BACKUP_PASSPHRASE_FILE to also send an encrypted copy
+  # off the node, which is the half that survives losing the machine. See
+  # backup/README.md, and `docker compose exec backup restore.sh latest` for
+  # the way back.
+  backup:
+    build: ./backup
+    environment:
+      PGHOST: db
+      PGUSER: meals
+      PGPASSWORD: meals
+      PGDATABASE: meals
+      LOG_FORMAT: text
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
   # Remote MCP (streamable HTTP): connect an MCP client to
   # http://localhost:8100/mcp with an Authorization: Bearer <token> header.
   mcp:
@@ -44,3 +63,4 @@ services:
 
 volumes:
   pgdata:
+  backups:

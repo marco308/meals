@@ -154,6 +154,21 @@ jobs:
         # into the log — that is for a throwaway database deleted at teardown.
         run: docker compose exec -T api .venv/bin/python -m app.seed
 
+      - name: Back up the seeded database and restore it into a scratch one
+        # An untested backup is a hypothesis (issue #9), so the reference stack
+        # ships the sidecar and CI runs the whole loop against real data: dump
+        # what the seed just created, read the dump back, restore it into a
+        # database that did not exist a moment ago, and check the rows arrived.
+        # This is also what keeps the restore script honest — it is the script
+        # someone runs on a bad day, and it is the least-rehearsed code here.
+        run: |
+          docker compose exec -T backup backup.sh
+          docker compose exec -T backup restore.sh --target meals_restore_check --drop latest
+          docker compose exec -T backup psql --dbname meals_restore_check --tuples-only --no-align \
+            -c "select count(*) from recipes" > recipes.txt
+          # A restore that produces an empty database exits 0 just as happily.
+          [ "$(cat recipes.txt)" -gt 0 ]
+
       - name: Stack logs
         if: failure()
         run: docker compose logs --no-color --tail 200

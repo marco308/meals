@@ -22,6 +22,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the last deploy.
 
+## 2026-08-17 — nightly backups, live
+
+Deployed to `meals.marcuslab.uk`. No migration, and no API change: this is a
+new sidecar next to the database, plus the procedure for getting the data back.
+
+### Added
+
+- **The stack backs itself up.** [`backup/`](backup/) is a container that takes
+  a nightly `pg_dump -Fc`, reads each dump back with `pg_restore --list` before
+  it counts as one, keeps 7 daily and 4 weekly (the first dump of each ISO week,
+  hard-linked so it costs no disk until the daily copy expires), and optionally
+  uploads a gpg AES-256 encrypted copy anywhere rclone can reach. It is in
+  [`docker-compose.yml`](docker-compose.yml), so a self-hosted stack is covered
+  from the first `make up`. Closes
+  [#9](https://github.com/marco308/meals/issues/9).
+- **A restore script that has been rehearsed**, not just written:
+  `restore.sh latest` restores into a scratch database and prints what came
+  back. CI runs a dump-and-restore against seeded data on every push, and the
+  drill was performed against production on 2026-08-17 — dump, restore, boot an
+  API against the result, read the shopping list and cooked history back
+  through the API. Steps and numbers in [`backup/README.md`](backup/README.md).
+- **Noticing when it stops.** The container reports unhealthy once the newest
+  dump passes 36h, and every run writes one event line in the same shape as the
+  API's event log (`logger=meals.backup`, `outcome=ok|error`, and a `stage` when
+  it failed). The deployment alerts on the absence of a successful one.
+
 ## 2026-08-13 — password reset, live
 
 Deployed to `meals.marcuslab.uk`. No migration.

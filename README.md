@@ -124,6 +124,24 @@ metrics, and slow-moving usage gauges (households, users, recipes) refreshed
 once a minute. Scrapes and healthchecks don't count themselves, so a quiet
 family server's graphs show the family, not the monitoring.
 
+### Backups
+
+The stack backs itself up: a sidecar takes a nightly `pg_dump`, checks it can
+be read back before counting it, and keeps 7 daily and 4 weekly. Set
+`RCLONE_REMOTE` and a passphrase and it also puts a gpg-encrypted copy wherever
+[rclone](https://rclone.org) can reach — Drive, S3, another box in the house —
+because a dump next to the database survives `DROP TABLE` and nothing else.
+
+```bash
+docker compose exec backup backup.sh                                   # now, not tonight
+docker compose exec backup restore.sh --target meals_check --drop latest   # prove it
+```
+
+The container goes unhealthy if the newest dump ages past 36h, and CI restores
+a dump into a scratch database on every push, because an untested backup is a
+hypothesis. Details, and how to actually recover, in
+[`backup/README.md`](backup/README.md).
+
 ## Repo layout
 
 | Directory | Contents |
@@ -133,6 +151,7 @@ family server's graphs show the family, not the monitoring.
 | [`ios/`](ios/) | Native SwiftUI iPhone app: plan, recipe library + URL ingest, and an **offline-first shopping list** |
 | [`mcp/`](mcp/) | MCP server wrapping the API with task-level tools (`ingest_recipe`, `get_shopping_list`, `check_off`, …) |
 | [`skill/`](skill/) | The AI playbook: `SKILL.md` (Claude-family Agent Skill) + `prompt-pack.md` (portable, any assistant) — served live at `/skill` + `/prompt-pack` |
+| [`backup/`](backup/) | The nightly `pg_dump` sidecar, and the restore script you want to have rehearsed |
 | [`planning/`](planning/) | Product plan and decisions log this POC implements |
 
 ### Web app
