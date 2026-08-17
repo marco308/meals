@@ -3,6 +3,7 @@ import httpx
 import pytest
 import respx
 
+from app.config import get_settings
 from app.services import recipe_parser
 from app.services.recipe_parser import RecipeFetchError, fetch_page
 
@@ -30,6 +31,70 @@ async def test_network_error_becomes_actionable_message():
     with pytest.raises(RecipeFetchError, match="could not fetch") as exc_info:
         await fetch_page("https://example.com/gone")
     assert "POST /recipes" in str(exc_info.value)
+
+
+# ------------------------------------------------------------------ size cap
+# The URL is the caller's and api runs one replica beside its own Postgres, so
+# an endless response is a memory spike on the database's machine (issue #55).
+
+
+@respx.mock
+async def test_a_page_over_the_ceiling_is_refused():
+    limit = get_settings().recipe_fetch_max_bytes
+    respx.get("https://example.com/huge").mock(return_value=httpx.Response(200, content=b"x" * (limit + 1)))
+    with pytest.raises(RecipeFetchError, match="larger than this server will read") as exc_info:
+        await fetch_page("https://example.com/huge")
+    assert "POST /recipes" in str(exc_info.value)  # says what to do instead
+
+
+@respx.mock
+async def test_a_page_at_the_ceiling_still_loads():
+    limit = get_settings().recipe_fetch_max_bytes
+    respx.get("https://example.com/big").mock(return_value=httpx.Response(200, content=b"x" * limit))
+    assert len(await fetch_page("https://example.com/big")) == limit
+
+
+@respx.mock
+async def test_a_lying_content_length_does_not_get_past_the_running_total():
+    """The header is the remote server's claim; the bytes actually read are
+    what stops us."""
+    limit = get_settings().recipe_fetch_max_bytes
+    respx.get("https://example.com/liar").mock(
+        return_value=httpx.Response(200, headers={"content-length": "10"}, content=b"x" * (limit + 1))
+    )
+    with pytest.raises(RecipeFetchError, match="larger than this server will read"):
+        await fetch_page("https://example.com/liar")
+
+
+@respx.mock
+async def test_an_honest_content_length_is_refused_before_reading_it():
+    limit = get_settings().recipe_fetch_max_bytes
+    route = respx.get("https://example.com/declared").mock(
+        return_value=httpx.Response(200, headers={"content-length": str(limit + 1)}, content=b"x" * 10)
+    )
+    with pytest.raises(RecipeFetchError, match="larger than this server will read"):
+        await fetch_page("https://example.com/declared")
+    assert route.called
+
+
+@respx.mock
+async def test_the_declared_charset_is_honoured():
+    """Streaming rules out response.text, so the decode is ours to get right."""
+    respx.get("https://example.com/latin").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=iso-8859-1"},
+            content="<html>crème brûlée</html>".encode("iso-8859-1"),
+        )
+    )
+    assert await fetch_page("https://example.com/latin") == "<html>crème brûlée</html>"
+
+
+@respx.mock
+async def test_undecodable_bytes_do_not_lose_the_page():
+    """A few bad bytes shouldn't cost a page whose JSON-LD is perfectly fine."""
+    respx.get("https://example.com/messy").mock(return_value=httpx.Response(200, content=b"<html>\xff\xfe ok</html>"))
+    assert "ok" in await fetch_page("https://example.com/messy")
 
 
 # ------------------------------------------------------------------ SSRF guard
