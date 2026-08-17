@@ -830,3 +830,67 @@ class TestSupermarkets:
         )
         result = await server.save_supermarket("Aldi", ["🧀"])
         assert "unknown aisle(s) 🧀" in result
+
+
+class TestReparse:
+    """Re-reading a recipe from its source page (issue #54)."""
+
+    @respx.mock
+    async def test_resolves_by_title_and_reports_the_new_lines(self):
+        import json
+
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli con carne")])
+        )
+        route = respx.post(f"{API}/recipes/r1/reparse").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "r1",
+                    "title": "Chilli con carne",
+                    "servings": 6,
+                    "times_cooked": 2,
+                    "last_cooked_at": None,
+                    "ingredients": [{"name": "minced beef", "display": "750 g"}],
+                },
+            )
+        )
+        result = await server.reparse_recipe("chilli")
+        assert json.loads(route.calls.last.request.content) == {"force": False}
+        assert "minced beef — 750 g" in result
+        assert "serves 6" in result
+
+    @respx.mock
+    async def test_force_is_passed_through(self):
+        import json
+
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        route = respx.post(f"{API}/recipes/r1/reparse").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "r1",
+                    "title": "Chilli",
+                    "servings": None,
+                    "times_cooked": 0,
+                    "last_cooked_at": None,
+                    "ingredients": [],
+                },
+            )
+        )
+        await server.reparse_recipe("chilli", force=True)
+        assert json.loads(route.calls.last.request.content) == {"force": True}
+
+    @respx.mock
+    async def test_the_edited_recipe_refusal_reaches_the_assistant(self):
+        """The 409 explains itself and says how to proceed — don't swallow it."""
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        respx.post(f"{API}/recipes/r1/reparse").mock(
+            return_value=httpx.Response(
+                409,
+                json={"detail": "'Chilli' has been edited here, ... send {\"force\": true} to re-parse anyway."},
+            )
+        )
+        result = await server.reparse_recipe("chilli")
+        assert "edited here" in result
+        assert "force" in result

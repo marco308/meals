@@ -184,6 +184,9 @@ export async function renderRecipeDetail(root, recipeId) {
         <div class="page-actions">
           <button class="btn" data-plan-it>🍲 Put it on the plan</button>
           <a class="btn ghost" href="#/recipes/${recipe.id}/edit">Edit</a>
+          ${recipe.source_url
+            ? html`<button class="btn ghost" data-reparse title="Read the original page again — for when the site has corrected it">↻ Re-read the page</button>`
+            : ""}
           <button class="btn danger" data-del>Delete</button>
         </div>
       </div>
@@ -230,7 +233,42 @@ export async function renderRecipeDetail(root, recipeId) {
     }
   };
 
+  const reparseButton = root.querySelector("[data-reparse]");
+  if (reparseButton) reparseButton.onclick = () => reparse(recipe, root);
+
   root.querySelector("[data-plan-it]").onclick = () => planIt(recipe);
+}
+
+// Parse once, reuse forever (Q3) means nothing ever re-fetches a recipe. This
+// is the deliberate exception, for a source page that has been corrected. The
+// server refuses an edited recipe with a 409, so the force confirmation is
+// asked only of the people who actually have edits to lose.
+async function reparse(recipe, root) {
+  const run = async (force) => {
+    const fresh = await api(`/recipes/${recipe.id}/reparse`, { method: "POST", body: { force } });
+    toast(`Re-read from ${hostOf(recipe.source_url)}.`, "ok");
+    renderRecipeDetail(root, fresh.id);
+  };
+  try {
+    await run(false);
+  } catch (error) {
+    if (error.status !== 409) {
+      toast(error.detail || error.message, "error");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `Replace your edits to “${recipe.title}”?`,
+      body: `This recipe has been edited here. Re-reading ${hostOf(recipe.source_url)} replaces the title, ingredients and method with whatever the page says now, and your corrections are gone.`,
+      confirmLabel: "Re-read anyway",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(true);
+    } catch (retryError) {
+      toast(retryError.detail || retryError.message, "error");
+    }
+  }
 }
 
 function hostOf(url) {

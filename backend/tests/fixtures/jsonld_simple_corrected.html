@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Best Ever Chilli Con Carne | Example Kitchen</title>
+<!-- The same page as jsonld_simple.html after the site corrected it: it now
+     serves 6, wants more mince, and has dropped the red pepper. Used to prove
+     a re-parse actually takes the new content (issue #54). -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Best Ever Chilli Con Carne",
+  "image": "https://example.com/images/chilli.jpg",
+  "recipeYield": "6 servings",
+  "prepTime": "PT20M",
+  "cookTime": "PT1H",
+  "keywords": "chilli, mexican, family favourite",
+  "recipeCuisine": "Mexican",
+  "recipeIngredient": [
+    "750g minced beef",
+    "1 onion, finely chopped",
+    "2 cloves garlic",
+    "3 x 400g tins chopped tomatoes",
+    "1 tbsp olive oil",
+    "2 tsp smoked paprika",
+    "Salt and pepper to taste"
+  ],
+  "recipeInstructions": [
+    {"@type": "HowToStep", "text": "Soften the onion and garlic in the oil."},
+    {"@type": "HowToStep", "text": "Brown the mince."},
+    {"@type": "HowToStep", "text": "Add tomatoes and spices, simmer for an hour and a half."}
+  ]
+}
+</script>
+</head>
+<body><h1>Best Ever Chilli Con Carne</h1><p>A family favourite.</p></body>
+</html>

@@ -30,11 +30,13 @@ what it deliberately doesn't do yet:
 - [ ] **Offline** — it's online-only by design (the iPhone in the supermarket
   is the offline story; the web app is the kitchen/desk screen). If that ever
   changes, the `PendingOp` queue semantics from iOS (Q11) are the model
-- [ ] **Servings scaling UI** — same gap as iOS, and blocked on the same
-  missing API ([#53](https://github.com/marco308/meals/issues/53)); the meal
-  editor only exposes the per-recipe `scale` factor
-- [ ] **Re-ingest from the recipe page** — blocked on the re-parse endpoint
-  ([#54](https://github.com/marco308/meals/issues/54))
+- [x] ~~**Servings scaling UI**~~ — ✅ shipped with the API it was blocked on
+  ([#53](https://github.com/marco308/meals/issues/53)): the meal editor asks in
+  portions when the recipe declares servings and in multiples when it doesn't,
+  showing the multiplier either way
+- [x] ~~**Re-ingest from the recipe page**~~ — ✅ shipped with the endpoint it
+  was blocked on ([#54](https://github.com/marco308/meals/issues/54)):
+  "↻ Re-read the page" on the recipe, which asks before replacing edits
 - [x] ~~**Marketing site mention**~~ — ✅ `docs/` sells it now ("Web ships in
   the box: your server serves the web app itself at `/app`")
 
@@ -50,7 +52,7 @@ what it deliberately doesn't do yet:
 - [ ] **Un-cook** — [#51](https://github.com/marco308/meals/issues/51). No way to undo a mistaken "cooked", so a mis-tap permanently inflates `times_cooked`. v1 accepted this; the cooked history made it a correctness problem
 - [x] ~~**Servings scaling**~~ — ✅ shipped (issue [#53](https://github.com/marco308/meals/issues/53)) server-side; the iOS half needs a build. A meal recipe line takes `servings` as well as `scale`: the server divides by the recipe's own servings, stores the multiple it already stored, and reads back `scaled_servings` (a new name — `servings` on that recipe still means the recipe's own, so nothing existing changed meaning). No migration, the column was already there. Web asks in portions when the recipe declares them and in multiples when it doesn't; iOS does the same and can finally halve a recipe, which its whole-number stepper couldn't say. iOS computes the multiple locally rather than sending `servings`, because a newer app against an older self-hosted server would have the key ignored and quietly save ×1
 - [x] ~~**Archived shopping lists in iOS**~~ — ✅ shipped (issue [#56](https://github.com/marco308/meals/issues/56)) in build 21, public since build 23: "Previous shops" in the shopping list's menu, showing each finished shop's date, start and item count. That is the same depth the web app has, because `GET /shopping-list/archived` returns summaries only; showing what was actually *in* a past shop needs an endpoint neither client has
-- [ ] **Re-parse endpoint** — [#54](https://github.com/marco308/meals/issues/54). Refresh a cached recipe from its URL on demand; edits still win
+- [x] ~~**Re-parse endpoint**~~ — ✅ shipped (issue [#54](https://github.com/marco308/meals/issues/54)): `POST /recipes/{id}/reparse` re-reads a recipe from its `source_url`, in place so every meal and list line keeps pointing at it, and the active list follows the new ingredients. An edited recipe is a 409 until you send `{"force": true}`; a failed fetch or a page that lost its JSON-LD leaves the stored recipe exactly as it was. Web has the "↻ Re-read the page" button with the force confirmation; the MCP has `reparse_recipe`. iOS doesn't — it needs a build, and the issue scoped this to web
 - [x] ~~**Duplicate ingredients in iOS**~~ — ✅ shipped (issue [#57](https://github.com/marco308/meals/issues/57)) in build 21, public since build 23: the Ingredients toolbar opens the duplicates sweep (groups with keeper selection, the creep-back warning, and the "old spellings" file-under), and the ingredient editor carries the manual merge for the pairs the finder won't guess at (Q21). The issue was filed after the build that closed it
 - [ ] **One ingredient, two units on the list** — folding names (Q21) makes "mint" one ingredient, but "1 bunch" and "10 g" are still two lines, because merging is exact-unit-only by design (Q2). Converting bunches to grams means guessing at densities, which is the wrong fix; grouping an ingredient's lines together in the iOS list is the right one
 - [x] ~~**Premium/budget browse screen in iOS**~~ — ✅ shipped (issue [#58](https://github.com/marco308/meals/issues/58)) in build 21, public since build 23: the Ingredients tab carries the badge and the household's note on every row, filters to ⭐ premium or 💷 budget, and sorts by verdict (Q17), so the verdicts read back on the phone rather than only through the API

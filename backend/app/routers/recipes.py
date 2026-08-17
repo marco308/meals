@@ -8,10 +8,15 @@ from sqlalchemy import nullsfirst, select
 from app.deps import CurrentUser, DbSession
 from app.models import MealRecipe, Recipe
 from app.observability import log_event
-from app.schemas.catalog import IngestIn, IngestOut, RecipeCreate, RecipeOut, RecipeSummary, RecipeUpdate
+from app.schemas.catalog import IngestIn, IngestOut, RecipeCreate, RecipeOut, RecipeSummary, RecipeUpdate, ReparseIn
 from app.serializers import recipe_out, recipe_summary
 from app.services import recipe_parser
-from app.services.catalog import create_recipe_from_payload, get_recipe, set_recipe_ingredients
+from app.services.catalog import (
+    create_recipe_from_payload,
+    get_recipe,
+    set_recipe_ingredients,
+    update_recipe_from_payload,
+)
 from app.services.recipe_parser import NoRecipeFound, RecipeFetchError
 from app.services.shopping import resync_meal_contributions
 
@@ -21,6 +26,19 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 async def _find_by_url(db: DbSession, household_id: uuid.UUID, url: str) -> Recipe | None:
     result = await db.execute(select(Recipe).where(Recipe.household_id == household_id, Recipe.source_url == url))
     return result.scalar_one_or_none()
+
+
+async def _resync_meals_using(db: DbSession, household_id: uuid.UUID, recipe: Recipe) -> None:
+    """Re-contribute every meal that holds this recipe, so the active shopping
+    list never disagrees with the recipe its lines came from. Call after any
+    change to a recipe's ingredients."""
+    meal_links = await db.execute(select(MealRecipe).where(MealRecipe.recipe_id == recipe.id))
+    for meal_link in meal_links.scalars().all():
+        from app.routers.meals import get_meal
+
+        meal = await get_meal(db, household_id, meal_link.meal_id)
+        if meal is not None:
+            await resync_meal_contributions(db, household_id, meal)
 
 
 def _sort_order(sort: str) -> tuple:
@@ -160,14 +178,81 @@ async def update_recipe(recipe_id: uuid.UUID, payload: RecipeUpdate, user: Curre
     await db.flush()
 
     if ingredients_changed:
-        meal_links = await db.execute(select(MealRecipe).where(MealRecipe.recipe_id == recipe.id))
-        for meal_link in meal_links.scalars().all():
-            from app.routers.meals import get_meal
-
-            meal = await get_meal(db, user.household_id, meal_link.meal_id)
-            if meal is not None:
-                await resync_meal_contributions(db, user.household_id, meal)
+        await _resync_meals_using(db, user.household_id, recipe)
     await db.commit()
+    fresh = await get_recipe(db, user.household_id, recipe.id)
+    assert fresh is not None
+    return recipe_out(fresh)
+
+
+@router.post("/{recipe_id}/reparse", response_model=RecipeOut)
+async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: CurrentUser, db: DbSession) -> RecipeOut:
+    """Re-read this recipe from its `source_url` and replace what the page
+    says: title, servings, times, image, instructions, tags and ingredients.
+
+    Parse once, reuse forever (Q3) is the default because pages rarely change
+    and re-fetching every time would be slow and rude. This is the exception,
+    for when the source has actually been corrected — so it is never automatic,
+    only something you ask for.
+
+    The recipe keeps its id, so every meal and shopping-list line pointing at
+    it still does, and any meal on the active plan re-syncs to the new
+    ingredients. It also keeps its `source_url` and its cooked history, and
+    your ingredients keep their aisles, staple flags and value tiers — that
+    curation lives on the ingredient, not on the recipe line.
+
+    **A recipe you have edited here is refused with a 409**, because the page
+    would silently overwrite your corrections. Send `{"force": true}` to
+    re-parse it anyway; it then counts as a clean parse again, not an edited
+    recipe. Failures leave the stored recipe exactly as it was, and read like
+    ingestion's: a 422 telling you to read the page yourself and
+    `PATCH /recipes/{id}` if this server can't."""
+    recipe = await get_recipe(db, user.household_id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
+    if not recipe.source_url:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"'{recipe.title}' has no source_url, so there is no page to re-read — it was entered "
+                "by hand or submitted without one. Edit it with PATCH /recipes/{recipe_id} instead."
+            ),
+        )
+    if recipe.edited and not payload.force:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{recipe.title}' has been edited here, and re-parsing would replace those corrections "
+                "with whatever the page says now. Confirm with the household first, then send "
+                '{"force": true} to re-parse anyway.'
+            ),
+        )
+
+    host = urlparse(recipe.source_url).hostname
+    # Nothing is written until the parse succeeds, so a page that has gone
+    # away or lost its JSON-LD leaves the stored recipe exactly as it was.
+    try:
+        html = await recipe_parser.fetch_page(recipe.source_url)
+    except RecipeFetchError as exc:
+        log_event("recipe.reparsed", outcome="fetch_failed", host=host, recipe_id=recipe.id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        parsed = recipe_parser.extract_recipe(html, recipe.source_url)
+    except NoRecipeFound as exc:
+        log_event("recipe.reparsed", outcome="no_jsonld", host=host, recipe_id=recipe.id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    from app.services.catalog import parsed_recipe_to_payload
+
+    await update_recipe_from_payload(db, recipe, parsed_recipe_to_payload(parsed))
+    recipe.parse_source = "jsonld"
+    # The stored recipe is the page again, so it is no longer "edited here" —
+    # whatever edits there were are what force: true just discarded.
+    recipe.edited = False
+    await db.flush()
+    await _resync_meals_using(db, user.household_id, recipe)
+    await db.commit()
+    log_event("recipe.reparsed", outcome="parsed", host=host, recipe_id=recipe.id)
     fresh = await get_recipe(db, user.household_id, recipe.id)
     assert fresh is not None
     return recipe_out(fresh)
