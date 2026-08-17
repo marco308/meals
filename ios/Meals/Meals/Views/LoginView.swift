@@ -52,18 +52,31 @@ struct LoginView: View {
                     }
                 }
 
+                // The primary action gets to look like one: filled, full width,
+                // on the page rather than inside a grouped card. As a plain row
+                // it read as a label, and centring the text pushed the row
+                // separator's inset to the middle of the screen, which looked
+                // like a rendering fault.
                 Section {
                     Button(action: submit) {
                         if isWorking {
-                            ProgressView().frame(maxWidth: .infinity)
+                            ProgressView()
+                                .tint(.white)
+                                .frame(maxWidth: .infinity)
                         } else {
                             Text(isRegistering ? "Create account" : "Log in")
                                 .frame(maxWidth: .infinity)
                                 .fontWeight(.semibold)
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(isWorking || email.isEmpty || password.isEmpty || (isRegistering && displayName.isEmpty))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(Color.clear)
+                }
 
+                Section {
                     Button(isRegistering ? "I already have an account" : "Create a new account") {
                         isRegistering.toggle()
                         errorMessage = nil
@@ -85,14 +98,29 @@ struct LoginView: View {
                 // setting. But it is the one thing nobody can guess, so it
                 // explains itself rather than sitting there unlabelled.
                 Section {
+                    // Shrinks rather than truncates: at accessibility text
+                    // sizes a monospaced URL outgrows the row, and a server
+                    // address cut off mid-host ("https://meals.marcusla…") is
+                    // unreadable exactly when someone is trying to check it.
                     TextField("Server URL", text: $session.serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.callout.monospaced())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                     Link(destination: AppLinks.support(server: session.serverURL)) {
-                        Label("How do I get a server?", systemImage: "questionmark.circle")
-                            .font(.callout)
+                        // Not a Label: at accessibility sizes its default
+                        // layout puts the icon alone on the first line and
+                        // wraps the text underneath it. Aligning to the first
+                        // baseline keeps the icon beside the text and lets the
+                        // text wrap in its own column.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "questionmark.circle")
+                            Text("How do I get a server?")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.callout)
                     }
                 } header: {
                     Text("Server")
