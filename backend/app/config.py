@@ -61,6 +61,11 @@ class Settings(BaseSettings):
 
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
+    # And a ceiling on how much of one we'll read (issue #55). The URL is the
+    # caller's, and api runs one replica next to its own Postgres, so an
+    # endless response is a memory spike on the database's machine. Recipe
+    # pages are heavy with markup and still land well under this.
+    recipe_fetch_max_bytes: int = 5 * 1024 * 1024
 
     # Outbound email, used only for password resets (Q20). Unset by default: the
     # app has always run with no mail configured, so a self-hoster who doesn't

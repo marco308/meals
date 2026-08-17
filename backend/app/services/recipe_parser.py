@@ -221,6 +221,44 @@ def _pin_transport_dial(transport: httpx.AsyncHTTPTransport, pins: dict[str, lis
     pool._network_backend = _PinnedDialBackend(inner, pins)
 
 
+def _too_big(url: str, limit: int) -> RecipeFetchError:
+    megabytes = limit / (1024 * 1024)
+    return RecipeFetchError(
+        f"{url} is larger than this server will read ({megabytes:.0f} MB); it is probably not a "
+        f"recipe page. If it is, {_READ_IT_YOURSELF}"
+    )
+
+
+async def _read_capped(response: httpx.Response, url: str, limit: int) -> str:
+    """The response body, refused once it passes `limit` bytes.
+
+    A declared Content-Length is checked first so an obvious offender is
+    dropped before a byte is read, but it's a courtesy rather than the guard:
+    the header is the remote server's claim, and the running total below is
+    what actually stops us.
+    """
+    declared = response.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise _too_big(url, limit)
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > limit:
+            raise _too_big(url, limit)
+        chunks.append(chunk)
+    # Streaming rules out response.text, which needs the whole body buffered,
+    # so decode the way it would: the charset the response declared, else
+    # UTF-8. Undecodable bytes are replaced rather than fatal — a page with a
+    # few bad bytes can still carry perfectly good JSON-LD.
+    encoding = response.charset_encoding or "utf-8"
+    try:
+        return b"".join(chunks).decode(encoding, errors="replace")
+    except LookupError:  # a charset nobody has heard of
+        return b"".join(chunks).decode("utf-8", errors="replace")
+
+
 async def fetch_page(url: str) -> str:
     settings = get_settings()
     headers = {"User-Agent": "MealsBot/0.1 (+recipe ingestion; JSON-LD only)"}
@@ -238,12 +276,15 @@ async def fetch_page(url: str) -> str:
         ) as client:
             target = url
             for _ in range(_MAX_REDIRECTS + 1):
-                response = await client.get(target)
-                if response.next_request is None:
-                    response.raise_for_status()
-                    return response.text
-                # next_request resolves a relative Location against the hop.
-                target = str(response.next_request.url)
+                # Streamed so the body can be abandoned mid-flight: a redirect
+                # hop's body is never wanted, and the page itself is read only
+                # up to the ceiling (issue #55).
+                async with client.stream("GET", target) as response:
+                    if response.next_request is None:
+                        response.raise_for_status()
+                        return await _read_capped(response, url, settings.recipe_fetch_max_bytes)
+                    # next_request resolves a relative Location against the hop.
+                    target = str(response.next_request.url)
                 await _validate_and_pin(pins, target)
             raise RecipeFetchError(
                 f"fetching {url} gave up after {_MAX_REDIRECTS} redirects; check the URL, or {_READ_IT_YOURSELF}"
