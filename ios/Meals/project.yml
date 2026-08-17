@@ -39,12 +39,12 @@ targets:
         # The App Store version record is 1.0, and a build can only attach to a
         # version whose string it matches — builds 1–15 went up as 0.1 and are
         # therefore TestFlight-only forever.
-        CFBundleShortVersionString: "1.0"
+        CFBundleShortVersionString: "1.1"
         # App Store Connect is the source of truth for what has shipped —
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`. Then add a
         # row to ios/CHANGELOG.md and move current_ios_build in the backend.
-        CFBundleVersion: "23"
+        CFBundleVersion: "25"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
