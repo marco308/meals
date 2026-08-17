@@ -94,6 +94,15 @@ with the **`drive.file` scope**, so the credential can only ever see files it
 uploaded itself and not the rest of the Drive. Nothing about the job is
 Drive-specific — S3, B2, another box in the house, all the same setting.
 
+One caveat that is Drive-specific: rclone ships a *shared* OAuth client id, and
+Google is retiring it during 2026 — rclone prints a NOTICE about it on every
+run. When it goes, uploads start failing; the run logs
+`outcome=error stage=offsite`, the local dump is unaffected, and the alerting
+below is what tells you. The fix is
+[your own client id](https://rclone.org/drive/#making-your-own-client-id) (a
+free Google Cloud project) set as `client_id`/`client_secret` on the remote —
+about ten minutes, and nothing else about the setup changes.
+
 ## Restoring
 
 `restore.sh` depends on nothing but `pg_restore`, `psql` and (for an encrypted
