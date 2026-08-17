@@ -52,18 +52,31 @@ struct LoginView: View {
                     }
                 }
 
+                // The primary action gets to look like one: filled, full width,
+                // on the page rather than inside a grouped card. As a plain row
+                // it read as a label, and centring the text pushed the row
+                // separator's inset to the middle of the screen, which looked
+                // like a rendering fault.
                 Section {
                     Button(action: submit) {
                         if isWorking {
-                            ProgressView().frame(maxWidth: .infinity)
+                            ProgressView()
+                                .tint(.white)
+                                .frame(maxWidth: .infinity)
                         } else {
                             Text(isRegistering ? "Create account" : "Log in")
                                 .frame(maxWidth: .infinity)
                                 .fontWeight(.semibold)
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(isWorking || email.isEmpty || password.isEmpty || (isRegistering && displayName.isEmpty))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(Color.clear)
+                }
 
+                Section {
                     Button(isRegistering ? "I already have an account" : "Create a new account") {
                         isRegistering.toggle()
                         errorMessage = nil
