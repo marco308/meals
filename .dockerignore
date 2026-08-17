@@ -7,6 +7,9 @@ ios
 planning
 deploy
 mcp
+# The backup sidecar has its own build context (backup/) and nothing in it
+# belongs in the API image.
+backup
 docker-stack.yml
 backend/tests
 **/__pycache__
