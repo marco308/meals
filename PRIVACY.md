@@ -114,6 +114,13 @@ requests.
   removed. If you were the last person in your household, its recipes, meals,
   plans, shopping list and cooked history go with it. If other people are still
   in the household, their shared content stays — it is theirs too.
+- **Leave a household** — Settings → Household → Leave. Your account, your
+  password and your API tokens all survive; you land in a household of your own
+  with nothing in it. What you added to the old one stays there, because it
+  belongs to the household rather than to you.
+- **Be removed from one** — the household's lead can remove any member. That
+  ends your access to its recipes, plans and lists, and nothing else: your
+  account is untouched and you keep everything signed in on it.
 - **Export your data** — every endpoint the app uses is a documented REST API
   (`/docs` on your server). Your data is readable with a personal token and a
   single `curl`.

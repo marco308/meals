@@ -46,7 +46,7 @@ is what keeps the API complete and the views consistent.
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
 | `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
-| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q22, kept live. The rest is the original plan, kept as history, not a roadmap |
+| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q23, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
@@ -79,8 +79,9 @@ instrumentation a new feature usually needs.
   empty household, and joining an existing one needs a single-use invite code
   from `POST /auth/invites`. `household_id` is therefore the *only* thing
   standing between one family's shopping list and another's — a query that
-  forgets it is a data breach, not a bug. There are no roles or permissions
-  inside a household: everyone in it can do everything.
+  forgets it is a data breach, not a bug. There are no per-user permissions
+  inside a household: everyone in it can do everything to the *food*. Who is in
+  it is the lead's, and only that — see the next bullet.
   `REGISTRATION_ENABLED=false` blocks new *households* but still honours
   invites, so a closed server can admit the people it chose.
 - **The lead** (Q23, amending Q19). `households.lead_user_id` names the member a

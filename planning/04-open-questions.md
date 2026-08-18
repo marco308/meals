@@ -112,6 +112,10 @@ family's recipes, plan and shopping list, with write access. Decisions:
 - **Still no roles, no admin, no per-user permissions inside a household** —
   everyone in it can do everything, exactly as under Q16. Being invited is the
   whole of the permission model.
+  > ⚠️ **AMENDED by Q23 (2026-08-18):** this bullet only. A household now has a
+  > **lead**, and inviting, revoking, removing a member and renaming are theirs
+  > alone. Everything else here stands: no read-only members, no per-user
+  > permissions, and nothing about the food is unequal between members.
 - **Q16 stays true about the data model**: users share one household's library,
   plan and list. Nothing about scoping changed; every query already filtered on
   `household_id`, which is why this was an auth change and not a rewrite. Note
