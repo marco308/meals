@@ -13,6 +13,51 @@ struct UserProfile: Codable, Equatable, Sendable {
     /// before Q19 sends neither — a missing name must not be a decode error.
     let householdId: UUID?
     let householdName: String?
+    /// Which member leads the household (Q23): the account it is billed to, and
+    /// the only one who may invite or remove people. Optional for the same
+    /// reason as the two above — a server from before Q23 doesn't send it, and
+    /// a build must not decode-fail against one.
+    let householdLeadUserId: UUID?
+
+    /// Whether to offer this account the things only a lead can do.
+    ///
+    /// **True when the server didn't say**, which looks like the wrong way
+    /// round and isn't. A Q23 server always names a lead, so a missing field
+    /// means the server predates the lead entirely — and on that server every
+    /// member really can invite, exactly as Q19 had it. Hiding the button there
+    /// would break a working feature against a server that was going to allow
+    /// it. The server is the one enforcing this either way; this only decides
+    /// whether to offer the control or let it be refused.
+    var leadsHousehold: Bool { householdLeadUserId == nil || householdLeadUserId == id }
+}
+
+/// A household and everyone in it (`GET /auth/household`). Every member can
+/// read this; only the lead can change who is in it (Q23).
+struct Household: Codable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let leadUserId: UUID?
+    let members: [HouseholdMember]
+}
+
+struct HouseholdMember: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let displayName: String
+    let email: String
+    let createdAt: String
+    let isLead: Bool
+    /// Who admitted them, from the invite they redeemed. Nil for whoever
+    /// started the household, and nil once their inviter deletes their account.
+    let invitedByUserId: UUID?
+}
+
+/// Result of `DELETE /auth/household/members/{id}`. `youLeft` is the difference
+/// between "they are gone" and "you are" — when it's true the app is looking at
+/// a household it is no longer in and has to reload everything.
+struct MemberRemoved: Codable, Sendable {
+    let removedUserId: UUID
+    let youLeft: Bool
+    let detail: String
 }
 
 /// A single-use code that lets one more person register into this household

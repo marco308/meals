@@ -83,6 +83,20 @@ instrumentation a new feature usually needs.
   inside a household: everyone in it can do everything.
   `REGISTRATION_ENABLED=false` blocks new *households* but still honours
   invites, so a closed server can admit the people it chose.
+- **The lead** (Q23, amending Q19). `households.lead_user_id` names the member a
+  household is billed to, and they are the only one who may invite, revoke an
+  invite, remove a member or rename the household. That is the whole of the
+  difference: they have no more power over recipes, plans, lists or ingredients
+  than anyone else, and a new feature does **not** get gated on them unless
+  money is involved. Every household has exactly one at all times — set at
+  registration, handed on with `PATCH /auth/household`, and passed to the
+  longest-standing member if a lead deletes their account. **Leaving is not
+  gated**: `DELETE /auth/household/members/{id}` with your own id is anyone's,
+  and it is the same endpoint the lead uses to remove somebody, because they are
+  one act with two callers. Leaving, removal and `POST /auth/invites/redeem` all
+  funnel into `move_user_to_household` in `services/accounts.py`, which moves
+  `household_id` and collects the vacated household if nobody is left in it —
+  only redeeming can reach that branch, which is why only it takes `force`.
 - **Account lifecycle** (Q20, `services/accounts.py`). Deleting the last member
   of a household deletes the household's data; deleting anyone else deletes only
   them. The order of deletes is load-bearing — `household_id` columns carry no

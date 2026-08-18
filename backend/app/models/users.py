@@ -15,15 +15,34 @@ class Household(Base):
     """A household: one recipe library, plan and shopping list, shared by every
     user in it (decision Q16). Since Q19 a registration creates its own
     household and users join an existing one by invite, so a server holds many
-    — every query must still filter on `household_id`."""
+    — every query must still filter on `household_id`.
+
+    Since Q23 one of its members is the **lead**: the account a subscription
+    belongs to, and the only one who may invite or remove people. Everything
+    about the food stays equal between members."""
 
     __tablename__ = "households"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), default="Home")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Nullable for two reasons that are both mechanical rather than a claim that
+    # a household may have no lead: the household row is inserted before the
+    # user that will lead it exists, and SET NULL keeps a household deletable
+    # while its rows are removed in `services/accounts.py`'s explicit order.
+    # "Exactly one lead, always" is held by that module, not by the schema.
+    # `use_alter` because this closes a cycle: a household points at its lead,
+    # and every user points at their household. SQLAlchemy cannot sort the two
+    # tables for CREATE without it, and the tests build their schema from the
+    # models rather than from the migrations.
+    lead_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL", use_alter=True, name="households_lead_user_id_fkey"),
+        default=None,
+    )
 
-    users: Mapped[list["User"]] = relationship(back_populates="household")
+    # Two foreign keys now join these tables (a user's household, a household's
+    # lead), so both relationships have to say which one they travel.
+    users: Mapped[list["User"]] = relationship(back_populates="household", foreign_keys="User.household_id")
 
 
 class User(Base):
@@ -36,7 +55,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    household: Mapped[Household] = relationship(back_populates="users", lazy="selectin")
+    household: Mapped[Household] = relationship(back_populates="users", lazy="selectin", foreign_keys=[household_id])
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 

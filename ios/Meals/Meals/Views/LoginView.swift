@@ -7,6 +7,7 @@ struct LoginView: View {
     @State private var password = ""
     @State private var displayName = ""
     @State private var inviteCode = ""
+    @State private var householdName = ""
     @State private var isRegistering = false
     @State private var showForgotPassword = false
     @State private var isWorking = false
@@ -36,10 +37,18 @@ struct LoginView: View {
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                             .font(.callout.monospaced())
+                        // Only offered while starting a household: with a code
+                        // you are joining one that is already named, and the
+                        // server ignores the field.
+                        if inviteCode.trimmingCharacters(in: .whitespaces).isEmpty {
+                            TextField("Household name (optional)", text: $householdName)
+                                .textContentType(.organizationName)
+                        }
                     } footer: {
                         Text(
                             "Joining someone's household? Enter their invite code to share "
-                                + "their recipes, plan and shopping list. Leave it blank to start your own."
+                                + "their recipes, plan and shopping list. Leave it blank to start your "
+                                + "own, named whatever you like — “Home” if you'd rather not choose."
                         )
                     }
                 }
@@ -145,7 +154,11 @@ struct LoginView: View {
             do {
                 if isRegistering {
                     try await session.register(
-                        email: email, password: password, displayName: displayName, inviteCode: inviteCode
+                        email: email,
+                        password: password,
+                        displayName: displayName,
+                        inviteCode: inviteCode,
+                        householdName: householdName.trimmingCharacters(in: .whitespaces)
                     )
                 } else {
                     try await session.logIn(email: email, password: password)

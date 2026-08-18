@@ -26,15 +26,18 @@ struct InvitesView: View {
             } footer: {
                 Text(
                     "Invite codes are single-use and expire; send one like you'd send a "
-                        + "password. Revoking an open invite means its code no longer works."
+                        + "password. Issuing and revoking them is the household lead's (Q23), "
+                        + "but everyone can see who could still walk in."
                 )
             }
 
-            Section {
-                Button {
-                    showInvite = true
-                } label: {
-                    Label("Invite someone", systemImage: "person.badge.plus")
+            if session.user?.leadsHousehold == true {
+                Section {
+                    Button {
+                        showInvite = true
+                    } label: {
+                        Label("Invite someone", systemImage: "person.badge.plus")
+                    }
                 }
             }
 
@@ -89,7 +92,7 @@ struct InvitesView: View {
                 .foregroundStyle(.secondary)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if status == .open {
+            if status == .open && session.user?.leadsHousehold == true {
                 Button(role: .destructive) {
                     pendingRevoke = invite
                 } label: {

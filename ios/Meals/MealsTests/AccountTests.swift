@@ -39,6 +39,76 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(user.email, "you@example.com")
     }
 
+    // MARK: - The household and its lead (Q23)
+
+    func testDecodesTheHouseholdAndItsMembers() throws {
+        let household = try decode(
+            Household.self,
+            """
+            {"id": "1f2e3d4c-5b6a-4978-8869-0a1b2c3d4e5f", "name": "Williams",
+             "created_at": "2026-01-04T09:00:00Z",
+             "lead_user_id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11",
+             "members": [
+               {"id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11", "display_name": "Marcus",
+                "email": "marcus@example.com", "created_at": "2026-01-04T09:00:00Z",
+                "is_lead": true, "invited_by_user_id": null},
+               {"id": "2c2c2c2c-0e5d-4f4a-9a7f-2f1c6c9c0a22", "display_name": "Isla",
+                "email": "isla@example.com", "created_at": "2026-02-01T09:00:00Z",
+                "is_lead": false, "invited_by_user_id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11"}
+             ]}
+            """
+        )
+        XCTAssertEqual(household.name, "Williams")
+        XCTAssertEqual(household.members.count, 2)
+        XCTAssertEqual(household.members.first?.isLead, true)
+        XCTAssertNil(household.members.first?.invitedByUserId)
+        XCTAssertEqual(household.members.last?.invitedByUserId, household.leadUserId)
+    }
+
+    func testProfileKnowsWhetherItLeads() throws {
+        let json = """
+            {"id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11", "email": "you@example.com",
+             "display_name": "You", "household_id": "1f2e3d4c-5b6a-4978-8869-0a1b2c3d4e5f",
+             "household_name": "Home", "household_lead_user_id": "%@"}
+            """
+        let lead = try decode(
+            UserProfile.self, json.replacingOccurrences(of: "%@", with: "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11")
+        )
+        let member = try decode(
+            UserProfile.self, json.replacingOccurrences(of: "%@", with: "2c2c2c2c-0e5d-4f4a-9a7f-2f1c6c9c0a22")
+        )
+        XCTAssertTrue(lead.leadsHousehold)
+        XCTAssertFalse(member.leadsHousehold)
+    }
+
+    func testAServerWithoutALeadStillLetsEveryoneInvite() throws {
+        // This build can reach a server that predates Q23, where every member
+        // really can invite (Q19). Hiding the button there would break a
+        // working feature against a server that was going to allow it, so a
+        // missing lead means "no lead exists", not "you are not it".
+        let user = try decode(
+            UserProfile.self,
+            """
+            {"id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11", "email": "you@example.com",
+             "display_name": "You", "household_id": "1f2e3d4c-5b6a-4978-8869-0a1b2c3d4e5f"}
+            """
+        )
+        XCTAssertNil(user.householdLeadUserId)
+        XCTAssertTrue(user.leadsHousehold)
+    }
+
+    func testDecodesTheResultOfLeavingAHousehold() throws {
+        let result = try decode(
+            MemberRemoved.self,
+            """
+            {"removed_user_id": "7b7f4a6e-0e5d-4f4a-9a7f-2f1c6c9c0a11", "you_left": true,
+             "detail": "you have left"}
+            """
+        )
+        XCTAssertTrue(result.youLeft)
+        XCTAssertEqual(result.detail, "you have left")
+    }
+
     func testDecodesAnInviteCode() throws {
         let invite = try decode(
             InviteCreated.self,

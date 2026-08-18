@@ -45,6 +45,10 @@ class UserOut(BaseModel):
     # the client has to be able to answer.
     household_id: uuid.UUID
     household_name: str | None = None
+    # Q23: which member leads this household. A client compares it with `id` to
+    # decide whether to offer the invite and remove controls at all, rather than
+    # offering them and letting the server refuse.
+    household_lead_user_id: uuid.UUID | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -57,6 +61,7 @@ class UserOut(BaseModel):
             return data
         flattened = {name: getattr(data, name) for name in cls.model_fields if hasattr(data, name)}
         flattened["household_name"] = household.name
+        flattened["household_lead_user_id"] = household.lead_user_id
         return flattened
 
 
@@ -126,3 +131,68 @@ class InviteOut(BaseModel):
 
 class InviteCreatedOut(InviteOut):
     code: str  # the plaintext invite code — shown exactly once
+
+
+class HouseholdMemberOut(BaseModel):
+    """One person in the household, as the other members see them.
+
+    Emails are included deliberately: everyone here already shares a recipe
+    library, a plan and a shopping list, so an address is not the secret in the
+    room — and "which of these two accounts is my partner's" needs answering.
+    """
+
+    id: uuid.UUID
+    display_name: str
+    email: str
+    created_at: datetime
+    is_lead: bool
+    # Who admitted them, from the invite they redeemed. None for the person who
+    # started the household, and None once their inviter deletes their account
+    # (the reference is SET NULL, decision Q20).
+    invited_by_user_id: uuid.UUID | None = None
+
+
+class HouseholdOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+    lead_user_id: uuid.UUID | None
+    members: list[HouseholdMemberOut]
+
+
+class HouseholdUpdateIn(BaseModel):
+    """Both fields are optional, but sending neither is a mistake worth naming
+    rather than a no-op worth pretending succeeded."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    lead_user_id: uuid.UUID | None = Field(
+        default=None,
+        description="Hand the lead to another member of this household. They must already be in it.",
+    )
+
+    @model_validator(mode="after")
+    def _something_to_do(self) -> "HouseholdUpdateIn":
+        if self.name is None and self.lead_user_id is None:
+            raise ValueError("send a name, a lead_user_id, or both — this request changes nothing")
+        return self
+
+
+class MemberRemovedOut(BaseModel):
+    """`you_left` is the difference between "they are gone" and "you are". When
+    it is true the caller's own household has changed under them, and their
+    next read of anything will be of somewhere else."""
+
+    removed_user_id: uuid.UUID
+    you_left: bool
+    detail: str
+
+
+class InviteRedeemIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64, description="The invite code, as it was given to you.")
+    force: bool = Field(
+        default=False,
+        description=(
+            "Required when you are the only member of your current household: it holds recipes and "
+            "history that nobody will be able to reach once you leave, and this is you saying they may go."
+        ),
+    )
