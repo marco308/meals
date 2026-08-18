@@ -27,7 +27,7 @@ drive it with their own AI assistant. POC implementation of the plan in
   item knows which meals need it), exact-unit merging, ad-hoc items, staples
   check, "already have it", and store-walking aisle order (🥬 → 🍞 → 🥩 → …).
 - **AI access layer** — the headline: a documented REST API, an MCP server
-  with 21 task-level tools, and a skill/prompt pack the server publishes
+  with 29 task-level tools, and a skill/prompt pack the server publishes
   itself at `/skill` + `/prompt-pack`. The app ships **no built-in LLM** —
   bring your own.
 - **Households** — a household is one recipe library, plan and shopping list,
