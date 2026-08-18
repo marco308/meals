@@ -33,9 +33,14 @@ drive it with their own AI assistant. POC implementation of the plan in
 - **Households** — a household is one recipe library, plan and shopping list,
   and it's the whole authorisation boundary. **Registering creates a household
   of your own**; the people you cook with join it with a single-use invite code
-  (`XXXX-XXXX-XXXX`, short enough to read off one phone and type into another).
-  Everyone in a household can do everything in it — being invited *is* the
-  permission model.
+  (`XXXX-XXXX-XXXX`, short enough to read off one phone and type into another),
+  either when they sign up or from inside an account they already have.
+  Everyone in a household can do everything *to the food* — there is no
+  read-only member and no per-recipe permission. The one exception is the guest
+  list: each household has a **lead** (the member it would be billed to) who
+  invites and removes people. Leaving is always your own to do, and nobody is
+  deleted by being removed — they land in an empty household of their own,
+  account and tokens intact.
 - **Auth** — real per-user accounts (bcrypt + opaque bearer tokens), plus
   per-user API tokens (PATs) for AI clients. Users can change their own password
   (`POST /auth/password`, or from the app's menu): it revokes every session token

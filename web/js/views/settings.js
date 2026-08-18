@@ -1,19 +1,26 @@
-// Settings: account, household invites (Q19), supermarkets & aisle order,
-// AI access tokens, and the danger zone (Q20). Invite codes and API tokens
-// are shown exactly once — the server stores only hashes.
+// Settings: account, the household and who is in it (Q19/Q23), supermarkets &
+// aisle order, AI access tokens, and the danger zone (Q20). Invite codes and
+// API tokens are shown exactly once — the server stores only hashes.
+//
+// The lead is the only member who can invite, remove or rename (Q23), so those
+// controls are hidden rather than shown-and-refused for everyone else. Leaving
+// is nobody's business but your own, so that button is always there.
 
 import { aisles, api, invalidateAisles, session } from "../api.js";
 import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, invites, tokens, markets] = await Promise.all([
+  const [user, household, invites, tokens, markets] = await Promise.all([
     api("/auth/me"),
+    api("/auth/household"),
     api("/auth/invites"),
     api("/auth/tokens"),
     api("/supermarkets"),
   ]);
   session.saveUser(user);
+  const youLead = household.lead_user_id === user.id;
+  const leadName = household.members.find((m) => m.is_lead)?.display_name || "whoever leads it";
 
   render(root, html`
     <div class="page narrow">
@@ -26,7 +33,45 @@ export async function renderSettings(root) {
 
       <div class="section card">
         <h2>Household</h2>
-        <p class="sub">Everyone in “${user.household_name || "Home"}” shares the recipes, plan and shopping list. Invite codes are single-use and expire; send one like you'd send a password.</p>
+        <p class="sub">
+          Everyone in “${household.name}” shares the recipes, plan and shopping list, and can change
+          any of it. ${youLead
+            ? "You lead this household, so inviting and removing people is yours."
+            : `${leadName} leads this household, so inviting and removing people is theirs.`}
+        </p>
+        <table class="plain">
+          <thead><tr><th>Member</th><th>Joined</th><th></th></tr></thead>
+          <tbody>
+            ${household.members.map(
+              (member) => html`
+                <tr>
+                  <td>
+                    ${member.display_name}${member.id === user.id ? " (you)" : ""}
+                    ${member.is_lead ? html`<span class="chip green">lead</span>` : ""}
+                    <div class="sub">${member.email}</div>
+                  </td>
+                  <td>${fmtDate(member.created_at)}</td>
+                  <td>${memberAction(member, user, youLead)}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+        <div class="dialog-actions">
+          ${youLead ? html`<button class="btn ghost" data-rename-household>Rename household…</button>` : ""}
+          ${youLead && household.members.length > 1
+            ? html`<button class="btn ghost" data-hand-over>Hand over the lead…</button>`
+            : ""}
+          <button class="btn ghost" data-join-household>Join another household…</button>
+        </div>
+      </div>
+
+      <div class="section card">
+        <h2>Invites</h2>
+        <p class="sub">
+          Single-use, and they expire; send one like you'd send a password. Anyone holding a code gets
+          everything the household has.${youLead ? "" : ` Only ${leadName} can issue or revoke them.`}
+        </p>
         ${invites.length > 0
           ? html`
               <table class="plain">
@@ -38,7 +83,7 @@ export async function renderSettings(root) {
                         <td>${fmtDate(invite.created_at)}</td>
                         <td>${fmtDate(invite.expires_at)}</td>
                         <td>${inviteStatus(invite)}</td>
-                        <td>${!invite.accepted_at && parseUtc(invite.expires_at) > Date.now()
+                        <td>${youLead && !invite.accepted_at && parseUtc(invite.expires_at) > Date.now()
                           ? html`<button class="icon-btn warm" data-revoke="${invite.id}">revoke</button>`
                           : ""}</td>
                       </tr>
@@ -48,7 +93,7 @@ export async function renderSettings(root) {
               </table>
             `
           : html`<p class="sub">No invites issued yet.</p>`}
-        <div class="dialog-actions"><button class="btn" data-invite>Invite someone</button></div>
+        ${youLead ? html`<div class="dialog-actions"><button class="btn" data-invite>Invite someone</button></div>` : ""}
       </div>
 
       <div class="section card">
@@ -147,15 +192,50 @@ export async function renderSettings(root) {
     </div>
   `);
 
-  root.querySelector("[data-invite]").onclick = async () => {
+  root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household);
+  root.querySelector("[data-rename-household]")?.addEventListener("click", () =>
+    renameHouseholdDialog(root, household),
+  );
+  root.querySelector("[data-hand-over]")?.addEventListener("click", () => handOverDialog(root, household, user));
+
+  for (const button of root.querySelectorAll("[data-remove-member]")) {
+    button.onclick = async () => {
+      const member = household.members.find((m) => m.id === button.dataset.removeMember);
+      const you = member.id === user.id;
+      const ok = await confirmDialog({
+        title: you ? `Leave ${household.name}?` : `Remove ${member.display_name}?`,
+        body: you
+          ? "Your account, your password and your API tokens all survive — you'll be in a household of your own, empty. The recipes, plan and history stay here."
+          : `${member.display_name} keeps their account and lands in a household of their own, empty. Everything they added here stays.`,
+        confirmLabel: you ? "Leave" : "Remove",
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        const result = await api(`/auth/household/members/${member.id}`, { method: "DELETE" });
+        toast(result.detail, "ok");
+        if (result.you_left) {
+          // Everything on screen belongs to a household we are no longer in.
+          location.hash = "#/plan";
+          location.reload();
+          return;
+        }
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+      renderSettings(root);
+    };
+  }
+
+  root.querySelector("[data-invite]")?.addEventListener("click", async () => {
     const invite = await api("/auth/invites", { method: "POST", body: { expires_in_days: 7 } });
     revealDialog(
       "Invite code",
       invite.code,
-      `Valid for one person, for 7 days. They register at this server with it and land in “${user.household_name || "Home"}”.`,
+      `Valid for one person, for 7 days. They can register at this server with it, or paste it into Settings if they already have an account — either way they land in “${household.name}”.`,
     );
     renderSettings(root);
-  };
+  });
 
   for (const button of root.querySelectorAll("[data-revoke]")) {
     button.onclick = async () => {
@@ -360,6 +440,127 @@ function renameMarketDialog(root, market) {
       dialog.close();
       toast("Renamed.", "ok");
       renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+}
+
+function memberAction(member, user, youLead) {
+  // Leaving is yours whoever you are; removing someone else is the lead's.
+  if (member.id === user.id) {
+    return html`<button class="icon-btn warm" data-remove-member="${member.id}">leave</button>`;
+  }
+  if (!youLead) return "";
+  return html`<button class="icon-btn warm" data-remove-member="${member.id}">remove</button>`;
+}
+
+function renameHouseholdDialog(root, household) {
+  const dialog = openDialog(html`
+    <h2>Rename ${household.name}</h2>
+    <form data-f>
+      <label class="field"><span>Name</span>
+        <input type="text" name="name" required maxlength="200" value="${household.name}" autofocus></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Rename</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const name = new FormData(event.target).get("name").trim();
+    if (!name) return;
+    try {
+      await api("/auth/household", { method: "PATCH", body: { name } });
+      dialog.close();
+      toast("Renamed.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+}
+
+function handOverDialog(root, household, user) {
+  const others = household.members.filter((member) => member.id !== user.id);
+  const dialog = openDialog(html`
+    <h2>Hand over the lead</h2>
+    <p class="sub">
+      They get the invites and the guest list; you become an ordinary member and can then leave if you
+      want to. Everything about the recipes, plan and list is unchanged for both of you.
+    </p>
+    <form data-f>
+      <label class="field"><span>New lead</span>
+        <select name="lead_user_id">
+          ${others.map((member) => html`<option value="${member.id}">${member.display_name}</option>`)}
+        </select></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Hand over</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const leadUserId = new FormData(event.target).get("lead_user_id");
+    try {
+      await api("/auth/household", { method: "PATCH", body: { lead_user_id: leadUserId } });
+      dialog.close();
+      toast("Handed over.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+}
+
+function joinHouseholdDialog(root, household) {
+  const dialog = openDialog(html`
+    <h2>Join another household</h2>
+    <p class="sub">
+      Paste a code somebody sent you. You keep this account and everything signed in on it — only which
+      household you're in changes. “${household.name}” keeps its recipes unless you're its only member,
+      in which case they go with you.
+    </p>
+    <form data-f>
+      <label class="field"><span>Invite code</span>
+        <input type="text" name="code" required maxlength="64" placeholder="XXXX-XXXX-XXXX" autofocus></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Join</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const code = new FormData(event.target).get("code").trim();
+    if (!code) return;
+    const join = async (force) => api("/auth/invites/redeem", { method: "POST", body: { code, force } });
+    try {
+      let joined;
+      try {
+        joined = await join(false);
+      } catch (error) {
+        // The 409 is the server saying this would delete a library nobody else
+        // can reach. Ask, then say so explicitly rather than retrying quietly.
+        if (error.status !== 409 || !String(error.detail || "").includes("force")) throw error;
+        const ok = await confirmDialog({
+          title: `Give up ${household.name}?`,
+          body: error.detail,
+          confirmLabel: "Join anyway",
+          danger: true,
+        });
+        if (!ok) return;
+        joined = await join(true);
+      }
+      dialog.close();
+      toast(`You're now in “${joined.household_name || "Home"}”.`, "ok");
+      location.hash = "#/plan";
+      location.reload();
     } catch (error) {
       toast(error.detail || error.message, "error");
     }

@@ -86,11 +86,37 @@ final class Session {
         apply(auth)
     }
 
-    func register(email: String, password: String, displayName: String, inviteCode: String? = nil) async throws {
+    func register(
+        email: String,
+        password: String,
+        displayName: String,
+        inviteCode: String? = nil,
+        householdName: String? = nil
+    ) async throws {
         let auth = try await api.register(
-            email: email, password: password, displayName: displayName, inviteCode: inviteCode
+            email: email,
+            password: password,
+            displayName: displayName,
+            inviteCode: inviteCode,
+            householdName: householdName
         )
         apply(auth)
+    }
+
+    /// Move this account into another household with an invite code (Q23). The
+    /// token is unchanged — only which household it reads — but everything
+    /// cached belongs to the household we just left, so the caller clears it.
+    func joinHousehold(code: String, force: Bool = false) async throws {
+        user = try await api.redeemInvite(code: code, force: force)
+    }
+
+    /// Remove someone from the household, or leave it by passing your own id.
+    /// When it was you, the profile is refreshed so the app knows where it is.
+    @discardableResult
+    func removeMember(id: UUID) async throws -> MemberRemoved {
+        let result = try await api.removeMember(id: id)
+        if result.youLeft { await restore() }
+        return result
     }
 
     /// Changing the password revokes every session token server-side, so the

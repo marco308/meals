@@ -13,6 +13,45 @@ struct UserProfile: Codable, Equatable, Sendable {
     /// before Q19 sends neither — a missing name must not be a decode error.
     let householdId: UUID?
     let householdName: String?
+    /// Which member leads the household (Q23): the account it is billed to, and
+    /// the only one who may invite or remove people. Optional for the same
+    /// reason as the two above — a server from before Q23 doesn't send it, and
+    /// a build must not decode-fail against one.
+    let householdLeadUserId: UUID?
+
+    /// Whether this profile is the household's lead. False when the server
+    /// didn't say, which is the safe way round: the controls stay hidden and
+    /// the server is still the one enforcing it.
+    var leadsHousehold: Bool { householdLeadUserId != nil && householdLeadUserId == id }
+}
+
+/// A household and everyone in it (`GET /auth/household`). Every member can
+/// read this; only the lead can change who is in it (Q23).
+struct Household: Codable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let leadUserId: UUID?
+    let members: [HouseholdMember]
+}
+
+struct HouseholdMember: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let displayName: String
+    let email: String
+    let createdAt: String
+    let isLead: Bool
+    /// Who admitted them, from the invite they redeemed. Nil for whoever
+    /// started the household, and nil once their inviter deletes their account.
+    let invitedByUserId: UUID?
+}
+
+/// Result of `DELETE /auth/household/members/{id}`. `youLeft` is the difference
+/// between "they are gone" and "you are" — when it's true the app is looking at
+/// a household it is no longer in and has to reload everything.
+struct MemberRemoved: Codable, Sendable {
+    let removedUserId: UUID
+    let youLeft: Bool
+    let detail: String
 }
 
 /// A single-use code that lets one more person register into this household

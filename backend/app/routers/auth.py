@@ -14,10 +14,15 @@ from app.schemas.auth import (
     AccountDeletedOut,
     AccountDeleteIn,
     AuthOut,
+    HouseholdMemberOut,
+    HouseholdOut,
+    HouseholdUpdateIn,
     InviteCreatedOut,
     InviteCreateIn,
     InviteOut,
+    InviteRedeemIn,
     LoginIn,
+    MemberRemovedOut,
     PasswordChangeIn,
     PasswordResetConfirmIn,
     PasswordResetRequestIn,
@@ -27,7 +32,14 @@ from app.schemas.auth import (
     TokenOut,
     UserOut,
 )
-from app.services.accounts import delete_user
+from app.services.accounts import (
+    delete_user,
+    household_has_content,
+    household_members,
+    household_user_count,
+    leads_alongside_others,
+    move_user_to_household,
+)
 from app.services.mailer import EmailNotConfigured, EmailSendFailed, password_reset_body, send_email
 from app.services.security import (
     generate_short_code,
@@ -116,6 +128,12 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     if invite is not None:
         invite.accepted_at = datetime.now(UTC)
         invite.accepted_by_user_id = user.id
+    else:
+        # Whoever starts a household leads it (Q23). Joining by invite never
+        # changes the lead — that is the whole point of the invite being theirs
+        # to issue.
+        household.lead_user_id = user.id
+        await db.flush()
     token = _session_token(user)
     db.add(token)
     await db.commit()
@@ -317,14 +335,187 @@ async def delete_account(
     )
 
 
+async def _lead_of(db: DbSession, household: Household) -> User | None:
+    if household.lead_user_id is None:
+        return None
+    return await db.get(User, household.lead_user_id)
+
+
+async def _require_lead(db: DbSession, user: User, action: str) -> Household:
+    """Q23: the lead holds the guest list. Everything about the food stays equal
+    between members, so this guards membership and nothing else.
+
+    The refusal names the lead, because the person reading it needs to know who
+    to go and ask — and on an iOS build older than this change, that sentence is
+    the entire explanation for a button that has stopped working.
+    """
+    household = await db.get(Household, user.household_id)
+    if household is not None and household.lead_user_id == user.id:
+        return household
+    lead = await _lead_of(db, household) if household is not None else None
+    who = f"Ask {lead.display_name} to do it." if lead is not None else "Ask whoever leads it."
+    raise HTTPException(status_code=403, detail=f"only your household's lead can {action}. {who}")
+
+
+async def _household_out(db: DbSession, household: Household) -> HouseholdOut:
+    members = await household_members(db, household.id)
+    # Who admitted whom, from the invites they redeemed. A member who started
+    # the household has no row here, and neither does one whose inviter has
+    # since deleted their account (the reference is SET NULL, Q20).
+    result = await db.execute(
+        select(HouseholdInvite.accepted_by_user_id, HouseholdInvite.created_by_user_id).where(
+            HouseholdInvite.household_id == household.id,
+            HouseholdInvite.accepted_by_user_id.is_not(None),
+        )
+    )
+    admitted_by = {accepted_by: created_by for accepted_by, created_by in result.all()}
+    return HouseholdOut(
+        id=household.id,
+        name=household.name,
+        created_at=household.created_at,
+        lead_user_id=household.lead_user_id,
+        members=[
+            HouseholdMemberOut(
+                id=member.id,
+                display_name=member.display_name,
+                email=member.email,
+                created_at=member.created_at,
+                is_lead=member.id == household.lead_user_id,
+                invited_by_user_id=admitted_by.get(member.id),
+            )
+            for member in members
+        ],
+    )
+
+
+@router.get("/household", response_model=HouseholdOut)
+async def get_household(user: CurrentUser, db: DbSession) -> HouseholdOut:
+    """Your household and everyone in it, longest-standing member first.
+
+    Every member can read this — who else is in the house, and who could still
+    be let in, is not the lead's private business. Emails are included: the
+    people here already share a recipe library, a plan and a shopping list.
+    """
+    household = await db.get(Household, user.household_id)
+    if household is None:  # pragma: no cover - a signed-in user always has one
+        raise HTTPException(status_code=404, detail="your household no longer exists")
+    return await _household_out(db, household)
+
+
+@router.patch("/household", response_model=HouseholdOut)
+async def update_household(payload: HouseholdUpdateIn, user: CurrentUser, db: DbSession) -> HouseholdOut:
+    """Rename the household, or hand the lead to another member (decision Q23).
+
+    Both are the lead's to do. Handing over is immediate and needs no acceptance
+    — while the lead only gates a guest list, that is a fair trade for keeping
+    it simple. On the day it also carries a subscription, taking it on becomes
+    something the other person has to agree to, and that is a different endpoint.
+    """
+    household = await _require_lead(db, user, "rename the household or hand the lead on")
+
+    handed_to: uuid.UUID | None = None
+    if payload.lead_user_id is not None and payload.lead_user_id != household.lead_user_id:
+        successor = await db.get(User, payload.lead_user_id)
+        if successor is None or successor.household_id != household.id:
+            raise HTTPException(
+                status_code=422,
+                detail="the lead has to be someone in this household — check the id against GET /auth/household",
+            )
+        household.lead_user_id = successor.id
+        handed_to = successor.id
+
+    if payload.name is not None:
+        household.name = payload.name.strip()
+
+    await db.commit()
+    await db.refresh(household)
+    # After the commit: an event line for something that didn't happen is worse
+    # than no line at all.
+    if handed_to is not None:
+        log_event("household.lead_changed", household_id=household.id, user_id=handed_to)
+    return await _household_out(db, household)
+
+
+@router.delete("/household/members/{user_id}", response_model=MemberRemovedOut)
+async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) -> MemberRemovedOut:
+    """Remove someone from your household, or pass your own id to leave it.
+
+    **Removing someone else is the lead's** (Q23). **Leaving is anyone's** — a
+    household you could only get out of by deleting your account would be a
+    worse trap than the one this endpoint exists to open.
+
+    Either way the person is not deleted: they keep their account, their email
+    and every token they hold, and land in a new household of their own with
+    nothing in it. The recipes, plans, lists and cooked history stay where they
+    are, because those belong to the household rather than to a member (Q20).
+    """
+    target = await db.get(User, user_id)
+    if target is None or target.household_id != user.household_id:
+        # Same answer either way: a member should not be able to confirm that
+        # some id exists somewhere else on this server by asking about it here.
+        raise HTTPException(status_code=404, detail="no such member of your household")
+
+    leaving = target.id == user.id
+    if not leaving:
+        await _require_lead(db, user, "remove someone from the household")
+    elif await leads_alongside_others(db, user):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "you lead this household, so hand it to another member first — "
+                'PATCH /auth/household with {"lead_user_id": "..."} — and then leave'
+            ),
+        )
+    elif await household_user_count(db, user.household_id) <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "you are the only member, so there is nothing to leave: the household's recipes and "
+                "history would go with you. DELETE /auth/me does that, and asks for your password first"
+            ),
+        )
+
+    # Read before the move: when the caller is the one leaving, `user` and
+    # `target` are the same row, so `user.household_id` is about to change.
+    origin_household_id = user.household_id
+
+    home = Household(name="Home")
+    db.add(home)
+    await db.flush()
+    home.lead_user_id = target.id  # their own household, so theirs to lead
+    await move_user_to_household(db, target, home.id)
+    await db.commit()
+
+    log_event(
+        "household.member_removed",
+        household_id=origin_household_id,
+        user_id=target.id,
+        left=leaving,
+    )
+    return MemberRemovedOut(
+        removed_user_id=target.id,
+        you_left=leaving,
+        detail=(
+            "you have left; you are now in a household of your own, and the one you left keeps its recipes"
+            if leaving
+            else f"{target.display_name} is no longer in this household; their account and their own data are untouched"
+        ),
+    )
+
+
 @router.post("/invites", response_model=InviteCreatedOut, status_code=status.HTTP_201_CREATED)
 async def create_invite(payload: InviteCreateIn, user: CurrentUser, db: DbSession) -> InviteCreatedOut:
     """Mint a single-use code that lets one more person register into your
     household, sharing its recipes, plan and shopping list (decision Q19).
 
+    **Only the household's lead can do this** (Q23) — the guest list belongs to
+    the account the household is billed to. Everything about the food stays
+    equal between members.
+
     The code is returned once and stored only as a hash — if it's lost, revoke
     it with `DELETE /auth/invites/{id}` and issue another. Anyone holding it can
     join, so send it the way you'd send a password."""
+    await _require_lead(db, user, "invite people")
     code, code_hash = generate_short_code()
     invite = HouseholdInvite(
         household_id=user.household_id,
@@ -358,10 +549,76 @@ async def list_invites(user: CurrentUser, db: DbSession) -> list[InviteOut]:
     return [InviteOut.model_validate(invite) for invite in result.scalars()]
 
 
+@router.post("/invites/redeem", response_model=UserOut)
+async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSession) -> UserOut:
+    """Join another household with an invite code, while already signed in.
+
+    Until Q23 a code could only be spent at `POST /auth/register`, which made
+    leaving a household a one-way door: you could get out, and then had no way
+    back into anywhere without deleting your account and starting again.
+
+    You keep your account, your password and every token you hold — only which
+    household you are in changes, and your next request reads the new one.
+
+    **If you are the only member of your current household**, leaving it deletes
+    its recipes, plans and history: nobody would be able to reach them again.
+    That needs `{"force": true}`, the same way a re-parse that would discard
+    someone's edits does. A household you have never put anything in doesn't
+    ask.
+    """
+    invite = await _redeem_invite(db, payload.code)
+    if invite.household_id == user.household_id:
+        raise HTTPException(
+            status_code=409,
+            detail="that code is for the household you are already in, so redeeming it would do nothing",
+        )
+
+    if await leads_alongside_others(db, user):
+        # The same rule as leaving, for the same reason: they are still here to
+        # be asked who takes over, so the household must not have one picked.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "you lead your current household, so hand it to another member first — "
+                'PATCH /auth/household with {"lead_user_id": "..."} — and then join theirs'
+            ),
+        )
+
+    origin_id = user.household_id
+    alone = await household_user_count(db, origin_id) <= 1
+    if alone and not payload.force and await household_has_content(db, origin_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "you are the only member of your current household, so joining another one deletes its "
+                'recipes, plans and cooked history — nobody could reach them again. Send {"force": true} '
+                "to accept that, or invite someone into it first"
+            ),
+        )
+
+    invite.accepted_at = datetime.now(UTC)
+    invite.accepted_by_user_id = user.id
+    collected = await move_user_to_household(db, user, invite.household_id)
+    await db.commit()
+    await db.refresh(user)
+
+    log_event(
+        "invite.redeemed",
+        user_id=user.id,
+        household_id=invite.household_id,
+        existing_account=True,
+        household_collected=collected,
+    )
+    return UserOut.model_validate(user)
+
+
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invite(invite_id: uuid.UUID, user: CurrentUser, db: DbSession) -> None:
-    """Revoke an unredeemed invite. A redeemed one can't be revoked — the person
-    already has an account; remove their access by other means."""
+    """Revoke an unredeemed invite, which only the household's lead can do (Q23).
+
+    A redeemed one can't be revoked — the person already has an account, and
+    `DELETE /auth/household/members/{user_id}` is how they leave."""
+    await _require_lead(db, user, "revoke an invite")
     result = await db.execute(
         select(HouseholdInvite).where(
             HouseholdInvite.id == invite_id, HouseholdInvite.household_id == user.household_id

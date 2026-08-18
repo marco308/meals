@@ -62,10 +62,19 @@ struct SettingsView: View {
             if let name = session.user?.householdName {
                 LabeledContent("Name", value: name)
             }
-            Button {
-                showInvite = true
+            // Inviting is the lead's (Q23), so it is hidden rather than shown
+            // and refused for everybody else.
+            if session.user?.leadsHousehold == true {
+                Button {
+                    showInvite = true
+                } label: {
+                    Label("Invite someone…", systemImage: "person.badge.plus")
+                }
+            }
+            NavigationLink {
+                HouseholdView()
             } label: {
-                Label("Invite someone…", systemImage: "person.badge.plus")
+                Label("Members", systemImage: "person.2")
             }
             NavigationLink {
                 InvitesView()
@@ -76,8 +85,9 @@ struct SettingsView: View {
             Text("Household")
         } footer: {
             Text(
-                "Everyone in a household shares its recipes, plan and shopping list, "
-                    + "and can change all of it. There are no roles or permissions."
+                "Everyone in a household shares its recipes, plan and shopping list, and can change "
+                    + "all of it. Who is in the household is the lead's to decide — the member it's "
+                    + "billed to."
             )
         }
     }

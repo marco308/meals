@@ -244,3 +244,74 @@ delete at all). Decisions:
   aisle, staple flag and value tier — curation that is never guessed (Q17) and
   so must never be silently destroyed. Cleanup stays a decision someone makes,
   with the guard rails saying what it would break.
+
+**Q23 — A household has a lead, and only the lead decides who is in it: yes**
+(2026-08-18, prompted by issue [#52](https://github.com/marco308/meals/issues/52)
+and by pricing the hosted tier per household rather than per seat). This
+**amends Q19**, which said being invited was the whole of the permission model
+and that nobody inside a household outranked anybody. That is still true of the
+*food* and no longer true of the *guest list*. Decisions:
+
+- **`households.lead_user_id`, set to whoever registered the household.**
+  Existing households backfill to their earliest user, who is that person by
+  construction: everyone else arrived later, through an invite. Nullable in the
+  schema for two mechanical reasons — the household row is inserted before the
+  user who will lead it exists, and `SET NULL` is what lets `accounts.py` delete
+  a household's users before the household — but never NULL in practice.
+  "Exactly one lead, always" is an invariant that module holds, not the schema.
+- **The lead mints invites, revokes them, removes members and renames the
+  household. Nothing else.** They cannot touch a recipe, plan, list or
+  ingredient that any other member cannot; there is still no such thing as
+  read-only membership. The reason is billing and only billing: hosted YAMP is
+  £20/yr *per household*, so it needs one unambiguous answer to "whose card is
+  this?", and the person paying should be the person deciding how many people
+  are in it. Every future feature will be tempted to ask "should only the lead
+  do this?" — the answer is no unless money is involved.
+- **Leaving is everybody's own.** `DELETE /auth/household/members/{user_id}`
+  with your own id, no permission needed. A household you could only get out of
+  by deleting your account would be a worse trap than the one this whole issue
+  exists to open, and Q20 exists precisely because that corner is unacceptable.
+  Removal and leaving are one endpoint because they are one act with two
+  callers; they are deliberately *not* one permission.
+- **Nobody is deleted by being removed.** They keep their account, their
+  password and every session and API token, and land in a new household of their
+  own with nothing in it. `DELETE /auth/me` remains the only thing in the API
+  that ends an account.
+- **One write underneath all of it.** Leaving, being removed and redeeming an
+  invite all move `user.household_id` and then collect the household behind them
+  if nobody is left in it — `move_user_to_household`, built out of the two halves
+  Q20 already needed. Tokens hang off `user_id` and every request reads the
+  household off the user row, so nothing is revoked and nothing is copied.
+- **`POST /auth/invites/redeem`, so leaving is not a one-way door.** Until now a
+  code could only be spent at `POST /auth/register`: you could get out of a
+  household and then had no way into any other without deleting your account and
+  signing up again. Redeeming while signed in is the missing edge, and it is the
+  *only* door that can destroy anything — leaving is refused when you are the
+  household's only member, so it can never vacate one. Redeeming out of a
+  household of one that still holds recipes needs `{"force": true}`, the same
+  idiom as a re-parse that would discard someone's edits; a household nobody
+  ever put anything in doesn't ask.
+- **A lead who deletes their account leaves one behind.** The role passes to the
+  longest-standing remaining member automatically, because nobody is around to
+  be asked and a household with a subscription and no lead is a support ticket.
+  A lead who wants to *leave* has to hand over first — that one is refused with a
+  409, because they are still there to decide.
+- **Handing over needs no acceptance, for now.** While the lead only gates a
+  guest list, `PATCH /auth/household {"lead_user_id": …}` taking effect
+  immediately is a fair trade for keeping it simple. The day it carries a
+  payment obligation, taking it on becomes something the other person has to
+  agree to — a different endpoint, shipped with the billing work.
+- **Tightening `POST`/`DELETE /auth/invites` to the lead is the first
+  non-additive change this API has made**, and it is accepted with its eyes
+  open. Build 16 onwards puts "Invite someone" in front of every member and
+  those builds cannot be recalled, so a non-lead on an old build now gets a 403.
+  It fails legibly — `APIError.server` carries the server's `detail` through
+  `errorDescription` and `InvitesView` prints it — so the sentence names the
+  lead and says to ask them. `MIN_IOS_BUILD` stays at 0: a readable refusal is
+  not worth cutting off every install below the new build.
+- **Members can still read `GET /auth/invites`**, and `GET /auth/household`
+  lists everyone with their email. Who else is in the house, and who could still
+  walk into it, is not the lead's private business — these people already share
+  a recipe library, a plan and a shopping list.
+- **No MCP tools.** All 29 are about food. Household admin is a settings screen,
+  not something an assistant should be reaching for on someone's behalf.

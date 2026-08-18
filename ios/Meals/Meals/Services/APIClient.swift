@@ -194,21 +194,26 @@ extension APIClient {
     }
 
     /// `inviteCode` nil (or empty) creates a household of your own; supplying one
-    /// joins the household that issued it. `raw` strips nil values, so an
-    /// omitted code never reaches the wire.
+    /// joins the household that issued it. `householdName` names the new
+    /// household and is ignored by the server when a code is sent, because then
+    /// you are joining one that already has a name. `raw` strips nil values, so
+    /// an omitted code never reaches the wire.
     func register(
         email: String,
         password: String,
         displayName: String,
-        inviteCode: String? = nil
+        inviteCode: String? = nil,
+        householdName: String? = nil
     ) async throws -> AuthResponse {
-        try await send(
+        let joining = inviteCode?.isEmpty == false
+        return try await send(
             "POST", "/auth/register",
             json: [
                 "email": email,
                 "password": password,
                 "display_name": displayName,
-                "invite_code": inviteCode?.isEmpty == false ? inviteCode : nil,
+                "invite_code": joining ? inviteCode : nil,
+                "household_name": joining ? nil : (householdName?.isEmpty == false ? householdName : nil),
             ],
             as: AuthResponse.self
         )
@@ -256,6 +261,47 @@ extension APIClient {
     @discardableResult
     func deleteAccount(password: String) async throws -> AccountDeleted {
         try await send("DELETE", "/auth/me", json: ["password": password], as: AccountDeleted.self)
+    }
+
+    /// The household and everyone in it. Readable by any member — who else is
+    /// in the house is not the lead's private business (Q23).
+    func household() async throws -> Household {
+        try await send("GET", "/auth/household", as: Household.self)
+    }
+
+    /// Rename the household, hand the lead to another member, or both. The
+    /// lead's to do; anyone else gets a 403 saying whose it is.
+    func updateHousehold(name: String? = nil, leadUserId: UUID? = nil) async throws -> Household {
+        try await send(
+            "PATCH", "/auth/household",
+            json: [
+                "name": name,
+                "lead_user_id": leadUserId.map { $0.uuidString.lowercased() },
+            ],
+            as: Household.self
+        )
+    }
+
+    /// Remove someone from the household, or pass your own id to leave it.
+    /// Removing anyone else is the lead's; leaving is everyone's own (Q23).
+    /// Nobody is deleted: they land in an empty household of their own, keeping
+    /// their account and every token on it.
+    @discardableResult
+    func removeMember(id: UUID) async throws -> MemberRemoved {
+        try await send(
+            "DELETE", "/auth/household/members/\(id.uuidString.lowercased())", as: MemberRemoved.self
+        )
+    }
+
+    /// Join another household with a code, while already signed in. `force`
+    /// answers the 409 you get when your current household is yours alone and
+    /// holds recipes nobody else could ever reach again.
+    func redeemInvite(code: String, force: Bool = false) async throws -> UserProfile {
+        try await send(
+            "POST", "/auth/invites/redeem",
+            json: ["code": code, "force": force],
+            as: UserProfile.self
+        )
     }
 
     /// Everyone this household could still let in: open, redeemed and expired

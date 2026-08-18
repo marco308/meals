@@ -20,7 +20,54 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the last deploy.
+### Added
+
+- **A household knows who is in it, and you can leave one** (issue
+  [#52](https://github.com/marco308/meals/issues/52), decision Q23).
+  `GET /auth/household` returns the household with every member — name, email,
+  when they joined and who admitted them — and `PATCH /auth/household` renames
+  it or hands the lead to someone else. `DELETE /auth/household/members/{id}`
+  removes a member, or leaves the household when the id is your own: the two are
+  one endpoint because they are one act, moving a person into an empty household
+  of their own. Nobody is deleted by it — account, password and every session
+  and API token survive, and the recipes, plans and history stay with the
+  household they always belonged to.
+- **`POST /auth/invites/redeem`, so leaving isn't a one-way door.** An invite
+  code could only ever be spent at registration, which meant a member who left
+  had a working account and no way into any other household short of deleting
+  it and signing up again. Redeeming while signed in changes which household the
+  account reads and nothing else. It is also the only one of these that can
+  destroy anything: leaving is refused when you are the last member, so it can
+  never vacate a household, while redeeming out of a household of one that still
+  holds recipes needs `{"force": true}` — the same idiom as a forced re-parse. A
+  household nobody ever put anything in doesn't ask.
+- **A lead**: `households.lead_user_id`, the member the household is billed to.
+  Set to whoever registered it, backfilled on existing households to their
+  earliest user, and passed to the longest-standing member automatically if a
+  lead deletes their account. A lead who wants to leave hands over first. The
+  iOS register screen can finally name the household it creates, which the API
+  has accepted since Q19 and no client ever sent.
+
+### Changed
+
+- **Only the lead can invite or remove people** (Q23), which amends Q19's "no
+  roles inside a household". Everything about the food stays equal — every
+  member still adds, edits and deletes any recipe, plan or list — because the
+  reason for the lead is billing and nothing else: hosted YAMP is priced per
+  household, so the household needs one unambiguous answer to whose card it is.
+  Reading `GET /auth/invites` and `GET /auth/household` stays open to everyone;
+  who could walk into your house is not the lead's private business.
+- `POST /auth/invites` and `DELETE /auth/invites/{id}` are therefore **the first
+  non-additive change this API has made**. A non-lead on iOS build 16 or later
+  still sees "Invite someone" and now gets a 403 — legibly, as the sentence the
+  app prints under the button, naming the lead to ask. `MIN_IOS_BUILD` stays at
+  `0`: a readable refusal is not worth cutting off every install below the next
+  build.
+
+### Migration
+
+One column, `households.lead_user_id`, backfilled in the same revision
+(`a2f61d38c095`). Verified on SQLite and Postgres, up and back down.
 
 ## 2026-08-17 (later the same day) — portions, re-parse, un-cook
 
