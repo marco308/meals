@@ -41,6 +41,20 @@ class TestProvision:
         assert me.status_code == 200
         assert me.json()["household_name"] == "Apple Review"
 
+    async def test_the_account_leads_the_household_it_is_given(self, client, sessions):
+        """Q23: a household always has a lead, and here there is only one
+        candidate. Without it the reviewer meets a 403 on a button the app
+        still offers them, which is exactly the kind of thing that comes back
+        as a rejection rather than a bug report."""
+        password, _ = await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
+        token = await sign_in(client, "review@example.com", password)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        me = await client.get("/auth/me", headers=headers)
+        assert me.json()["household_lead_user_id"] == me.json()["id"]
+        # The thing the lead is for: they can actually invite someone.
+        assert (await client.post("/auth/invites", json={}, headers=headers)).status_code == 201
+
     async def test_the_new_household_sees_none_of_the_existing_one(self, client, auth_client, sessions):
         """The reason this script exists rather than an invite: an invite would
         put the reviewer *inside* the household they're meant to be isolated from."""
