@@ -22,6 +22,76 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the last deploy.
 
+## 2026-08-17 (later the same day) — portions, re-parse, un-cook
+
+Deployed to `meals.marcuslab.uk`. No migration: every one of these lands on
+columns that already existed, which is why four features could go out together.
+
+### Added
+
+- **Un-cook** (issue [#51](https://github.com/marco308/meals/issues/51)).
+  `DELETE /plans/{plan_id}/meals/{plan_meal_id}/cooked` takes back a mis-tap on
+  the same path that recorded it, and `times_cooked` stops being a one-way
+  ratchet on the counter that answers "what do we actually eat". `cooked_events`
+  is otherwise append-only and deleting is still the right move here: the rows
+  say "we ate this", a mis-tap means we didn't, and a compensating row would
+  leave the history asserting both. Counters are recomputed from the events
+  rather than decremented, so deleting this plan-meal's rows and re-deriving is
+  the whole correction. The undo reads its meal and recipes off the **events**,
+  not off the meal as it stands now, so a meal edited since cooking brings down
+  the recipe actually cooked and leaves one added afterwards at zero.
+- **Re-parse a recipe from its source page** (issue
+  [#54](https://github.com/marco308/meals/issues/54)).
+  `POST /recipes/{recipe_id}/reparse` is the deliberate exception to parse once,
+  reuse forever (Q3): never automatic, only ever asked for. It updates in place,
+  because the recipe's id is what meals and their shopping-list contributions
+  point at, and re-parsing into a new row would strand every one of them. The
+  id, the `source_url` cache key, the cooked history and the household's
+  ingredient curation all survive; title, servings, times, image, instructions,
+  tags and ingredients are replaced, and the active list re-syncs to them. A
+  recipe marked `edited` is a 409 explaining what would be lost, overridable
+  only with `{"force": true}`, which then clears the flag, since the stored
+  recipe is the page again rather than someone's correction. Nothing is written
+  unless the parse succeeds, so a dead page, or one that has lost its JSON-LD,
+  leaves the recipe exactly as it was.
+- **Cooking for a number of people** (issue
+  [#53](https://github.com/marco308/meals/issues/53)). A meal's recipe line now
+  takes `servings` as an alternative to `scale`; the server divides by the
+  recipe's own figure and stores the same multiple it always stored, so the
+  shopping list, the meal resync and the cooked history are untouched. The
+  readback is **`scaled_servings`**, not `servings`: that name already means the
+  recipe's own figure, and redefining it in place is exactly the meaning change
+  the client contract forbids. Sending both for one recipe is a 422, as is
+  asking for portions of a recipe that never said how many it serves, because
+  guessing a serving count would silently change how much food someone buys.
+- Two MCP tools, `undo_meal_cooked` and `reparse_recipe`, taking the server from
+  27 to **29**. Both are there because "no, not that one" and "the page has been
+  fixed since" are things people say in conversation rather than in a UI.
+
+### Changed
+
+- **Ingestion caps how much of a page it will read** (issue
+  [#55](https://github.com/marco308/meals/issues/55)). `fetch_page` read the
+  whole body into memory with only the fetch timeout bounding it, and the URL is
+  the caller's, so a pathological page was a memory spike on the database's own
+  machine: the last unbounded input on a path that already validates public
+  addresses and pins redirects. The read now streams and stops at
+  `recipe_fetch_max_bytes` (5 MB, overridable like the timeout beside it). A
+  declared `Content-Length` over the ceiling is refused before a byte is read,
+  but that is a courtesy rather than the guard, since the header is the remote
+  server's own claim; the running total is what actually holds. Redirect hops
+  stream too, so their bodies are abandoned rather than read in full on the way
+  past. Streaming rules out `response.text`, which needs the whole body
+  buffered, so the decode is now explicit: the charset the response declared
+  else UTF-8, with undecodable bytes replaced rather than fatal, because a page
+  with a few bad bytes can still carry perfectly good JSON-LD.
+- The skill and prompt pack teach portions and re-parse, and retire the "there
+  is no un-cook" line they had been telling assistants (playbook v13 to v15).
+
+The iOS halves are on TestFlight rather than in this deploy: portions and
+fractional scales in build 24, un-cook in build 25, both on the new 1.1 train.
+Per-build detail is in [ios/CHANGELOG.md](ios/CHANGELOG.md).
+
 ## 2026-08-17 — nightly backups, live
 
 Deployed to `meals.marcuslab.uk`. No migration, and no API change: this is a
