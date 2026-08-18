@@ -34,10 +34,17 @@ Worth knowing before you write it up — these are deliberate, documented choice
 not oversights:
 
 - **A household is the entire authorisation boundary.** Everyone in a household
-  sees and can edit all of its recipes, plans and shopping lists. There are no
-  roles, no per-user permissions, and no admin. Inviting someone in
+  sees and can edit all of its recipes, plans and shopping lists — there are no
+  per-user permissions and no read-only member. Inviting someone in
   (`POST /auth/invites`) grants them all of it, which is why the invite code
   should be treated like a password.
+- **One member is the lead** (decision Q23), and membership alone is theirs:
+  minting and revoking invites, removing a member, and renaming the household.
+  That is the whole of the difference — the lead has no more access to recipes,
+  plans or lists than anyone else, and no ability to restrict another member's.
+  Leaving is not gated: any member can remove *themselves*
+  (`DELETE /auth/household/members/{user_id}` with their own id), which moves
+  them to an empty household of their own and deletes nothing.
 - **Registration creates a *new* household** (decision Q19). An account never
   joins existing data without a valid single-use invite code. Reports that a
   stranger's signup can see somebody else's library are exactly what this policy

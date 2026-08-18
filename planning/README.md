@@ -13,7 +13,7 @@ The planning docs this app was built from. The brief they were written against
 >
 > These files are **history, not a roadmap**, with one exception:
 > [04-open-questions.md](04-open-questions.md) is the live decisions log that
-> code comments cite by number (Q1–Q22), so it is maintained and must never
+> code comments cite by number (Q1–Q23), so it is maintained and must never
 > be turned into issues.
 
 ## Documents

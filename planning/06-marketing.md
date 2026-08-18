@@ -253,7 +253,7 @@ that outcome down as acceptable now so it never feels like failure later.
 - Say what things cost and why. Never hide the AGPL, the bus factor, or the
   fact that hosted runs on a small operation.
 - Technical claims must be checkable in the repo ("29 tools" links to the
-  code, "98% coverage" to CI).
+  code, "97% coverage" to CI).
 - No hype vocabulary, no exclamation marks, no em dashes.
 - When comparing to competitors, be generous by name (Mealie, Tandoor) and
   sharp only about categories ("planners that plan Tuesdays").
