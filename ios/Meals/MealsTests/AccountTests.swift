@@ -81,9 +81,11 @@ final class AccountTests: XCTestCase {
         XCTAssertFalse(member.leadsHousehold)
     }
 
-    func testAProfileFromAServerWithoutALeadDoesNotClaimToLead() throws {
-        // A build newer than its server (Q23 shipped after this app did) must
-        // not offer the invite and remove controls on a guess. Absent means no.
+    func testAServerWithoutALeadStillLetsEveryoneInvite() throws {
+        // This build can reach a server that predates Q23, where every member
+        // really can invite (Q19). Hiding the button there would break a
+        // working feature against a server that was going to allow it, so a
+        // missing lead means "no lead exists", not "you are not it".
         let user = try decode(
             UserProfile.self,
             """
@@ -92,7 +94,7 @@ final class AccountTests: XCTestCase {
             """
         )
         XCTAssertNil(user.householdLeadUserId)
-        XCTAssertFalse(user.leadsHousehold)
+        XCTAssertTrue(user.leadsHousehold)
     }
 
     func testDecodesTheResultOfLeavingAHousehold() throws {

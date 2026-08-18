@@ -19,10 +19,16 @@ struct UserProfile: Codable, Equatable, Sendable {
     /// a build must not decode-fail against one.
     let householdLeadUserId: UUID?
 
-    /// Whether this profile is the household's lead. False when the server
-    /// didn't say, which is the safe way round: the controls stay hidden and
-    /// the server is still the one enforcing it.
-    var leadsHousehold: Bool { householdLeadUserId != nil && householdLeadUserId == id }
+    /// Whether to offer this account the things only a lead can do.
+    ///
+    /// **True when the server didn't say**, which looks like the wrong way
+    /// round and isn't. A Q23 server always names a lead, so a missing field
+    /// means the server predates the lead entirely — and on that server every
+    /// member really can invite, exactly as Q19 had it. Hiding the button there
+    /// would break a working feature against a server that was going to allow
+    /// it. The server is the one enforcing this either way; this only decides
+    /// whether to offer the control or let it be refused.
+    var leadsHousehold: Bool { householdLeadUserId == nil || householdLeadUserId == id }
 }
 
 /// A household and everyone in it (`GET /auth/household`). Every member can

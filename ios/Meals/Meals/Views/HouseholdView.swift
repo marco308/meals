@@ -165,6 +165,12 @@ struct HouseholdView: View {
             household = try await session.api.household()
             loaded = true
             errorMessage = nil
+        } catch let APIError.server(status, _) where status == 404 {
+            // A server older than Q23 has no /auth/household. Say so plainly
+            // rather than showing its 404 text, which is about a missing route
+            // and means nothing to the person reading it.
+            loaded = true
+            errorMessage = "This server is too old to list who's in your household. Update the server to see it here."
         } catch {
             loaded = true
             errorMessage = error.localizedDescription
