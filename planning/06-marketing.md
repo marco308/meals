@@ -59,7 +59,7 @@ writes. Market the product, not the protocol.
 | # | Who | Where they live | What they need to hear |
 |---|---|---|---|
 | 1 | Self-hosters / homelab | r/selfhosted, awesome-selfhosted, HN, lobste.rs, fediverse | AGPL with no asterisk, two-command start, no LLM bill hiding inside |
-| 2 | AI tinkerers | MCP directories, r/ClaudeAI, r/LocalLLaMA, X/Mastodon AI crowd | `claude mcp add` one-liner, 21 task-level tools, server publishes its own manual |
+| 2 | AI tinkerers | MCP directories, r/ClaudeAI, r/LocalLLaMA, X/Mastodon AI crowd | `claude mcp add` one-liner, 29 task-level tools, server publishes its own manual |
 | 3 | Households who just want dinner sorted | App Store, word of mouth from 1 and 2 | The app is free, the hosted tier means never hearing the word Docker |
 
 Audience 3 is where hosted revenue lives, but they arrive through the first
@@ -252,7 +252,7 @@ that outcome down as acceptable now so it never feels like failure later.
 - Honest to the point of self-deprecation; the name sets the register.
 - Say what things cost and why. Never hide the AGPL, the bus factor, or the
   fact that hosted runs on a small operation.
-- Technical claims must be checkable in the repo ("21 tools" links to the
+- Technical claims must be checkable in the repo ("29 tools" links to the
   code, "98% coverage" to CI).
 - No hype vocabulary, no exclamation marks, no em dashes.
 - When comparing to competitors, be generous by name (Mealie, Tandoor) and
