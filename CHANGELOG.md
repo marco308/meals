@@ -20,6 +20,13 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the last deploy.
+
+## 2026-08-18 — household admin
+
+Deployed to `meals.marcuslab.uk`. **One migration**, `a2f61d38c095`, applied on
+rollout and backfilled: the existing household took its earliest user as lead.
+
 ### Added
 
 - **A household knows who is in it, and you can leave one** (issue

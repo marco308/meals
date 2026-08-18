@@ -44,7 +44,7 @@ what it deliberately doesn't do yet:
 
 - [x] ~~**Password reset**~~ — ✅ shipped (Q20): `POST /auth/password-reset` emails a typeable code, `POST /auth/password/reset-confirm` redeems it. Needs SMTP configured — `SMTP_HOST`, `SMTP_FROM`, and usually `SMTP_USERNAME`/`SMTP_PASSWORD` — or the endpoint returns 503 saying so, and `GET /client-config` reports which way it went as `password_reset_enabled`. **Live on the deployment since 13 Aug 2026**, relayed through Resend on the verified `marcuslab.uk` domain
 - [x] ~~**Account deletion**~~ — ✅ shipped (Q20): `DELETE /auth/me`, and in the app's account menu, which is what App Store review actually requires
-- [x] ~~**Household admin**~~ — ✅ built (issue [#52](https://github.com/marco308/meals/issues/52), decision Q23): `GET`/`PATCH /auth/household` (members, rename, hand over the lead), `DELETE /auth/household/members/{id}` (remove someone, or pass your own id to leave), `POST /auth/invites/redeem` so leaving isn't a one-way door. A household now has a **lead** — the member it's billed to, and the only one who can invite or remove people; everything about the food stays equal. Not yet deployed
+- [x] ~~**Household admin**~~ — ✅ built (issue [#52](https://github.com/marco308/meals/issues/52), decision Q23): `GET`/`PATCH /auth/household` (members, rename, hand over the lead), `DELETE /auth/household/members/{id}` (remove someone, or pass your own id to leave), `POST /auth/invites/redeem` so leaving isn't a one-way door. A household now has a **lead** — the member it's billed to, and the only one who can invite or remove people; everything about the food stays equal. **Deployed 2026-08-18**; iOS half is in TestFlight build 26
 
 ## Next (product tail from the plan)
 
