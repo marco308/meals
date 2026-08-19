@@ -302,15 +302,33 @@ deployment and the one CI boots.
 
 Because it is untracked, `deploy/` is absent from every git worktree. `make
 deploy` falls back to the main worktree's script and hands it the current tree
-via `MEALS_REPO_ROOT` — so a deploy from a worktree ships *that* branch, not
-main. Keep those two in step if either moves.
+via `MEALS_REPO_ROOT`, which matters only in build mode below. Keep those two
+in step if either moves.
 
-`deploy/deploy.sh` syncs sources to the swarm manager, builds images on the node
-that will run them (no registry, so a task only starts where its image already
-exists), forces a service update (locally built `:latest` tags don't roll out
-otherwise), and verifies `/healthz`, `/skill`, `/prompt-pack` and an MCP
-initialize handshake through Traefik. In that script, keep every check a bare
-command — `curl … && echo` is exempt from `set -e`.
+**`deploy/deploy.sh` has two modes, and the default is the registry one:**
+
+- **registry (default).** Pulls `ghcr.io/marco308/meals{,-mcp,-backup}:$MEALS_VERSION`
+  (default `latest`) on zaphod, reads back each image's digest, and deploys
+  *those digests*. Nothing is built, and the only thing synced is the stack
+  file. The digest is what fixes the oldest wart here: it is part of the
+  service spec, so `docker stack deploy` sees a real change and rolls it out
+  by itself — no `service update --force`, and a deploy that changes nothing
+  correctly does nothing. The script then asserts each service is running the
+  digest it asked for, so "reported success and rolled nothing" is now a
+  failure rather than a thing to notice later. It can only ship released code.
+- **build** (`MEALS_DEPLOY_BUILD=1`). The old path: rsync this tree to the
+  node, build all three images there, force the services. Keep it. It is the
+  only way to ship a branch that has no tag, which is exactly what you want
+  when a fix is being proven before it is released.
+
+Both then verify `/healthz`, `/client-config`, `/skill`, `/prompt-pack`, the
+privacy and support pages, the web app and an MCP initialize handshake through
+Traefik. In that script, keep every check a bare command — `curl … && echo` is
+exempt from `set -e`.
+
+The three images the stack runs are published by the release workflow, so
+**a new service in the stack needs a new image in that matrix**, not a
+`docker build` on the node.
 
 **Rollouts are zero-downtime and it takes two settings, not one** (both in the
 gitignored stack file, which is why they're restated here). api and mcp run one
@@ -351,10 +369,11 @@ have two tasks at once.
 ### Releases
 
 `git push origin v1.2.3` is the whole ritual: `.github/workflows/release.yml`
-builds both images for amd64 and arm64, pushes them to GHCR
-(`ghcr.io/marco308/meals` = the product, `…/meals-mcp` = the MCP server alone),
-runs the published API image with **no arguments and no database service** to
-prove the one-container story still holds, then cuts the GitHub release. A
+builds all three images for amd64 and arm64, pushes them to GHCR
+(`ghcr.io/marco308/meals` = the product, `…/meals-mcp` = the MCP server alone,
+`…/meals-backup` = the pg_dump sidecar the swarm runs), runs the published API
+image with **no arguments and no database service** to prove the one-container
+story still holds, then cuts the GitHub release. A
 failure in that verify job means the tag is public but the release is not, so
 fix forward with a new tag rather than deleting one people may have pulled.
 

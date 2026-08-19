@@ -43,6 +43,13 @@ jobs:
             image: meals-mcp
             context: mcp
             dockerfile: mcp/Dockerfile
+          # The nightly pg_dump sidecar. Published for the same reason as the
+          # other two: a deployment that pulls its images by digest cannot have
+          # one of them built by hand on the node.
+          - name: backup
+            image: meals-backup
+            context: backup
+            dockerfile: backup/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
@@ -151,4 +158,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
-            --notes "Images: \`ghcr.io/${{ github.repository_owner }}/meals:${GITHUB_REF_NAME#v}\` (API, web client, skill and MCP in one container) and \`ghcr.io/${{ github.repository_owner }}/meals-mcp:${GITHUB_REF_NAME#v}\` (the MCP server alone). Both linux/amd64 and linux/arm64."
+            --notes "Images, all linux/amd64 and linux/arm64: \`ghcr.io/${{ github.repository_owner }}/meals:${GITHUB_REF_NAME#v}\` (API, web client, skill and MCP in one container), \`…/meals-mcp:${GITHUB_REF_NAME#v}\` (the MCP server alone) and \`…/meals-backup:${GITHUB_REF_NAME#v}\` (the pg_dump sidecar)."
