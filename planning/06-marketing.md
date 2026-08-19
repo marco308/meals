@@ -240,7 +240,7 @@ that outcome down as acceptable now so it never feels like failure later.
 
 | Item | Action | Cost |
 |---|---|---|
-| App Store record | Rename to "YAMP: Yet Another Meal Planner" **before** first submission (record is unsubmitted, so this is free; afterwards it is a versioned change) | Trivial, do now |
+| App Store record | **Done 2026-07-27, settled 2026-08-19.** The record reads "Yet Another Meal Planner", which *is* YAMP spelled out, so the listing already carries the name. The "YAMP:" prefix this row used to ask for is redundant and is not happening: the name is only editable on a version in Prepare for Submission, and 1.0 and 1.1 are both `READY_FOR_SALE`. What the expansion misses is the literal search token, so `yamp` goes in **keywords** with the next submission ([ios/AppStore/metadata.md](../ios/AppStore/metadata.md)) | Zero, deliberately |
 | GitHub repo | `marco308/meals` → `marco308/yamp` if wanted; GitHub redirects old URLs. Decide **before** Show HN, never after | Small |
 | Domain | Candidates to check: `yamp.app`, `yamp.dev`, `yamp.cooking`, `getyamp.com`, `yamp.uk`. GitHub Pages CNAME once chosen; until then `marco308.github.io` is fine | ~£10/yr |
 | Landing page, README title | This branch does the landing page; README retitle rides the repo rename | Trivial |
