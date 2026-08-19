@@ -358,10 +358,13 @@ prove the one-container story still holds, then cuts the GitHub release. A
 failure in that verify job means the tag is public but the release is not, so
 fix forward with a new tag rather than deleting one people may have pulled.
 
-**One manual step, once, ever:** a package pushed by `GITHUB_TOKEN` is private
-no matter how public the repo is, and GitHub exposes no API to change that.
-After the first release, set both packages to public in their package settings,
-or nobody outside this account can pull the image the README advertises.
+Both packages came out **public** and anonymously pullable, inherited from the
+repo (checked against the GHCR API on the 1.0.0 tag, `linux/amd64` and
+`linux/arm64`, tags `1.0.0`, `1.0` and `latest`). That is worth re-checking if
+a release ever publishes under a different account or a private repo, because
+package visibility is a package setting with no REST endpoint behind it: the
+fix would be a manual flip in the package's settings. The release's verify job
+logs in to GHCR so it passes either way.
 
 Two properties of the image are part of the contract now, because a host may
 depend on either and neither is visible from the API:

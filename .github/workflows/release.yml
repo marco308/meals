@@ -98,10 +98,10 @@ jobs:
     # nothing but the image, no database service, no environment. If the
     # single-container story is broken, it breaks here rather than in an issue.
     steps:
-      # A package pushed by GITHUB_TOKEN starts private, and stays private
-      # until someone flips it in the package settings by hand (there is no
-      # API for it). Log in so this job verifies the image either way, rather
-      # than failing on a permission the release does not depend on.
+      # These packages are public (inherited from the repo), so this login is
+      # not strictly needed today. It stays because package visibility is a
+      # setting with no API behind it, and a job that can only verify a public
+      # image is a job that breaks the day somebody changes that setting.
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
