@@ -110,9 +110,10 @@ neither with a revenue-share deal**: an open slot. A small Python+Postgres
 pod costs users about **$2 to $5/month**, so the share is modest
 (100 pods × $3 × 20% ≈ $60/mo) but it makes "paid hosting exists" true
 without us running anyone's dinner, and it is a distribution channel in
-itself (126-app catalogue). Action: email hello@pikapods.com; requirement is
-essentially a clean container + env config + healthcheck, which
-`docker-compose.yml` already demonstrates.
+itself (126-app catalogue). **Done 2026-08-19**: suggested on their feedback
+forum (post 1185), and the packaging their catalogue needs now exists rather
+than being promised: published images, non-root, and one container that is the
+whole product. Draft and follow-up email in [`07-pikapods.md`](07-pikapods.md).
 
 **1b. First-party hosted, £20/year per household (founding price, for life).**
 This is the real business case: audience 3 will pay to never see Docker, and
