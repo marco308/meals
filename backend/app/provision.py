@@ -73,14 +73,19 @@ async def provision(
         household = Household(name=household_name)
         db.add(household)
         await db.flush()
-        db.add(
-            User(
-                household_id=household.id,
-                email=email,
-                password_hash=hash_password(password),
-                display_name=display_name,
-            )
+        user = User(
+            household_id=household.id,
+            email=email,
+            password_hash=hash_password(password),
+            display_name=display_name,
         )
+        db.add(user)
+        await db.flush()
+        # The same rule registration follows (Q23): whoever starts a household
+        # leads it. Without this the account lands in a household with no lead
+        # and cannot invite anybody into it — which for the Apple Review account
+        # means a reviewer meeting a 403 on a button the app still offers.
+        household.lead_user_id = user.id
         await db.commit()
         return password, True
 
