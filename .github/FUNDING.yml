@@ -1,10 +1,8 @@
 # Funding links shown on the repo's Sponsor button.
-# Both lines are commented until the accounts exist; uncommenting a line
-# whose account is not set up shows visitors a broken destination.
-# Activation steps (planning/06-marketing.md, Phase 0):
-#   1. Enroll at https://github.com/sponsors (0% platform fee for personal
-#      accounts), then uncomment the github line.
-#   2. Create the Buy Me a Coffee page, then uncomment with its slug.
-#
-# github: [marco308]
+# GitHub Sponsors is enrolled (0% platform fee for personal accounts) and the
+# profile is live at https://github.com/sponsors/marco308, so the github line
+# is active. Buy Me a Coffee stays commented until that account exists,
+# because uncommenting a line whose account is not set up shows visitors a
+# broken destination. See planning/06-marketing.md, Route 3.
+github: [marco308]
 # buy_me_a_coffee: marco308
