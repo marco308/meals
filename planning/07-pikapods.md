@@ -6,14 +6,15 @@ done so the post could make its claims plainly.
 Background and why this channel is worth doing at all: [`06-marketing.md`](06-marketing.md)
 §1a. Issue [#23](https://github.com/marco308/meals/issues/23) tracks the action.
 
-Two things to know before posting:
+**Posted 2026-08-19:**
+<https://feedback.pikapods.com/posts/1185/add-yamp-yet-another-meal-planner>.
+The body below is what went up, kept here because the next move (the email, and
+anything they ask for) has to say the same things.
 
-- The forum sign-in is the account owner's, so this file is the draft, not the
-  post. Paste it into the "Share your idea…" box (rich text editor, so the
-  headings and bullets below survive) and put the title in the field under it.
-- **Post first, email second.** `hello@pikapods.com` is in the issue, but a
-  public suggestion is a vote-able thing their catalogue already reads, and it
-  costs nothing to point the email at it afterwards.
+Still to do: the email to `hello@pikapods.com`, drafted at the end of this file.
+Post first and email second was deliberate: a public suggestion is a vote-able
+thing their catalogue already reads, and the email costs nothing once it exists
+to point at.
 
 ## Title
 
@@ -127,3 +128,41 @@ https://github.com/marco308/meals/releases/tag/v1.0.0.
 
 - `deploy/` still builds images on the swarm node. It could pull the published
   digest instead, which is the other half of the BACKLOG's image-pipeline item.
+
+## The email, once there is something to point at
+
+To `hello@pikapods.com`, subject **"YAMP: open-source meal planner, happy to do
+the revenue share"**. Short on purpose: the post carries the detail, and the
+only thing this has to do is connect a name to it and answer the question they
+actually have, which is whether the packaging is their problem or mine.
+
+> Hello,
+>
+> I have suggested YAMP on your feedback forum and wanted to introduce it
+> properly, since I am the author and would be glad to take the 20% revenue
+> share:
+> https://feedback.pikapods.com/posts/1185/add-yamp-yet-another-meal-planner
+>
+> It is an AGPL-3.0 self-hosted meal planner: a recipe library, plans, and an
+> aisle-sorted shopping list, with a REST API and a first-party MCP server so
+> people can drive it from their own AI assistant. There is no LLM inside it.
+> Your food category has Grocy and Mealie, and this is a different shape from
+> both: plans are pools of options rather than a Monday-to-Sunday grid, and
+> there is a native iPhone app on the App Store that a pod would be the
+> backend for.
+>
+> On packaging, it should be an easy one:
+>
+> - One container is the whole product (API, web client, and the MCP endpoint).
+>   `docker run -d -p 8000:8000 -v yamp-data:/data ghcr.io/marco308/meals`
+>   needs no arguments and no database service.
+> - SQLite by default under /data, so the cheapest pod needs no add-on;
+>   DATABASE_URL switches it to Postgres.
+> - Runs as uid 1000, writes only to /data, healthcheck on /healthz, all
+>   config through environment variables, published for amd64 and arm64 on
+>   every release.
+>
+> Happy to change anything that does not fit your conventions: data path,
+> user, ports, config names. Repo is https://github.com/marco308/meals.
+>
+> Marcus
