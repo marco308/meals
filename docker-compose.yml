@@ -18,7 +18,9 @@ services:
       retries: 15
 
   api:
-    # Repo-root context so skill/ ships in the image (served at /skill, /prompt-pack)
+    # Repo-root context so skill/, web/ and mcp/ ship in the image: the last of
+    # those because the API serves the MCP endpoint at /mcp itself
+    # (app/mcp_mount.py), which is what makes one container the whole product.
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -50,8 +52,12 @@ services:
       db:
         condition: service_healthy
 
-  # Remote MCP (streamable HTTP): connect an MCP client to
+  # Remote MCP (streamable HTTP) as its own service: connect an MCP client to
   # http://localhost:8100/mcp with an Authorization: Bearer <token> header.
+  # Optional since the API serves the same endpoint at http://localhost:8000/mcp
+  # (MCP_ENABLED=false turns that off). It is kept here because the reference
+  # deployment is the swarm one, which routes /mcp to this container, and
+  # because a separate service is what you want when the two scale apart.
   mcp:
     build: ./mcp
     environment:

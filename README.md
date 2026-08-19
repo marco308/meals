@@ -71,6 +71,24 @@ No Docker? `make run` starts the API locally on SQLite (zero services), and
 make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 ```
 
+### One container, no checkout
+
+Every release publishes an image that is the whole product: API, web client,
+the published skill, and the MCP endpoint at `/mcp`, defaulting to SQLite
+under `/data`. It runs as uid 1000 and needs no arguments, which is what makes
+it work on hosts that give you exactly one container:
+
+```bash
+docker run -d -p 8000:8000 -v yamp-data:/data ghcr.io/marco308/meals:latest
+```
+
+Point `DATABASE_URL` at Postgres when you outgrow that
+(`postgresql+asyncpg://user:pass@host:5432/meals`); the schema migrates itself
+on boot either way. With a *bind* mount rather than a named volume, `chown
+1000:1000` the directory first, since Docker only copies ownership into empty
+named volumes. `ghcr.io/marco308/meals-mcp` is the MCP server on its own, for
+deployments that want it on a separate host.
+
 ### Sending email (optional)
 
 Only password reset sends any, and it's plain SMTP so any relay works. Leave it
@@ -199,8 +217,14 @@ in [ios/AppStore/](ios/AppStore/).
 > everyone, because they're documentation.
 
 The MCP server ships with the deployment — any MCP-capable assistant connects
-by URL, no local Python or repo checkout. Create a personal API token
-(`POST /auth/tokens`, or use the seed's) and send it as a bearer header:
+by URL, no local Python or repo checkout. **The API serves it at `/mcp` on its
+own origin**, so a single container is enough; the separate `mcp` image exists
+for deployments that would rather run it apart (this one does, see
+[`docker-compose.yml`](docker-compose.yml)), and `MCP_ENABLED=false` turns the
+built-in one off. Either way it holds no credentials.
+
+Create a personal API token (`POST /auth/tokens`, or use the seed's) and send
+it as a bearer header:
 
 ```bash
 claude mcp add --transport http meals https://your-meals-server.example/mcp \
@@ -230,9 +254,10 @@ custom connectors need OAuth, which the server doesn't speak yet — see
 }
 ```
 
-Self-hosting the remote mode: `MEALS_MCP_TRANSPORT=http` serves streamable
-HTTP at `/mcp` on `0.0.0.0:8000` (`make dev` exposes it on
-`http://localhost:8100/mcp`).
+Running it as its own service: `MEALS_MCP_TRANSPORT=http` serves streamable
+HTTP at `/mcp` on `0.0.0.0:8000` (`make dev` exposes that container on
+`http://localhost:8100/mcp`, and the same endpoint from the API itself on
+`http://localhost:8000/mcp`).
 
 ### The skill & prompt pack
 

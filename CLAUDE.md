@@ -43,7 +43,7 @@ is what keeps the API complete and the views consistent.
 | `backend/` | FastAPI + async SQLAlchemy 2.0 + Alembic. Postgres in Docker; SQLite for `make run` and all tests |
 | `web/` | Web app served by the backend at `/app` (StaticFiles mount in `app/main.py`). No build step: hand-written HTML/CSS + ES modules, same-origin with the API, no external requests |
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
-| `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access |
+| `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access. Its own image **and** a path dependency of the backend, which serves it at `/mcp` (`app/mcp_mount.py`) so one container is the whole product |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
 | `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
 | `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q23, kept live. The rest is the original plan, kept as history, not a roadmap |
@@ -239,8 +239,25 @@ alternative is threading one through all 29 tools and their helpers. Keep the
 middleware registered — without it every remote call silently drops to the
 stdio env-token path.
 
+http mode is served in **two places from one codebase**: its own container
+(what the swarm routes `/mcp` to) and, since it is a path dependency of the
+backend, the API process itself via `app/mcp_mount.py`. That second one is
+what lets a single container be the whole product on hosts that only give you
+one, so the constraints it adds are load-bearing:
+
+- It is a Starlette `Route`, not `app.mount()`: mounting redirects `/mcp` to
+  `/mcp/`, and a 307 on a POST is not something every MCP client follows.
+- The session manager is entered once, in the API's lifespan, and the SDK
+  refuses a second `run()`. Tests skip lifespan, so a test that reaches `/mcp`
+  enters `mcp_mount.running()` itself and gets exactly one pass.
+- The mounted server still calls the API **over HTTP** (loopback,
+  `MCP_API_URL`), like any other client. It must never reach for the database
+  or a service function; that boundary is the reason one wrapper serves both
+  deployments.
+
 `skill/` is shipped inside the backend image (hence `docker build` uses the
-**repo root** as context, not `backend/`) and served unauthenticated with
+**repo root** as context, not `backend/` — the same reason `web/` and now
+`mcp/` are in it) and served unauthenticated with
 `{{API_URL}}` substituted from the request's forwarded-proto/host headers.
 Keep `SKILL.md`, `prompt-pack.md` and the API in step when endpoints change.
 
@@ -330,6 +347,27 @@ Two things follow from the fix and they constrain what you may deploy:
 
 Postgres stays stop-first on purpose — one replica on one local volume can't
 have two tasks at once.
+
+### Releases
+
+`git push origin v1.2.3` is the whole ritual: `.github/workflows/release.yml`
+builds both images for amd64 and arm64, pushes them to GHCR
+(`ghcr.io/marco308/meals` = the product, `…/meals-mcp` = the MCP server alone),
+runs the published API image with **no arguments and no database service** to
+prove the one-container story still holds, then cuts the GitHub release. A
+failure in that verify job means the tag is public but the release is not, so
+fix forward with a new tag rather than deleting one people may have pulled.
+
+Two properties of the image are part of the contract now, because a host may
+depend on either and neither is visible from the API:
+
+- **It runs as uid 1000** and writes to exactly one path, `/data`. A bind mount
+  has to be `chown 1000:1000` first (named volumes inherit the ownership from
+  the image). Don't add a step that writes anywhere else at runtime.
+- **It defaults to SQLite under `/data`**, so `docker run` with nothing set
+  works. `DATABASE_URL` overrides it, which is what every Postgres deployment
+  here does. Migrations run on boot on both engines, so a migration that is
+  Postgres-only breaks the default install rather than just CI.
 
 ### Backups
 

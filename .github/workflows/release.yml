@@ -1,0 +1,144 @@
+name: Release
+
+# Publishes the images a self-hoster (or a host like PikaPods) actually pulls,
+# and the GitHub release that names them. CI proves the images boot on every
+# push; this is the same build, tagged, multi-arch, and pushed to GHCR.
+#
+# To cut a release: `git tag v1.2.3 && git push origin v1.2.3`. Nothing else
+# is manual. workflow_dispatch builds without pushing, for checking that a
+# change to this file still produces working images.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  images:
+    name: build and push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          # The API image is the product: it serves the API, the web client,
+          # the skill, and the MCP endpoint. Build context is the repo root
+          # because skill/, web/ and mcp/ all ship inside it.
+          - name: api
+            image: meals
+            context: .
+            dockerfile: backend/Dockerfile
+          # Still published separately, for anyone who wants the remote MCP
+          # server on its own host (what the swarm deployment runs).
+          - name: mcp
+            image: meals-mcp
+            context: mcp
+            dockerfile: mcp/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      # arm64 matters here: a lot of self-hosting happens on a Pi or an ARM
+      # VPS, and an amd64-only image is a bug report rather than a download.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          # v1.2.3 publishes :1.2.3, :1.2 and :latest. No :1, because a major
+          # version that moves under people is the tag nobody can pin against.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=YAMP ${{ matrix.name }}
+            org.opencontainers.image.description=Yet Another Meal Planner — self-hosted meal planning with an AI-first API
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'workflow_dispatch' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  verify:
+    name: the published image runs
+    needs: images
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    # The point of publishing is that someone pulls this and runs it with no
+    # arguments. So pull the tag that was just pushed and do exactly that:
+    # nothing but the image, no database service, no environment. If the
+    # single-container story is broken, it breaks here rather than in an issue.
+    steps:
+      - name: Run the image the way a one-container host would
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ github.repository_owner }}/meals:${GITHUB_REF_NAME#v}
+          docker run -d --name yamp -p 8000:8000 -v yamp-data:/data "$IMAGE"
+          for _ in $(seq 1 60); do
+            curl -fsS --max-time 5 http://localhost:8000/healthz && break
+            sleep 2
+          done
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/healthz
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/app/
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8000/skill
+          curl -fsS --max-time 20 -X POST http://localhost:8000/mcp \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            > mcp.txt
+          grep -q '"serverInfo"' mcp.txt
+          # It defaults to SQLite under /data, and it is not running as root.
+          [ "$(docker exec yamp id -u)" = "1000" ]
+          docker exec yamp test -s /data/meals.db
+
+      - name: Container logs
+        if: failure()
+        run: docker logs yamp
+
+  release:
+    name: github release
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "Images: \`ghcr.io/${{ github.repository_owner }}/meals:${GITHUB_REF_NAME#v}\` (API, web client, skill and MCP in one container) and \`ghcr.io/${{ github.repository_owner }}/meals-mcp:${GITHUB_REF_NAME#v}\` (the MCP server alone). Both linux/amd64 and linux/arm64."
