@@ -358,6 +358,11 @@ prove the one-container story still holds, then cuts the GitHub release. A
 failure in that verify job means the tag is public but the release is not, so
 fix forward with a new tag rather than deleting one people may have pulled.
 
+**One manual step, once, ever:** a package pushed by `GITHUB_TOKEN` is private
+no matter how public the repo is, and GitHub exposes no API to change that.
+After the first release, set both packages to public in their package settings,
+or nobody outside this account can pull the image the README advertises.
+
 Two properties of the image are part of the contract now, because a host may
 depend on either and neither is visible from the API:
 
