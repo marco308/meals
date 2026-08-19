@@ -118,10 +118,12 @@ why the post above can be short about the packaging:
    answers everything. Its own image still exists for split deployments, and
    `MCP_ENABLED=false` removes the built-in one.
 
+**v1.0.0 is published**, so every claim above is checkable:
+`ghcr.io/marco308/meals:1.0.0` (also `1.0` and `latest`), amd64 and arm64,
+public, with the release at
+https://github.com/marco308/meals/releases/tag/v1.0.0.
+
 ## Still worth doing, whether or not they answer
 
-- The marketing site's "Run it" section still teaches `make up`, which needs a
-  checkout. Add the `docker run` line **after** the first release is published
-  and pullable, not before.
 - `deploy/` still builds images on the swarm node. It could pull the published
   digest instead, which is the other half of the BACKLOG's image-pipeline item.

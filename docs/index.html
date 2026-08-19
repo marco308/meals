@@ -350,6 +350,13 @@
 
   <div class="run-notes">
     <p>
+      <b>No checkout? One container.</b> Every release publishes an image that
+      is the whole thing at once: the API, the web app, the skill it publishes
+      about itself, and the MCP endpoint. It defaults to SQLite, runs as an
+      ordinary user, and takes no arguments.
+    </p>
+    <p class="s-cmd">docker run -d -p 8000:8000 -v yamp-data:/data ghcr.io/marco308/meals</p>
+    <p>
       No Docker? <span class="mono">make run</span> starts the API on SQLite
       with no services at all. It runs happily on a Pi-class box or the
       cheapest VPS money rents.
