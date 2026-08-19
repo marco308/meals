@@ -21,7 +21,39 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # The tag is what people pull; the version in the code is what the running
+  # API reports about itself, and the deploy checks the live one against the
+  # release it deployed. v1.0.1 shipped reporting 1.0.0 because nothing made
+  # those agree, so now nothing can be released until they do.
+  version:
+    name: the code says what the tag says
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag, both packages and the API all say the same version
+        # Not gated with `if:` — a skipped job skips everything that needs it,
+        # which would make the workflow_dispatch dry run do nothing at all.
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "not a tag, nothing to check"
+            exit 0
+          fi
+          python3 - "${GITHUB_REF_NAME#v}" <<'PY'
+          import re, sys, pathlib
+          want = sys.argv[1]
+          found = {
+              "backend/pyproject.toml": re.search(r'^version = "([^"]+)"', pathlib.Path("backend/pyproject.toml").read_text(), re.M),
+              "mcp/pyproject.toml": re.search(r'^version = "([^"]+)"', pathlib.Path("mcp/pyproject.toml").read_text(), re.M),
+              "backend/app/main.py": re.search(r'^    version="([^"]+)",', pathlib.Path("backend/app/main.py").read_text(), re.M),
+          }
+          bad = {f: (m.group(1) if m else None) for f, m in found.items() if not m or m.group(1) != want}
+          for f, got in bad.items():
+              print(f"::error file={f}::says {got}, tag says {want}")
+          sys.exit(1 if bad else 0)
+          PY
+
   images:
+    needs: version
     name: build and push ${{ matrix.name }}
     runs-on: ubuntu-latest
     permissions:

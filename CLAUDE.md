@@ -316,6 +316,11 @@ in step if either moves.
   correctly does nothing. The script then asserts each service is running the
   digest it asked for, so "reported success and rolled nothing" is now a
   failure rather than a thing to notice later. It can only ship released code.
+  **Verification waits for the rollout to converge** (`UpdateStatus.State`) and
+  then checks the live `api_version` against the release it deployed: with
+  start-first the outgoing container keeps serving, so checking early tests the
+  image being replaced. The first digest deploy did exactly that and printed
+  the old version while calling itself a pass.
 - **build** (`MEALS_DEPLOY_BUILD=1`). The old path: rsync this tree to the
   node, build all three images there, force the services. Keep it. It is the
   only way to ship a branch that has no tag, which is exactly what you want
@@ -368,7 +373,12 @@ have two tasks at once.
 
 ### Releases
 
-`git push origin v1.2.3` is the whole ritual: `.github/workflows/release.yml`
+`git push origin v1.2.3` is the ritual, and the **version in the code has to
+match the tag first** (`backend/pyproject.toml`, `mcp/pyproject.toml` and the
+FastAPI `version=` in `backend/app/main.py`). A release job checks all three
+and fails the release if any disagrees, because v1.0.1 shipped an API that
+reported 1.0.0 and the deploy compares the live `api_version` against the
+release it deployed. After that, `.github/workflows/release.yml`
 builds all three images for amd64 and arm64, pushes them to GHCR
 (`ghcr.io/marco308/meals` = the product, `…/meals-mcp` = the MCP server alone,
 `…/meals-backup` = the pg_dump sidecar the swarm runs), runs the published API
