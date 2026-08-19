@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     # JSON landing at `/` is unaffected.
     marketing_url: str | None = None
 
+    # The MCP server, served by this process at /mcp (app/mcp_mount.py) so a
+    # single container is the whole product. Off, the route does not exist and
+    # the separate mcp/ image is the only way to reach it remotely.
+    mcp_enabled: bool = True
+    # Where the embedded MCP server calls the API back. It is an HTTP client
+    # like any other (it never touches the database), so it needs our own
+    # origin: loopback on whatever port uvicorn is serving.
+    mcp_api_url: str = "http://127.0.0.1:8000"
+
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
 

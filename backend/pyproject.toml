@@ -1,6 +1,6 @@
 [project]
 name = "meals-backend"
-version = "0.1.0"
+version = "1.0.0"
 description = "Meal options planner backend — recipes, meals, plans, aisle-sorted shopping list, AI-friendly API"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,10 +18,18 @@ dependencies = [
     "aiosmtplib>=3.0",
     "markdown-it-py>=3.0",
     "prometheus-client>=0.26.0",
+    # The MCP server, mounted at /mcp so one container is the whole product
+    # (app/mcp_mount.py). It stays a separate package with its own image and
+    # its own tests: this is a path dependency, not a merge.
+    "meals-mcp",
 ]
+
+[tool.uv.sources]
+meals-mcp = { path = "../mcp" }
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.5",
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",

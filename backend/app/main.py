@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import client_gate, metrics, observability
+from app import client_gate, mcp_mount, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
 from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
@@ -27,7 +27,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     refresher: asyncio.Task | None = None
     if get_settings().metrics_token:
         refresher = asyncio.create_task(metrics.usage_gauge_refresher())
-    yield
+    # The /mcp route needs its session manager running for the life of the app
+    # (a no-op when the mount is off). Tests skip lifespan, so a test that
+    # exercises /mcp enters mcp_mount.running() itself.
+    async with mcp_mount.running():
+        yield
     if refresher is not None:
         refresher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -37,7 +41,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     lifespan=lifespan,
     title="Meals API",
-    version="0.1.0",
+    version="1.0.0",
     description=(
         "A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and an "
         "aisle-sorted shopping list. Designed to be driven by any AI assistant: every error "
@@ -168,6 +172,10 @@ async def root(request: Request) -> Response:
         "privacy": f"{base}/privacy",
         "support": f"{base}/support",
     }
+    if _mcp_attached:
+        # This deployment serves the MCP endpoint itself, so an assistant can
+        # connect without being told a second hostname.
+        landing["mcp"] = f"{base}/mcp"
     if settings.marketing_url:
         landing["website"] = settings.marketing_url
     return JSONResponse(landing)
@@ -220,3 +228,11 @@ async def client_config() -> dict:
         "upgrade_url": config.ios_upgrade_url,
         "password_reset_enabled": config.email_configured,
     }
+
+
+# Attached last so it can never shadow an API route, and so everything above
+# (CORS, the client gate, the access log) wraps it exactly as it wraps the
+# rest. This is what makes a single container the whole product: API, web
+# client, skill, and the remote MCP endpoint on one origin. MCP_ENABLED=false
+# removes it.
+_mcp_attached = mcp_mount.attach(app)

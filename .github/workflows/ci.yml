@@ -139,20 +139,47 @@ jobs:
           curl -fsS --max-time 10 -o /dev/null http://localhost:8000/app/js/main.js
 
       - name: Verify the remote MCP initialize handshake
+        # Both places it is served: its own container (what the swarm routes
+        # /mcp to) and the API container itself, which is what makes a
+        # one-container host the whole product (app/mcp_mount.py). A handshake
+        # only proves the transport; the tool call after the seed is what
+        # exercises the mounted server's loopback call back into the API.
         run: |
-          curl -fsS --max-time 20 -X POST http://localhost:8100/mcp \
-            -H 'content-type: application/json' \
-            -H 'accept: application/json, text/event-stream' \
-            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
-            | tee mcp.txt
-          grep -q '"serverInfo"' mcp.txt
+          for url in http://localhost:8100/mcp http://localhost:8000/mcp; do
+            curl -fsS --max-time 20 -X POST "$url" \
+              -H 'content-type: application/json' \
+              -H 'accept: application/json, text/event-stream' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+              | tee mcp.txt
+            grep -q '"serverInfo"' mcp.txt
+          done
 
       - name: Seed demo data through the public API
         # `app.seed` drives register → recipes → meals → plan → shopping list
         # over HTTP, so this is the end-to-end smoke test: run it inside the
         # container so the job needs no Python of its own. It prints a demo PAT
         # into the log — that is for a throwaway database deleted at teardown.
-        run: docker compose exec -T api .venv/bin/python -m app.seed
+        run: docker compose exec -T api .venv/bin/python -m app.seed | tee seed.txt
+
+      - name: Call a tool through the MCP server mounted in the API
+        # The single-container claim in full: an MCP client talks to the API
+        # container, the server mounted in that same process calls the API back
+        # over loopback with the caller's own bearer token, and real seeded data
+        # comes out. Stateless HTTP, so no session id to carry between calls.
+        run: |
+          PAT=$(grep 'demo API PAT:' seed.txt | awk '{print $NF}')
+          [ -n "$PAT" ]
+          curl -fsS --max-time 20 -X POST http://localhost:8000/mcp \
+            -H "authorization: Bearer $PAT" \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_shopping_list","arguments":{}}}' \
+            > tool.txt
+          cat tool.txt
+          # A refused call comes back as tool content too (isError stays false,
+          # the text explains how to authenticate), so check for something only
+          # a real list prints: the provenance suffix on a line.
+          grep -q '(for:' tool.txt
 
       - name: Back up the seeded database and restore it into a scratch one
         # An untested backup is a hypothesis (issue #9), so the reference stack
@@ -169,10 +196,40 @@ jobs:
           # A restore that produces an empty database exits 0 just as happily.
           [ "$(cat recipes.txt)" -gt 0 ]
 
+      - name: The API image alone is a working install
+        # The compose stack overrides DATABASE_URL, so nothing above ever
+        # exercises the shape a one-container host actually runs: this image,
+        # no arguments, no database service, SQLite under /data, not root.
+        # `.github/workflows/release.yml` checks the *published* image the same
+        # way; this catches it a merge earlier.
+        run: |
+          docker run -d --name yamp-solo -p 8001:8000 -v yamp-solo-data:/data meals-api
+          for _ in $(seq 1 60); do
+            curl -fsS --max-time 5 http://localhost:8001/healthz && break
+            sleep 2
+          done
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8001/healthz
+          curl -fsS --max-time 10 -o /dev/null http://localhost:8001/app/
+          curl -fsS --max-time 20 -X POST http://localhost:8001/mcp \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            > solo-mcp.txt
+          grep -q '"serverInfo"' solo-mcp.txt
+          [ "$(docker exec yamp-solo id -u)" = "1000" ]
+          docker exec yamp-solo test -s /data/meals.db
+
+      - name: Solo container logs
+        if: failure()
+        run: docker logs yamp-solo || true
+
       - name: Stack logs
         if: failure()
         run: docker compose logs --no-color --tail 200
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: |
+          docker rm -f yamp-solo || true
+          docker volume rm -f yamp-solo-data || true
+          docker compose down -v
