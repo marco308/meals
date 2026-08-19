@@ -1,6 +1,6 @@
 [project]
 name = "meals-mcp"
-version = "1.0.0"
+version = "1.0.2"
 description = "MCP server wrapping the Meals REST API with task-level tools for AI assistants"
 requires-python = ">=3.12"
 dependencies = [
