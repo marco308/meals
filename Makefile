@@ -177,6 +177,10 @@ seed: ## Load demo data (into the Docker stack's API by default)
 # worktree's copy, and hand the script *this* tree as the sources to sync
 # (MEALS_REPO_ROOT) — otherwise deploying from a worktree would quietly ship
 # main's code while claiming success.
+#
+# The script pulls released images by digest by default, so MEALS_REPO_ROOT
+# only decides what gets built in its MEALS_DEPLOY_BUILD=1 mode. Deploying a
+# specific release is MEALS_VERSION=1.2.3 make deploy.
 MAIN_WORKTREE := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
 DEPLOY_SH := $(firstword $(wildcard deploy/deploy.sh $(MAIN_WORKTREE)/deploy/deploy.sh))
 

@@ -360,17 +360,21 @@ for the shape of the deployment, and it's what CI boots and smoke-tests.
 Being untracked, `deploy/` only exists in the checkout you put it in, so from a
 `git worktree` there is nothing to run. `make deploy` therefore falls back to
 the main worktree's copy of the script and passes the *current* tree as
-`MEALS_REPO_ROOT`, which is the source tree that gets synced and built — the
-script prints it first, so the deploy log says which tree went live.
+`MEALS_REPO_ROOT`, which matters when that script is building rather than
+pulling.
 
-If you're deploying this yourself, the two things worth knowing, learned the
-hard way:
+That deployment pulls the released images and deploys them **by digest**, which
+is worth copying if you run something similar:
 
-- **Build the images where the tasks will run.** Locally built `:latest` images
-  have no registry to pull from, so a task only starts on a node that already
-  has the image.
-- **Force the service update.** `docker stack deploy` won't roll out a rebuilt
-  image that kept the same tag, so a deploy that looks clean can change nothing.
+- **Deploy a digest, not a tag.** A rebuilt `:latest` leaves the service spec
+  identical, so `docker stack deploy` reports success and rolls nothing. Resolve
+  the tag to `repo@sha256:…` and the spec changes exactly when the image does.
+- **Pull on the node that will run it,** before deploying. Locally built images
+  have no registry to pull from at all, so a task only starts where the image
+  already is; pre-pulling also means a start-first rollout has nothing to wait
+  for.
+- **Then check what is actually running** (`docker service inspect … Image`)
+  rather than trusting that the deploy did anything.
 
 ## Contributing
 
