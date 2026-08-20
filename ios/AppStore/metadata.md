@@ -15,6 +15,17 @@ Yet Another Meal Planner
 on 2026-07-27 and App Store Connect accepted it, so the name was free. "Meals"
 is taken by someone else and can't be used.
 
+**This is the YAMP name already; don't "finish" it.** The store name *is* the
+acronym, spelled out, which is the whole joke. `planning/06-marketing.md` once
+called for the redundant "YAMP: Yet Another Meal Planner" and that prefix is
+deliberately not here: the name is only editable on a version in Prepare for
+Submission, and 1.0 and 1.1 are both `READY_FOR_SALE`, so it would cost a review
+pass to buy five characters that the name already says.
+
+The one thing the expansion does not buy is the literal string, and Apple
+indexes strings: a search for "yamp" does not match "Yet Another Meal Planner".
+That belongs in **keywords** below, not in the name.
+
 The home-screen name stays **Meals** (`CFBundleName`), which is allowed — the
 store name and the icon name don't have to match, they only have to be
 plausibly the same app.
@@ -109,12 +120,20 @@ Roughly 2,700 characters.
 ## Keywords — 100 characters max, comma separated, no spaces after commas
 
 ```
-meal,planner,recipe,shopping,list,groceries,grocery,selfhosted,offline,pantry,cooking,aisle,mealprep
+meal,planner,recipe,shopping,list,groceries,selfhosted,offline,pantry,cooking,aisle,mealprep,yamp
 ```
 
-99 characters. Don't repeat words from the name or subtitle — Apple indexes
-those already, so "meal" and "planner" earn nothing here beyond the phrase
-matches, and the rest is spent on searches this app can actually win.
+96 characters. **`yamp` is pending, not applied** — keywords are versioned
+metadata like the name, so this rides along with the next submission at no extra
+cost. It earns its slot precisely because it is *not* a word in the name: Apple
+indexes "Yet Another Meal Planner" as those four words, so anyone who heard the
+name as an acronym and searched "yamp" found nothing. `grocery` was dropped to
+pay for it; the live string was at exactly 100 of 100, not the 99 this file
+claimed, so there was no headroom. `groceries` still covers the search.
+
+Don't repeat words from the name or subtitle — Apple indexes those already, so
+"meal" and "planner" earn nothing here beyond the phrase matches, and the rest
+is spent on searches this app can actually win.
 
 ## URLs
 
