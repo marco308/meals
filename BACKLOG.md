@@ -22,6 +22,38 @@ An entry that grows a plan of attack has outgrown the file.
 - [ ] **Onboard the second household member** — no longer needs curl at either end: build 16 mints the code (Settings → Invite someone) and build 14 onwards can redeem it on the register screen. Both are on TestFlight, so this is now just a thing to do
 - [ ] **Clean the BBC misparse junk out of prod** — dual-measure lines left ingredients named "/3½oz vermicelli rice noodles", "/10½oz cooked" and friends behind (parser fixed + guarded `DELETE /ingredients/{id}` added 2026-07-29, Q22; summer_rolls_15105 is a known affected recipe). The recipe lines kept their raw text and correct metric quantities, so merging each junk row into the real food (`POST /ingredients/{keeper_id}/merge`) heals the recipes too; `DELETE /ingredients/{id}` mops up anything left unreferenced. An AI on the v9 playbook can do the whole sweep
 
+## Hosted freemium
+
+Decided 2026-08-21 in [planning/08-freemium.md](planning/08-freemium.md), which
+amends [06-marketing.md](planning/06-marketing.md) §Route 2: that section argued
+against fencing off a tool self-hosters already have, and it still does. A
+**quota on my hosting** is a different animal, and the rule that keeps it one is
+that every limit defaults to unlimited with the enforcement code in this repo,
+so a self-hosted instance never sees a cap or hears that a paid tier exists.
+
+The gate is **members** (free is one), not recipes: pricing is already per
+household, `lead_user_id` already means "the member a household is billed to"
+(Q23), and the wall then lands at the moment of proven value rather than on a
+random Tuesday. The AI layer, the offline list and data export are never gated
+in any tier, for reasons the doc gives one by one.
+
+Filed, in the order they should be built:
+[#94](https://github.com/marco308/meals/issues/94) limits module,
+[#95](https://github.com/marco308/meals/issues/95) `GET /limits`,
+[#96](https://github.com/marco308/meals/issues/96) instance ceilings,
+[#97](https://github.com/marco308/meals/issues/97) household export,
+[#98](https://github.com/marco308/meals/issues/98) `/terms`,
+[#99](https://github.com/marco308/meals/issues/99) entitlements and billing,
+[#100](https://github.com/marco308/meals/issues/100) keeping the app free of
+commerce. The first five are worth having on a self-hosted instance too, which
+is why they come first: if the hosted business never happens they are not
+wasted.
+
+**None of it ships unless the waitlist gate in 06 §Phase 3 is passed**, and one
+blocker stays off the tracker because it is deployment topology rather than
+code: strangers' data should not share a Postgres with the family's, and free
+households arrive faster than paying ones.
+
 ## Web app tail
 
 The web client (`web/`, served at `/app`) shipped covering the whole loop;
