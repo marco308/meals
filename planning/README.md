@@ -11,10 +11,11 @@ The planning docs this app was built from. The brief they were written against
 > [../BACKLOG.md](../BACKLOG.md) and
 > [GitHub issues](https://github.com/marco308/meals/issues).
 >
-> These files are **history, not a roadmap**, with one exception:
+> These files are **history, not a roadmap**, with two exceptions:
 > [04-open-questions.md](04-open-questions.md) is the live decisions log that
 > code comments cite by number (Q1–Q23), so it is maintained and must never
-> be turned into issues.
+> be turned into issues, and [08-freemium.md](08-freemium.md) is a live
+> decisions doc for work that has not been built yet.
 
 ## Documents
 
@@ -26,6 +27,8 @@ The planning docs this app was built from. The brief they were written against
 | [04-open-questions.md](04-open-questions.md) | **Decisions log** — all questions answered; Q16 implemented as assumed |
 | [05-status.md](05-status.md) | **Build status** — plan→implementation traceability with evidence, frozen at the first deploy |
 | [06-marketing.md](06-marketing.md) | **Marketing & monetisation** — YAMP positioning, pricing, launch plan; the strategy behind the landing page in `docs/` |
+| [07-pikapods.md](07-pikapods.md) | The PikaPods listing: the suggestion post as submitted, and the email that follows it |
+| [08-freemium.md](08-freemium.md) | **Freemium on the hosted instance** (live): tiers, limits, lapse semantics, and why no money is mentioned in the app. Amends 06 §Route 2 |
 
 ## Product one-liner
 

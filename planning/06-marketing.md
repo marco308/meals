@@ -119,6 +119,12 @@ whole product. Draft and follow-up email in [`07-pikapods.md`](07-pikapods.md).
 This is the real business case: audience 3 will pay to never see Docker, and
 meal planning is a shared family utility with natural yearly cadence.
 
+**Amended 2026-08-21:** the tier structure, the caps, the payment route and the
+reason the iPhone app never mentions money are decided in
+[`08-freemium.md`](08-freemium.md). Blockers 1 and 2 below are done; blocker 3
+is now a merchant of record rather than Stripe links, because EU B2C digital
+services VAT applies from the first sale.
+
 Hard blockers before taking anyone's money, in order:
 
 1. **Nightly off-site Postgres backups + a tested restore** (already in
@@ -136,6 +142,14 @@ costs nothing and measures demand), money only when the boring parts exist.
 **Annual only at launch**; monthly is churn admin we do not need yet.
 
 ### Route 2: paid premium features (RECOMMEND AGAINST, here is the analysis)
+
+> **Amended 2026-08-21 by [`08-freemium.md`](08-freemium.md).** Everything
+> below stands for what it was aimed at: fencing off a tool that self-hosters
+> already have. It does not cover a **quota on my hosting**, which is what the
+> hosted free tier now is: limits that default to unlimited, with the
+> enforcement code in this repo under AGPL, so a self-hosted instance never
+> sees a cap or hears that a paid tier exists. Read 08 §1 for the distinction
+> and 08 §3 for the numbers.
 
 The ask was to consider a premium-features tier. Reasons not to, in strength
 order:
@@ -201,6 +215,12 @@ the open-source position that makes the project fun to run.
 Anchors: Tandoor Basic €1.99/mo (~€24/yr), AnyList household $14.99/yr,
 PikaPods DIY ~$2 to $5/mo. £20 is cheap enough to be an impulse, expensive
 enough to matter across 50 households.
+
+**Amended 2026-08-21:** hosted splits into two rows, free (one member, and the
+caps in [`08-freemium.md`](08-freemium.md) §3) and paid at the £20. The site's
+table gains the free row when the waitlist gate in §Phase 3 is passed, not
+before: nothing about pricing goes public while the answer might still be that
+none of this ships.
 
 ## 7. Launch plan
 
