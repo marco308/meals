@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 15
+PLAYBOOK_VERSION = 16
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -920,6 +920,48 @@ async def delete_ingredient(name: str) -> str:
     except ApiError as exc:
         return str(exc)
     return f"Deleted '{ingredient['name']}' from the catalogue."
+
+
+# --------------------------------------------------------------------- limits
+
+
+def _fmt_allowance(row: dict) -> str:
+    name = row["resource"].replace("_", " ")
+    if row["used"] is None:
+        # Scoped to one meal or one plan, so there is no household-wide "used".
+        return f"{name}: at most {row['limit']:,} {row['scope']}"
+    return f"{name}: {row['used']:,} of {row['limit']:,} used, {row['remaining']:,} left"
+
+
+@mcp.tool()
+async def check_limits() -> str:
+    """What this server allows the household, and how much is left.
+
+    **Check this before a bulk import** — dozens of recipe links, a library
+    migration, a script that creates meals in a loop. Most servers cap nothing
+    and say so in one line; where a server does cap something, this is how many
+    more you can create before the writes start being refused. Reading it first
+    is the difference between importing what fits and stopping half way through
+    with a hundred left over.
+    """
+    try:
+        data = await _call("GET", "/limits")
+    except ApiError as exc:
+        return str(exc)
+    # `limited` is about the server; the rows are about this household, and a
+    # deployment can have configured a tier this one is not on.
+    rows = [row for row in data["resources"] if row["limit"] is not None]
+    if not data["limited"] or not rows:
+        return "Nothing is capped here — import as much as you like."
+    lines = [f"This household is on the {data['tier']} tier."]
+    lines += [_fmt_allowance(row) for row in rows]
+    spent = [row["resource"].replace("_", " ") for row in rows if row["remaining"] == 0]
+    if spent:
+        lines.append(
+            f"Already at the limit for {', '.join(spent)} — creating more will be refused, so say so "
+            "rather than retrying."
+        )
+    return "\n".join(lines)
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

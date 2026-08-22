@@ -85,6 +85,63 @@ class TestProfileResolution:
         assert limits.limits_for("free").recipes is None
 
 
+class TestTheBindingNumber:
+    """What `GET /limits` publishes as the limit: whichever of the tier cap and
+    the ceiling a household actually meets, and whether money moves it. The same
+    judgement `_verdict` makes on a refusal, so the two must not disagree."""
+
+    def test_nothing_configured_is_unlimited_and_unupgradable(self):
+        assert limits._effective("free", "recipes") == (None, False)
+
+    def test_a_cap_below_the_ceiling_binds_and_a_bigger_tier_lifts_it(self, settings_override):
+        _hosted(settings_override)
+        assert limits._effective("free", "recipes") == (50, True)
+
+    def test_the_ceiling_binds_when_it_is_the_lower_of_the_two(self, settings_override):
+        _hosted(settings_override, free={"recipes": 9_999})
+        assert limits._effective("free", "recipes") == (5_000, False)
+
+    def test_a_tie_goes_to_the_ceiling(self, settings_override):
+        """`_verdict` checks the ceiling first, so when a cap has caught up with
+        it the true answer is "no tier fixes this" rather than "buy a bigger
+        one"."""
+        _hosted(settings_override, free={"recipes": 5_000})
+        assert limits._effective("free", "recipes") == (5_000, False)
+
+    def test_the_top_tier_has_nothing_above_it(self, settings_override):
+        _hosted(settings_override)
+        assert limits._effective("paid", "recipes") == (2_000, False)
+
+    def test_a_comp_keeps_the_ceiling_and_sells_nothing(self, settings_override):
+        _hosted(settings_override)
+        assert limits._effective("unlimited", "recipes") == (5_000, False)
+
+    def test_a_cap_with_no_ceiling_above_it_still_binds(self, settings_override):
+        _hosted(settings_override, free={"recipes": 3}, ceiling={"recipes": None})
+        assert limits._effective("free", "recipes") == (3, True)
+
+
+class TestEveryResourceCanBePublished:
+    def test_a_resource_with_no_household_wide_count_says_so(self):
+        """Publishing a household-wide "used" for a per-meal or per-plan
+        allowance would be inventing a number, so the spec has to say which is
+        which."""
+        scoped = {name for name, spec in limits.RESOURCES.items() if not spec.household_wide}
+        assert scoped == {"meal_lines", "plan_meals"}
+
+    def test_anything_counted_household_wide_has_a_counter_to_do_it_with(self):
+        for name, spec in limits.RESOURCES.items():
+            assert (spec.count is not None) or not spec.household_wide, name
+
+    def test_the_free_tier_is_published_whole(self, settings_override):
+        """The unauthenticated pricing table names every resource, so a client
+        reading it never has to guess whether a missing key means unlimited."""
+        assert set(limits.free_tier_allowances()) == set(limits.RESOURCE_NAMES)
+        assert set(limits.free_tier_allowances().values()) == {None}
+        _hosted(settings_override)
+        assert limits.free_tier_allowances()["recipes"] == 50
+
+
 class TestConfigurationIsChecked:
     """A typo should stop the container at startup, not surface as a 500 on
     somebody's fiftieth recipe — app/main.py calls check_settings() at import."""

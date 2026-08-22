@@ -360,7 +360,11 @@ published table of numbers, `LIMITS_OVERRIDES` tunes any single one as JSON, and
 `DEFAULT_HOUSEHOLD_TIER` says what a new registration starts on. Being over a
 limit blocks only the writes that grow a household; nothing is deleted, nothing
 becomes unreadable, and the shopping list is exempt in every case because the
-iPhone app drains its offline queue through it.
+iPhone app drains its offline queue through it. Whatever you set, `GET /limits`
+publishes it: every resource with its cap, what is used and what is left, so an
+assistant about to import two hundred recipes can ask first. On a server that
+caps nothing it answers "unlimited" rather than 404, so no client ever has to
+special-case its absence.
 
 `make deploy` runs `deploy/deploy.sh`, which is **not in this repo** — a swarm
 stack file is a description of somebody's specific hardware (node names, ingress

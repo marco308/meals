@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app import limits
 from app.models import Household, User
 from tests.conftest import create_meal, create_plan, create_recipe, register
 
@@ -492,6 +493,190 @@ class TestMembersAreTheGate:
             json={"email": "stranger@example.com", "password": PASSWORD, "display_name": "Stranger"},
         )
         assert response.status_code == 201
+
+
+async def allowances(client, **kwargs) -> dict:
+    """`GET /limits`, keyed by resource."""
+    response = await client.get("/limits", **kwargs)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    return {row["resource"]: row for row in body["resources"]} | {"_": body}
+
+
+class TestPublishedLimits:
+    """§4: "Better than a good error is not hitting the wall at all." An
+    assistant about to import two hundred recipes asks first, so what it is told
+    has to be the same number that would refuse it."""
+
+    async def test_an_unconfigured_server_answers_unlimited_rather_than_404(self, auth_client):
+        """No client should ever have to special-case the absence of limits, and
+        a self-hosted box must not learn that some other deployment sells
+        something."""
+        rows = await allowances(auth_client)
+        assert rows["_"]["tier"] == "unlimited"
+        assert rows["_"]["limited"] is False
+        assert {row["resource"] for row in rows["_"]["resources"]} == set(limits.RESOURCE_NAMES)
+        for name in limits.RESOURCE_NAMES:
+            row = rows[name]
+            assert (row["limit"], row["used"], row["remaining"]) == (None, None, None), name
+            assert row["upgradable"] is False, name
+
+    async def test_nothing_is_counted_when_nothing_is_limited(self, auth_client):
+        """The module's first promise holds on the endpoint too: an unlimited
+        allowance runs no COUNT, because there is nothing to be short of."""
+        await create_recipe(auth_client, title="One")
+        assert (await allowances(auth_client))["recipes"]["used"] is None
+
+    async def test_it_needs_a_household_to_answer_for(self, client):
+        assert (await client.get("/limits")).status_code == 401
+
+    async def test_a_configured_server_publishes_the_numbers_and_the_usage(self, client, hosted):
+        hosted(free={"recipes": 3})
+        await signed_in(client)
+        await create_recipe(client, title="One")
+
+        rows = await allowances(client)
+        assert rows["_"]["tier"] == "free"
+        assert rows["_"]["limited"] is True
+        assert rows["recipes"] == {
+            "resource": "recipes",
+            "limit": 3,
+            "used": 1,
+            "remaining": 2,
+            "scope": "per household",
+            "upgradable": True,
+        }
+        # The profile's own numbers apply to everything the overrides left alone.
+        assert rows["meals"]["limit"] == 100
+        assert rows["members"]["limit"] == 1
+
+    async def test_remaining_reaches_zero_exactly_where_the_refusal_is(self, client, hosted):
+        """The whole point of publishing: the number an assistant plans against
+        and the number that refuses it are the same number."""
+        hosted(free={"recipes": 2})
+        await signed_in(client)
+        await create_recipe(client, title="One")
+        assert (await allowances(client))["recipes"]["remaining"] == 1
+        await create_recipe(client, title="Two")
+
+        spent = (await allowances(client))["recipes"]
+        assert (spent["used"], spent["remaining"]) == (2, 0)
+        refusal = await client.post("/recipes", json={"title": "Three", "ingredients": []})
+        assert refusal.status_code == 402
+        assert (refusal.json()["limit"], refusal.json()["used"]) == (spent["limit"], spent["used"])
+
+    async def test_remaining_never_goes_negative(self, client, hosted):
+        """A household can end up over a cap without ever being refused — a
+        downgrade, or an operator lowering the number — and "-3 left" is not
+        something to publish at it."""
+        hosted(free={"recipes": None})
+        await signed_in(client)
+        await create_recipe(client, title="One")
+        await create_recipe(client, title="Two")
+        hosted(free={"recipes": 1})
+
+        assert (await allowances(client))["recipes"] == {
+            "resource": "recipes",
+            "limit": 1,
+            "used": 2,
+            "remaining": 0,
+            "scope": "per household",
+            "upgradable": True,
+        }
+
+    async def test_a_ceiling_is_published_as_the_limit_and_as_unupgradable(self, client, hosted):
+        """`upgradable` is the same judgement that picks 402 from 403, so a
+        caller can tell "this needs a bigger tier" from "this needs a
+        conversation" before it hits either."""
+        hosted(free={"recipes": 500}, ceiling={"recipes": 2})
+        await signed_in(client)
+        rows = await allowances(client)
+        assert (rows["recipes"]["limit"], rows["recipes"]["upgradable"]) == (2, False)
+
+    async def test_the_top_tier_has_nothing_above_it_to_be_sold(self, client, hosted, set_tier):
+        hosted(free={"recipes": 1}, paid={"recipes": 2})
+        await signed_in(client)
+        await set_tier("paid")
+        rows = await allowances(client)
+        assert rows["_"]["tier"] == "paid"
+        assert (rows["recipes"]["limit"], rows["recipes"]["upgradable"]) == (2, False)
+
+    async def test_a_comped_household_reads_as_unlimited_but_keeps_the_ceiling(self, client, hosted, set_tier):
+        hosted(ceiling={"recipes": 5})
+        await signed_in(client)
+        await set_tier("unlimited")
+        rows = await allowances(client)
+        assert rows["_"]["tier"] == "unlimited"
+        assert (rows["recipes"]["limit"], rows["recipes"]["upgradable"]) == (5, False)
+        # Nothing is upgradable from a comp, and the profile's own ceilings are
+        # still what binds everything the override left alone.
+        assert (rows["meals"]["limit"], rows["meals"]["upgradable"]) == (5_000, False)
+
+    async def test_an_allowance_scoped_to_one_meal_or_plan_publishes_no_usage(self, client, hosted):
+        """ "How many are used" has no household-wide answer for these, and
+        inventing one would be worse than leaving it null — the number that
+        matters is the allowance itself."""
+        # The same in both tiers, exactly as §3's table has them.
+        same = {"meal_lines": 2, "plan_meals": 3}
+        hosted(free=same, paid=same, ceiling=same)
+        await signed_in(client)
+        await create_meal(client, name="Sunday dinner", loose_ingredients=[{"name": "peas"}])
+
+        rows = await allowances(client)
+        assert rows["meal_lines"] == {
+            "resource": "meal_lines",
+            "limit": 2,
+            "used": None,
+            "remaining": None,
+            "scope": "in one meal",
+            "upgradable": False,
+        }
+        assert (rows["plan_meals"]["limit"], rows["plan_meals"]["used"]) == (3, None)
+
+    async def test_the_ingest_quota_is_the_months_counter_not_a_row_count(self, client, hosted):
+        hosted(free={"ingests_per_month": 5})
+        await signed_in(client)
+        rows = await allowances(client)
+        assert rows["ingests_per_month"]["scope"] == "a month"
+        assert (rows["ingests_per_month"]["used"], rows["ingests_per_month"]["remaining"]) == (0, 5)
+
+    async def test_usage_is_this_households_own(self, client, hosted):
+        """The endpoint reads a household's own counts, which is the one thing
+        it must not get wrong."""
+        hosted(free={"recipes": 10})
+        first = await register(client, email="first@example.com", name="First")
+        second = await register(client, email="second@example.com", name="Second")
+        made = await client.post("/recipes", json={"title": "Theirs", "ingredients": []}, headers=headers(first))
+        assert made.status_code == 201
+
+        assert (await allowances(client, headers=headers(first)))["recipes"]["used"] == 1
+        assert (await allowances(client, headers=headers(second)))["recipes"]["used"] == 0
+
+
+class TestTheFreeTierRidesOnClientConfig:
+    """A signup page has nobody to authenticate as yet, so the numbers that
+    decide whether to sign up at all cannot need a login."""
+
+    async def test_it_is_there_and_needs_no_token(self, client):
+        response = await client.get("/client-config")
+        assert response.status_code == 200
+        assert set(response.json()["free_tier_limits"]) == set(limits.RESOURCE_NAMES)
+
+    async def test_a_server_that_limits_nothing_publishes_no_numbers(self, client):
+        published = (await client.get("/client-config")).json()["free_tier_limits"]
+        assert set(published.values()) == {None}
+
+    async def test_a_configured_server_publishes_its_free_tier(self, client, hosted):
+        hosted(free={"recipes": 50})
+        published = (await client.get("/client-config")).json()["free_tier_limits"]
+        assert published["recipes"] == 50
+        assert published["members"] == 1  # straight from §3's table
+
+    async def test_it_is_the_tiers_own_numbers_not_the_ceiling(self, client, hosted):
+        """A pricing table is about what the tiers differ by; the ceiling is the
+        same in all of them and belongs to the box, not to the price."""
+        hosted(free={"recipes": None}, ceiling={"recipes": 5})
+        assert (await client.get("/client-config")).json()["free_tier_limits"]["recipes"] is None
 
 
 class TestTheIngestQuota:

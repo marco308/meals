@@ -13,6 +13,7 @@ from app import client_gate, limits, mcp_mount, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
 from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
+from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
@@ -133,6 +134,7 @@ app.include_router(shopping.router)
 app.include_router(supermarkets.router)
 app.include_router(skill.router)
 app.include_router(pages.router)
+app.include_router(limits_router.router)
 
 # The web client is served by the API itself so it is always same-origin with
 # the endpoints it calls — no CORS, no second host to deploy or certify. Plain
@@ -237,7 +239,12 @@ async def client_config() -> dict:
 
     `password_reset_enabled` says whether this server can send email at all. A
     client that shows "Forgot password?" regardless leads people to a 503 they
-    can do nothing about, so it can ask here first and hide the door instead."""
+    can do nothing about, so it can ask here first and hide the door instead.
+
+    `free_tier_limits` is what an account costs nothing here, so a signup page
+    can show it before anyone has an account to authenticate with. Every value
+    is null on a server that limits nothing, which is the same thing an
+    authenticated `GET /limits` says in more detail."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -245,6 +252,7 @@ async def client_config() -> dict:
         "current_ios_build": config.current_ios_build,
         "upgrade_url": config.ios_upgrade_url,
         "password_reset_enabled": config.email_configured,
+        "free_tier_limits": limits.free_tier_allowances(),
     }
 
 

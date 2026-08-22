@@ -20,7 +20,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the last deploy.
+### Added
+
+- **`GET /limits` publishes what a household is allowed** and how much of it is
+  left — every resource with its limit, usage and remainder, plus the tier the
+  numbers came from ([#95](https://github.com/marco308/meals/issues/95),
+  `planning/08-freemium.md` §4). An assistant about to import two hundred
+  recipes can now ask before it starts rather than stopping on the fifty-first,
+  which is worth more than any refusal sentence. The endpoint holds no numbers
+  of its own: everything comes from the module that would refuse the write, so
+  what is published and what is enforced cannot drift apart. `limit` is the
+  number the household will actually meet, whichever of its tier's cap and the
+  server's fair-use ceiling is lower, and `upgradable` carries the same
+  judgement that picks 402 from 403.
+- **It answers on a server that limits nothing**, reporting every resource as
+  unlimited rather than 404ing, so no client has to special-case its absence —
+  and it counts nothing there, because an unlimited allowance has nothing to be
+  short of. The module's "no queries when nothing is configured" promise holds
+  on the endpoint as well as on the write path.
+- **`check_limits` MCP tool** and a golden rule in the skill and prompt pack
+  telling an assistant to check before a bulk import, which is the only time
+  ordinary use comes near a limit.
+- **`free_tier_limits` on `GET /client-config`**, unauthenticated, so a signup
+  page can show what an account costs nothing before anybody has one to log in
+  with. Every value is null on a server that caps nothing, which says
+  "unlimited" and names no hosted tier that does not exist. Additive, so older
+  clients ignore it.
 
 ## 2026-08-22 — backups that recover on their own
 
