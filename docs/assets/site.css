@@ -694,6 +694,7 @@ mark {
   color: var(--leek);
 }
 .tier .btn { display: block; }
+.tier .btn + .btn { margin-top: .55rem; }
 .tier .small {
   font-size: .78rem;
   color: var(--ink-mute);
