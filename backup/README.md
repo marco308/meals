@@ -43,12 +43,15 @@ docker compose logs backup                    # one line per run
 | `PGPASSWORD` / `PGPASSWORD_FILE` | — | Password, or a file holding it (docker secret) |
 | `BACKUP_DIR` | `/backups` | Holds `daily/` and `weekly/`. Mount a volume here |
 | `BACKUP_AT` | `03:15` | Daily run time, **UTC** |
-| `BACKUP_ON_START` | `auto` | `auto` dumps at startup only when there are none; `always`, `never` |
+| `BACKUP_ON_START` | `auto` | `auto` dumps at startup whenever there is no dump newer than `STALE_AFTER_HOURS` (so a container that has fallen behind catches up rather than waiting for the next scheduled run); `always`, `never` |
 | `KEEP_DAILY` `KEEP_WEEKLY` | `7` `4` | Retention, local and offsite |
 | `RCLONE_REMOTE` | — | e.g. `gdrive:meals-backups`. Empty means local-only |
 | `RCLONE_CONFIG_FILE` | — | Read-only rclone config (a secret or a bind mount); copied to `RCLONE_CONFIG` (`/tmp/rclone.conf`), because rclone rewrites its config when it refreshes a token |
 | `BACKUP_PASSPHRASE_FILE` | — | File holding the gpg passphrase. **Required** whenever `RCLONE_REMOTE` is set |
-| `STALE_AFTER_HOURS` | `36` | How old the newest dump may be before the healthcheck fails |
+| `STALE_AFTER_HOURS` | `36` | How old the newest dump may be before the healthcheck fails, and before `BACKUP_ON_START=auto` dumps at startup |
+| `DUMP_TIMEOUT_S` | `3600` | How long `pg_dump` may run before it is killed and the run logged as an error |
+| `RUN_TIMEOUT_S` | `7200` | Backstop around a whole run, so a hang can never stop the nightly loop |
+| `PGCONNECT_TIMEOUT` | `15` | Seconds to get a database connection before giving up |
 | `LOG_FORMAT` | `json` | `text` for a human at a terminal |
 
 The image is built `FROM postgres:17-alpine` to match the database, and that

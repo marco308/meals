@@ -23,6 +23,8 @@ RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 # refuses rather than quietly sending a household's data somewhere in the clear.
 BACKUP_PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-}"
 LOG_FORMAT="${LOG_FORMAT:-json}"
+# How long a dump may take before it is treated as wedged. See the dump section.
+DUMP_TIMEOUT_S="${DUMP_TIMEOUT_S:-3600}"
 
 DAILY_DIR="${BACKUP_DIR}/daily"
 WEEKLY_DIR="${BACKUP_DIR}/weekly"
@@ -90,6 +92,9 @@ if [ -n "${PGPASSWORD_FILE:-}" ]; then
     PGPASSWORD="$(cat "${PGPASSWORD_FILE}")"
     export PGPASSWORD
 fi
+# A dump that cannot get a connection must fail rather than wait for one; the
+# default here is no timeout at all.
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}"
 export PGHOST="${PGHOST:-db}"
 export PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-meals}"
@@ -132,7 +137,35 @@ final="${DAILY_DIR}/${name}"
 # pg_restore can list it, restore it selectively, and parallelise. The
 # database is a few megabytes of family recipes — PITR/WAL archiving would be
 # more machinery than the thing it protects.
-pg_dump --format=custom --compress=9 --file="${partial}" || fail dump "pg_dump failed"
+# A dump that hangs is worse than one that fails: `fail` never runs, so there is
+# no event line to alert on, and the loop in entrypoint.sh never comes back
+# round to try again tomorrow. That is the shape of the 2026-08-20 miss — no
+# dump, no `.part` file and no log line, which is what pg_dump blocked on an
+# unresponsive database looks like. PGCONNECT_TIMEOUT bounds getting a
+# connection; this bounds everything after it.
+# Empty if the base image has no `timeout`: bounding the dump matters, but not
+# so much that its absence should stop backups happening at all.
+dump_timeout=""
+if command -v timeout >/dev/null 2>&1; then
+    dump_timeout="timeout ${DUMP_TIMEOUT_S}"
+fi
+dump_status=0
+# Unquoted on purpose: ${dump_timeout} is a command prefix, not one argument.
+# shellcheck disable=SC2086
+${dump_timeout} pg_dump --format=custom --compress=9 --file="${partial}" || dump_status=$?
+# busybox timeout reports 128+SIGTERM, GNU coreutils reports 124. Accept both so
+# this keeps its meaning if the base image ever stops being Alpine.
+case "${dump_status}" in
+    0) ;;
+    124 | 143)
+        rm -f "${partial}"
+        fail dump "pg_dump did not finish within ${DUMP_TIMEOUT_S}s and was killed"
+        ;;
+    *)
+        rm -f "${partial}"
+        fail dump "pg_dump failed with status ${dump_status}"
+        ;;
+esac
 
 # The verification that makes this a backup rather than a file: read the table
 # of contents back out of what was just written.
