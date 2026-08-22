@@ -1,8 +1,12 @@
 # Funding links shown on the repo's Sponsor button.
-# GitHub Sponsors is enrolled (0% platform fee for personal accounts) and the
-# profile is live at https://github.com/sponsors/marco308, so the github line
-# is active. Buy Me a Coffee stays commented until that account exists,
-# because uncommenting a line whose account is not set up shows visitors a
-# broken destination. See planning/06-marketing.md, Route 3.
-github: [marco308]
-# buy_me_a_coffee: marco308
+# GitHub Sponsors first (0% platform fee for personal accounts), profile live
+# at https://github.com/sponsors/marco308. Buy Me a Coffee second, for the
+# non-GitHub crowd, live at https://buymeacoffee.com/marcuslab. Both are the
+# two routes planning/06-marketing.md, Route 3 asks for, and both are the same
+# pair mdone lists.
+#
+# This file is necessary but not sufficient: the button also needs
+# Settings > General > Features > Sponsorships ticked on the repo, which is
+# why meals showed no button for three days with a valid file in place.
+github: marco308
+buy_me_a_coffee: marcuslab

@@ -181,10 +181,14 @@ routes 1 and 3. A tip-jar IAP can come later without changing this.
 ### Route 3: donations and sponsorship (DO NOW, expect little)
 
 - **GitHub Sponsors** first: **0% platform fee** from personal accounts,
-  native Sponsor button, FUNDING.yml scaffold is in this branch (commented
-  until the account is enrolled).
+  native Sponsor button, enrolled and live at
+  https://github.com/sponsors/marco308.
 - **Buy Me a Coffee** second, for the non-GitHub crowd: ~5% platform fee,
-  realistically 8 to 9% after processing.
+  realistically 8 to 9% after processing. Live at
+  https://buymeacoffee.com/marcuslab.
+- Both are listed in `.github/FUNDING.yml`. The Sponsor button needs the
+  repo's **Settings > General > Features > Sponsorships** box ticked as well:
+  a valid FUNDING.yml on its own renders nothing.
 - Perks that cost nothing: a name in `SUPPORTERS.md` (file created in this
   branch), first crack at TestFlight builds.
 
