@@ -20,7 +20,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the last deploy.
+Version **1.1.1**. No migration.
+
+### Fixed
+
+- **The backup sidecar can recover from a missed night again.** One failed run
+  used to stop backups indefinitely: `freshness.sh` (which is the HEALTHCHECK)
+  fails at 36h, swarm then kills the container roughly every 25 minutes, but
+  `BACKUP_ON_START=auto` only took a dump when *no* dump existed at all. A
+  stale-but-present dump therefore sent every restart straight back to sleeping
+  until the scheduled time, which it was always killed long before reaching.
+  One missed night on 2026-08-20 cost three days with no backup while the
+  service looked merely restarty. `BACKUP_ON_START=auto` now asks
+  `freshness.sh` instead of asking whether a file exists, so the check that
+  kills the container is the same one that decides to dump on start, and a kill
+  becomes the recovery rather than the trap.
+- **A wedged backup can no longer stop the nightly loop.** `pg_dump` ran with no
+  timeout of any kind, so a database that accepts a connection but never answers
+  left it blocked forever: no dump, no `.part` file, and no event line, which is
+  exactly what the 2026-08-20 miss looked like. `PGCONNECT_TIMEOUT` (15s) bounds
+  getting a connection and `DUMP_TIMEOUT_S` (1h) bounds the dump itself, both
+  failing loudly so `outcome=error` reaches the staleness alert. `RUN_TIMEOUT_S`
+  (2h) is a backstop around the whole run, so a hang nobody predicted still
+  leaves the loop running. Partial dumps are now cleaned up on failure instead
+  of accumulating. Where `timeout` is unavailable the scripts run unbounded
+  rather than not at all, since depending on a missing command would recreate
+  the very bug these guard against.
 
 ## 2026-08-22 — hosted tier limits
 
