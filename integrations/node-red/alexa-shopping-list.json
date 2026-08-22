@@ -1,0 +1,364 @@
+[
+ {
+  "id": "b7a1c94e2f0d5836",
+  "type": "tab",
+  "label": "Update YAMP Shopping List",
+  "disabled": true,
+  "info": "Alexa \"Shopping List\" -> YAMP (https://meals.marcuslab.uk).\n\nReplaces the \"Update Vikunja Shopping List\" tab. Cut over by disabling\nthat tab and enabling this one in the same deploy; roll back by swapping\nthe two flags again.\n\nThree differences from the Vikunja flow, all deliberate:\n\n1. The Alexa item is removed only after YAMP returns 2xx. The Vikunja\n   flow removed it in parallel, so a failed write lost the item.\n2. Removal goes through the list API (removeItem, by item id and\n   version) instead of speaking \"remove X from my Shopping List\" at an\n   Echo. No device dependency, no 5s delay, nothing to mis-hear.\n3. Each add carries a UUIDv5 derived from the Alexa item id as its\n   idempotency key, so the 40s poll and the ws-todo-change push cannot\n   double-add the same item.\n\nThe Alexa list is therefore a queue: anything YAMP rejects or cannot be\nreached for stays on it and is retried on the next poll.\n\nNeeds YAMP_TOKEN in the nodered container environment (a labelled token\nfrom POST /auth/tokens). YAMP_URL is optional and defaults to\nhttps://meals.marcuslab.uk.",
+  "env": []
+ },
+ {
+  "id": "a1f3c07b48d29e15",
+  "type": "inject",
+  "z": "b7a1c94e2f0d5836",
+  "name": "every 40s",
+  "props": [
+   {
+    "p": "payload"
+   },
+   {
+    "p": "topic",
+    "vt": "str"
+   }
+  ],
+  "repeat": "40",
+  "crontab": "",
+  "once": false,
+  "onceDelay": 0.1,
+  "topic": "",
+  "payload": "",
+  "payloadType": "date",
+  "x": 150,
+  "y": 100,
+  "wires": [
+   [
+    "f3c72e08b91d465a"
+   ]
+  ]
+ },
+ {
+  "id": "e51a8c39d720b64f",
+  "type": "alexa-remote-event",
+  "z": "b7a1c94e2f0d5836",
+  "name": "list changed",
+  "account": "164fbc8f988a33b2",
+  "event": "ws-todo-change",
+  "x": 160,
+  "y": 180,
+  "wires": [
+   [
+    "f3c72e08b91d465a"
+   ]
+  ]
+ },
+ {
+  "id": "d92b47e10c8a5f36",
+  "type": "ha-button",
+  "z": "b7a1c94e2f0d5836",
+  "name": "",
+  "version": 0,
+  "debugenabled": false,
+  "outputs": 1,
+  "entityConfig": "0212c54d6797edaa",
+  "outputProperties": [
+   {
+    "property": "payload",
+    "propertyType": "msg",
+    "value": "",
+    "valueType": "entityState"
+   },
+   {
+    "property": "topic",
+    "propertyType": "msg",
+    "value": "",
+    "valueType": "triggerId"
+   },
+   {
+    "property": "data",
+    "propertyType": "msg",
+    "value": "",
+    "valueType": "entity"
+   }
+  ],
+  "x": 150,
+  "y": 260,
+  "wires": [
+   [
+    "f3c72e08b91d465a"
+   ]
+  ]
+ },
+ {
+  "id": "c48e19d7a05b632f",
+  "type": "inject",
+  "z": "b7a1c94e2f0d5836",
+  "name": "run now",
+  "props": [
+   {
+    "p": "payload"
+   },
+   {
+    "p": "topic",
+    "vt": "str"
+   }
+  ],
+  "repeat": "",
+  "crontab": "",
+  "once": false,
+  "onceDelay": 0.1,
+  "topic": "",
+  "payload": "",
+  "payloadType": "date",
+  "x": 150,
+  "y": 340,
+  "wires": [
+   [
+    "f3c72e08b91d465a"
+   ]
+  ]
+ },
+ {
+  "id": "f3c72e08b91d465a",
+  "type": "alexa-remote-list",
+  "z": "b7a1c94e2f0d5836",
+  "name": "get SHOP items",
+  "account": "164fbc8f988a33b2",
+  "config": {
+   "option": "getListItems",
+   "value": {
+    "list": {
+     "type": "str",
+     "value": "SHOP"
+    }
+   }
+  },
+  "x": 420,
+  "y": 220,
+  "wires": [
+   [
+    "94e6c38a152c75be",
+    "0b9d4a71e6c38f25"
+   ]
+  ]
+ },
+ {
+  "id": "94e6c38a152c75be",
+  "type": "debug",
+  "z": "b7a1c94e2f0d5836",
+  "name": "Alexa raw list",
+  "active": false,
+  "tosidebar": true,
+  "console": false,
+  "tostatus": false,
+  "complete": "false",
+  "statusVal": "",
+  "statusType": "auto",
+  "x": 430,
+  "y": 140,
+  "wires": []
+ },
+ {
+  "id": "0b9d4a71e6c38f25",
+  "type": "function",
+  "z": "b7a1c94e2f0d5836",
+  "name": "Drop completed items",
+  "func": "// Alexa hands back completed items too; they are already dealt with.\nif (!Array.isArray(msg.payload)) {\n    msg.payload = [];\n}\nmsg.payload = msg.payload.filter(i => !i.completed);\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 660,
+  "y": 220,
+  "wires": [
+   [
+    "1c8e5b02f7a49d36"
+   ]
+  ]
+ },
+ {
+  "id": "1c8e5b02f7a49d36",
+  "type": "split",
+  "z": "b7a1c94e2f0d5836",
+  "name": "one msg per item",
+  "splt": "\\n",
+  "spltType": "str",
+  "arraySplt": 1,
+  "arraySpltType": "len",
+  "stream": false,
+  "addname": "",
+  "property": "payload",
+  "x": 880,
+  "y": 220,
+  "wires": [
+   [
+    "2d7f6c13a8b50e47"
+   ]
+  ]
+ },
+ {
+  "id": "2d7f6c13a8b50e47",
+  "type": "function",
+  "z": "b7a1c94e2f0d5836",
+  "name": "Alexa item -> YAMP payload",
+  "func": "// One Alexa \"Shopping List\" item -> one YAMP ad-hoc shopping-list add.\n//\n// Conservative on purpose. A unit YAMP refuses (imperial, spoons, cups) is a\n// 422, and a 422 means the item is never removed from the Alexa list and is\n// retried every 40s forever. So: convert what we know, and send anything\n// doubtful as a bare name with no quantity at all.\n\nconst NAMESPACE = '1e6f2a4c-9d3b-4f27-8a55-2c0b7d914e63';\n\nconst WORDS = {\n    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,\n    seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,\n    couple: 2, dozen: 12\n};\n\n// Metric \u2014 YAMP canonicalises these to g/ml itself.\nconst METRIC = ['g', 'gram', 'grams', 'kg', 'kilogram', 'kilograms',\n    'ml', 'millilitre', 'millilitres', 'milliliter', 'milliliters',\n    'l', 'litre', 'litres', 'liter', 'liters'];\n\n// YAMP's BANNED_UNITS, converted here with the factors its own ingest parser\n// uses (INGEST_CONVERSIONS), so nothing ever comes back 422.\nconst CONVERT = {\n    tsp: ['ml', 5], teaspoon: ['ml', 5], teaspoons: ['ml', 5],\n    tbsp: ['ml', 15], tablespoon: ['ml', 15], tablespoons: ['ml', 15],\n    cup: ['ml', 240], cups: ['ml', 240],\n    oz: ['g', 28], ounce: ['g', 28], ounces: ['g', 28],\n    lb: ['g', 454], lbs: ['g', 454], pound: ['g', 454], pounds: ['g', 454],\n    pint: ['ml', 568], pints: ['ml', 568],\n    quart: ['ml', 946], quarts: ['ml', 946],\n    gallon: ['ml', 3785], gallons: ['ml', 3785],\n    stick: ['g', 113], sticks: ['g', 113]\n};\n\n// Natural units worth keeping as a count. Anything not listed here is treated\n// as part of the food's name, so \"3 red peppers\" stays 3 items of red pepper\n// rather than 3 \"red\" of peppers.\nconst CONTAINERS = ['tin', 'tins', 'can', 'cans', 'jar', 'jars',\n    'pack', 'packs', 'packet', 'packets', 'bottle', 'bottles',\n    'box', 'boxes', 'bag', 'bags', 'carton', 'cartons',\n    'bunch', 'bunches', 'punnet', 'punnets', 'tub', 'tubs',\n    'loaf', 'loaves', 'clove', 'cloves', 'slice', 'slices',\n    'sprig', 'sprigs', 'head', 'heads', 'roll', 'rolls'];\n\n// Deterministic UUIDv5 from the Alexa item id. This is the idempotency key:\n// the 40s poll and the ws-todo-change push can pick up the same item at the\n// same moment, and YAMP returns 200 instead of double-adding.\nfunction uuid5(name) {\n    const ns = Buffer.from(NAMESPACE.replace(/-/g, ''), 'hex');\n    const digest = crypto.createHash('sha1')\n        .update(Buffer.concat([ns, Buffer.from(String(name), 'utf8')]))\n        .digest();\n    const b = Buffer.from(digest.subarray(0, 16));\n    b[6] = (b[6] & 0x0f) | 0x50;\n    b[8] = (b[8] & 0x3f) | 0x80;\n    const s = b.toString('hex');\n    return s.slice(0, 8) + '-' + s.slice(8, 12) + '-' + s.slice(12, 16) +\n        '-' + s.slice(16, 20) + '-' + s.slice(20);\n}\n\nfunction withUnit(qty, unit, name) {\n    const conv = CONVERT[unit];\n    if (conv) {\n        return { name: name.trim(), quantity: Math.round(qty * conv[1] * 1000) / 1000, unit: conv[0] };\n    }\n    return { name: name.trim(), quantity: qty, unit: unit };\n}\n\nfunction parse(text) {\n    let s = String(text || '').toLowerCase().replace(/\\s+/g, ' ').trim().replace(/[.!?]+$/, '');\n    if (!s) return null;\n\n    s = s.replace(/^(?:some|the)\\s+/, '');\n    // \"half a cucumber\" \u2014 the food is the cucumber, the half is not a quantity\n    // YAMP can hold (\"half\" is not metric and not a countable unit).\n    s = s.replace(/^half\\s+(?:a|an|of)\\s+/, '');\n\n    // \"2 x 400g tins of chopped tomatoes\" \u2014 the metric amount already carries\n    // the quantity, so the container word is dropped, same as YAMP's own\n    // ingest parser does with the identical shape.\n    const mult = s.match(/^(\\d+(?:\\.\\d+)?)\\s*x\\s*(\\d+(?:\\.\\d+)?)\\s*([a-z]+)\\b\\.?\\s*(?:of\\s+)?(.+)$/);\n    if (mult && (METRIC.indexOf(mult[3]) !== -1 || CONVERT[mult[3]])) {\n        const rest = mult[4].replace(/^(?:tins?|cans?|jars?|packs?|packets?|bottles?)\\s+(?:of\\s+)?/, '');\n        return withUnit(Number(mult[1]) * Number(mult[2]), mult[3], rest);\n    }\n\n    // \"500g mince\" \u2014 metric glued to the number.\n    const glued = s.match(/^(\\d+(?:\\.\\d+)?)\\s*(g|kg|ml|l)\\b\\.?\\s*(?:of\\s+)?(.+)$/);\n    if (glued) return withUnit(Number(glued[1]), glued[2], glued[3]);\n\n    let qty = null;\n    let article = false;\n    let m = s.match(/^(\\d+(?:\\.\\d+)?)\\s+(.+)$/);\n    if (m) {\n        qty = Number(m[1]);\n        s = m[2];\n    } else {\n        m = s.match(/^([a-z]+)\\s+(.+)$/);\n        if (m && WORDS[m[1]] !== undefined) {\n            qty = WORDS[m[1]];\n            s = m[2];\n        } else if (m && (m[1] === 'a' || m[1] === 'an')) {\n            // \"a dozen eggs\" \u2014 the article is in front of the number word.\n            const after = m[2].match(/^([a-z]+)\\s+(.+)$/);\n            if (after && WORDS[after[1]] !== undefined) {\n                qty = WORDS[after[1]];\n                s = after[2];\n            } else {\n                qty = 1;\n                article = true;\n                s = m[2];\n            }\n        }\n    }\n\n    if (qty !== null) {\n        const half = s.match(/^and\\s+a\\s+half\\s+(.+)$/);\n        if (half) {\n            qty += 0.5;\n            s = half[1];\n        }\n    }\n\n    if (qty === null || !(qty > 0)) return { name: s, quantity: null, unit: null };\n\n    const u = s.match(/^([a-z]+)\\s+(?:of\\s+)?(.+)$/);\n    if (u && (METRIC.indexOf(u[1]) !== -1 || CONVERT[u[1]] || CONTAINERS.indexOf(u[1]) !== -1)) {\n        return withUnit(qty, u[1], u[2]);\n    }\n\n    // A leading \"a\"/\"an\" with no unit behind it was only an article.\n    if (article) return { name: s, quantity: null, unit: null };\n    return { name: s, quantity: qty, unit: 'item' };\n}\n\nconst item = msg.payload || {};\nconst parsed = parse(item.value);\nif (!parsed || !parsed.name || parsed.name.length < 2) {\n    node.warn('skipping unparseable Alexa item: ' + JSON.stringify(item));\n    return null;\n}\n\nconst token = env.get('YAMP_TOKEN');\nif (!token) {\n    node.error('YAMP_TOKEN is not set on the nodered container', msg);\n    return null;\n}\n\n// Kept off msg.payload, which the http request node overwrites with the\n// response. The removal branch downstream reads these back.\nmsg.alexa = {\n    listId: item.listId || 'SHOP',\n    itemId: item.id,\n    version: Number(item.version),\n    value: item.value\n};\nif (!msg.alexa.itemId || !isFinite(msg.alexa.version)) {\n    node.warn('Alexa item has no id/version, it will not be removable: ' + JSON.stringify(item));\n}\n\nmsg.url = (env.get('YAMP_URL') || 'https://meals.marcuslab.uk') + '/shopping-list/items';\nmsg.headers = {\n    'Authorization': 'Bearer ' + token,\n    'Content-Type': 'application/json',\n    'X-Meals-Client': 'nodered-alexa/1.0 (1)'\n};\nmsg.payload = { id: uuid5(item.id), name: parsed.name };\nif (parsed.quantity > 0 && parsed.unit) {\n    msg.payload.quantity = parsed.quantity;\n    msg.payload.unit = parsed.unit;\n}\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [
+   {
+    "var": "crypto",
+    "module": "crypto"
+   }
+  ],
+  "x": 1110,
+  "y": 220,
+  "wires": [
+   [
+    "a5f7d49b263d86cf",
+    "3e806d24b9c61f58"
+   ]
+  ]
+ },
+ {
+  "id": "a5f7d49b263d86cf",
+  "type": "debug",
+  "z": "b7a1c94e2f0d5836",
+  "name": "YAMP request",
+  "active": false,
+  "tosidebar": true,
+  "console": true,
+  "tostatus": false,
+  "complete": "payload",
+  "targetType": "msg",
+  "statusVal": "",
+  "statusType": "auto",
+  "x": 1110,
+  "y": 140,
+  "wires": []
+ },
+ {
+  "id": "3e806d24b9c61f58",
+  "type": "http request",
+  "z": "b7a1c94e2f0d5836",
+  "name": "POST /shopping-list/items",
+  "method": "POST",
+  "ret": "obj",
+  "paytoqs": "ignore",
+  "url": "",
+  "tls": "",
+  "persist": false,
+  "proxy": "",
+  "insecureHTTPParser": false,
+  "authType": "",
+  "senderr": false,
+  "headers": [],
+  "x": 1370,
+  "y": 220,
+  "wires": [
+   [
+    "4f917e35c0d72069"
+   ]
+  ]
+ },
+ {
+  "id": "4f917e35c0d72069",
+  "type": "switch",
+  "z": "b7a1c94e2f0d5836",
+  "name": "added?",
+  "property": "statusCode",
+  "propertyType": "msg",
+  "rules": [
+   {
+    "t": "btwn",
+    "v": "200",
+    "vt": "num",
+    "v2": "299",
+    "v2t": "num"
+   },
+   {
+    "t": "else"
+   }
+  ],
+  "checkall": "false",
+  "repair": false,
+  "outputs": 2,
+  "x": 1600,
+  "y": 220,
+  "wires": [
+   [
+    "50a28f46d1e8317a"
+   ],
+   [
+    "72c4a168f30a539c"
+   ]
+  ]
+ },
+ {
+  "id": "50a28f46d1e8317a",
+  "type": "alexa-remote-list",
+  "z": "b7a1c94e2f0d5836",
+  "name": "Remove from Alexa list",
+  "account": "164fbc8f988a33b2",
+  "config": {
+   "option": "removeItem",
+   "value": {
+    "list": {
+     "type": "msg",
+     "value": "alexa.listId"
+    },
+    "item": {
+     "type": "msg",
+     "value": "alexa.itemId"
+    },
+    "version": {
+     "type": "msg",
+     "value": "alexa.version"
+    }
+   }
+  },
+  "x": 1810,
+  "y": 160,
+  "wires": [
+   [
+    "83d5b279041b64ad"
+   ]
+  ]
+ },
+ {
+  "id": "83d5b279041b64ad",
+  "type": "debug",
+  "z": "b7a1c94e2f0d5836",
+  "name": "removed from Alexa",
+  "active": false,
+  "tosidebar": true,
+  "console": true,
+  "tostatus": false,
+  "complete": "payload",
+  "targetType": "msg",
+  "statusVal": "",
+  "statusType": "auto",
+  "x": 2060,
+  "y": 160,
+  "wires": []
+ },
+ {
+  "id": "72c4a168f30a539c",
+  "type": "debug",
+  "z": "b7a1c94e2f0d5836",
+  "name": "YAMP add failed",
+  "active": true,
+  "tosidebar": true,
+  "console": true,
+  "tostatus": false,
+  "complete": "true",
+  "statusVal": "",
+  "statusType": "auto",
+  "x": 1810,
+  "y": 300,
+  "wires": []
+ }
+]

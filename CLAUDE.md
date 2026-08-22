@@ -45,6 +45,7 @@ is what keeps the API complete and the views consistent.
 | `ios/Meals/` | SwiftUI app (Swift 6, strict concurrency). Offline-first shopping list |
 | `mcp/` | MCP server: a thin task-level wrapper over the REST API, no DB access. Its own image **and** a path dependency of the backend, which serves it at `/mcp` (`app/mcp_mount.py`) so one container is the whole product |
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
+| `integrations/` | Third-party glue that talks to the public API and ships nothing into the image. `node-red/` drains an Alexa shopping list into the list via `POST /shopping-list/items`. Published as a worked example, so it must stay free of anything host-specific — see its README before adding another |
 | `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
 | `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q23, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
