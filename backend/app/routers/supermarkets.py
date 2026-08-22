@@ -12,6 +12,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, update
 
+from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import Supermarket
 from app.schemas.shopping import SupermarketCreate, SupermarketOut, SupermarketUpdate
@@ -67,6 +68,7 @@ async def create_supermarket(payload: SupermarketCreate, user: CurrentUser, db: 
         problem = invalid_aisle_order_detail(payload.aisle_order)
         if problem is not None:
             raise HTTPException(status_code=422, detail=problem)
+    await limits.enforce(db, user.household, "supermarkets")
     market = Supermarket(
         household_id=user.household_id,
         name=name,

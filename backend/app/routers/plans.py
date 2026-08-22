@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import Plan, PlanMeal
 from app.models.users import utcnow
@@ -27,6 +28,9 @@ async def get_plan(db: AsyncSession, household_id: uuid.UUID, plan_id: uuid.UUID
 
 
 async def _add_meal_to_plan(db: AsyncSession, household_id: uuid.UUID, plan: Plan, meal_id: uuid.UUID) -> None:
+    # Here rather than in the endpoint, because copying a plan (POST /plans with
+    # copy_from_plan_id) reaches this in a loop and has to stop at the same line.
+    await limits.enforce(db, household_id, "plan_meals", within=plan.id)
     meal = await get_meal(db, household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=422, detail=f"meal {meal_id} not found; list meals via GET /meals")
@@ -46,6 +50,7 @@ async def create_plan(payload: PlanCreate, user: CurrentUser, db: DbSession) -> 
     """Start a weekly-ish plan — a pool of meal options, never a calendar.
     Pass copy_from_plan_id to start from a previous week ('same as two weeks
     ago'); copied meals immediately contribute to the shopping list."""
+    await limits.enforce(db, user.household, "plans")
     plan = Plan(household_id=user.household_id, label=payload.label.strip(), starts_on=payload.starts_on)
     db.add(plan)
     await db.flush()

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import Meal, MealIngredient, MealRecipe, Plan, PlanMeal
 from app.schemas.common import IngredientLineIn
@@ -78,6 +79,15 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
     recipe that serves 4 is stored as scale 1.5 — and needs the recipe to say
     how many it serves. Send one or the other, never both. Each recipe comes
     back with its `scale` and the `scaled_servings` that follows from it."""
+    await limits.enforce(db, user.household, "meals")
+    # The lines are in the payload in front of us, so this needs no query.
+    await limits.enforce(
+        db,
+        user.household,
+        "meal_lines",
+        used=len(payload.resolved_recipes) + len(payload.loose_ingredients),
+        adding=0,
+    )
     meal = Meal(household_id=user.household_id, name=payload.name.strip(), slot=_clean_slot(payload.slot))
     db.add(meal)
     await db.flush()
@@ -131,6 +141,13 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
         meal.slot = _clean_slot(payload.slot)
     recipes = payload.resolved_recipes
     composition_changed = recipes is not None or payload.loose_ingredients is not None
+    if composition_changed:
+        # What the meal would hold once this PATCH lands: a half-sent payload
+        # leaves the other half of the composition where it is.
+        after = (len(recipes) if recipes is not None else len(meal.recipe_links)) + (
+            len(payload.loose_ingredients) if payload.loose_ingredients is not None else len(meal.ingredient_links)
+        )
+        await limits.enforce(db, user.household, "meal_lines", used=after, adding=0)
     if recipes is not None:
         await _set_recipes(db, user.household_id, meal, recipes)
     if payload.loose_ingredients is not None:

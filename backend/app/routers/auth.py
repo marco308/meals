@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
 
+from app import limits
 from app.config import get_settings
 from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit, forgive_auth_attempt
 from app.models import AuthToken, Household, HouseholdInvite, User
@@ -112,6 +113,9 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
 
     if invite is not None:
         household = invite.household
+        # An invite can outlive the headroom that justified it, so the check is
+        # here as well as at POST /auth/invites.
+        await limits.enforce(db, household, "members")
     else:
         household = Household(name=(payload.household_name or "Home").strip())
         db.add(household)
@@ -516,6 +520,9 @@ async def create_invite(payload: InviteCreateIn, user: CurrentUser, db: DbSessio
     it with `DELETE /auth/invites/{id}` and issue another. Anyone holding it can
     join, so send it the way you'd send a password."""
     await _require_lead(db, user, "invite people")
+    # The friendly place to say no: refusing here beats minting a code that
+    # fails on redemption, when a second person is already waiting for it.
+    await limits.enforce(db, user.household, "members")
     code, code_hash = generate_short_code()
     invite = HouseholdInvite(
         household_id=user.household_id,
@@ -596,6 +603,8 @@ async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSessio
             ),
         )
 
+    await limits.enforce(db, invite.household_id, "members")
+
     invite.accepted_at = datetime.now(UTC)
     invite.accepted_by_user_id = user.id
     collected = await move_user_to_household(db, user, invite.household_id)
@@ -640,6 +649,7 @@ async def revoke_invite(invite_id: uuid.UUID, user: CurrentUser, db: DbSession) 
 async def create_api_token(payload: TokenCreateIn, user: CurrentUser, db: DbSession) -> TokenCreatedOut:
     """Create a personal API token for an AI client (MCP, scripts). The
     plaintext token is returned once and never stored."""
+    await limits.enforce(db, user.household, "api_tokens")
     plain, token_hash = generate_token()
     expires_at = None
     if payload.expires_in_days is not None:

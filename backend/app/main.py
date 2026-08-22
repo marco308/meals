@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import client_gate, mcp_mount, metrics, observability
+from app import client_gate, limits, mcp_mount, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
 from app.routers import auth, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
@@ -17,6 +17,9 @@ from app.routers.skill import base_url, playbook_version
 
 settings = get_settings()
 observability.setup_logging()
+# A typo in a LIMITS_* value should stop the container here, not surface as a
+# 500 on somebody's fiftieth recipe.
+limits.check_settings()
 
 
 @contextlib.asynccontextmanager
@@ -97,6 +100,21 @@ async def client_compatibility(request: Request, call_next: Callable[[Request], 
     response.headers["X-Meals-Min-Client-Build"] = str(config.min_ios_build)
     response.headers["X-Meals-Current-Client-Build"] = str(config.current_ios_build)
     return response
+
+
+@app.exception_handler(limits.LimitExceeded)
+async def limit_exceeded_handler(_: Request, exc: Exception) -> Response:
+    """The one place a limit becomes a response.
+
+    `app/limits.py` raises a domain error from the service layer and chooses the
+    status code (402 for a tier cap, 403 for a fair-use ceiling — see that
+    module); this turns it into the same `{"detail": ...}` shape every other 4xx
+    uses, so the iOS app, the web app and an assistant reading through /mcp all
+    show the sentence verbatim without knowing limits exist. The extra fields
+    ride alongside for a caller that wants to reason about the numbers.
+    """
+    assert isinstance(exc, limits.LimitExceeded)
+    return JSONResponse(status_code=exc.status_code, content=exc.payload())
 
 
 # Registered last so it is the *outermost* middleware (Starlette builds the
