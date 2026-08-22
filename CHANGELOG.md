@@ -22,6 +22,42 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
+- **Entitlements: one row says what a household is on and until when**
+  ([#99](https://github.com/marco308/meals/issues/99),
+  `planning/08-freemium.md` §2 and §5). Beside the existing `tier` and price
+  snapshot, a household now carries `paid_until`, where the entitlement came
+  from, and a one-line note. **One migration**, every column nullable.
+- **Lapsing is derived, never written back.** Past its expiry plus
+  `ENTITLEMENT_GRACE_DAYS` (14), a household reads as `free` through
+  `limits.effective_tier`, which is the only reader. Nothing rewrites `tier`,
+  so nothing is deleted, everything already there stays readable, the plan
+  stays usable, the shopping list keeps working, the export stays free, and a
+  renewal is one column rather than a reconstruction. **A null `paid_until`
+  never lapses**, which is every self-hosted household.
+- **Comp tooling from day one**: `python -m app.entitlements` comps, extends,
+  revokes and lists who is paid, ordered with whatever needs attention first.
+  An operator command on the box, like `app/provision.py`, because a
+  spreadsheet is not a source of truth. Extending an active year adds to its
+  end so renewing early costs nothing; extending a lapsed one starts from
+  today so nobody pays for the weeks they were locked out of growing.
+- **The founding price is defended, not just stored.** §6 promises it for life,
+  so `grant` refuses to overwrite an existing price and says why. Revoking
+  keeps it, so coming back costs what it always did.
+- **Dunning**: `python -m app.dunning` from cron sends one email before expiry
+  and one after, through the SMTP password reset already uses. Each is marked
+  once so there is never a third, both marks are cleared when the expiry moves
+  so next year gets its own pair, and a relay failure marks nothing so the next
+  run retries rather than swallowing somebody's only warning. A server with no
+  SMTP does nothing and says so.
+
+### Not included
+
+- **The billing webhook**, deliberately. #99 says to choose a merchant of
+  record before writing it and §7 has not: signature verification, event names
+  and payload shape are all processor-specific, so writing it now would be
+  guessing. Everything above is processor-independent and is what the webhook
+  will call when there is one.
+
 - **`/terms`, a terms and refunds page**
   ([#98](https://github.com/marco308/meals/issues/98)), shipped exactly the way
   `/privacy` and `/support` are: a markdown file COPYed into the image,

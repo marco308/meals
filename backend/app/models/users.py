@@ -73,6 +73,29 @@ class Household(Base):
     ingest_period_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     ingests_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
+    # ------------------------------------------------------- entitlement
+    # When the tier above stops applying, and where it came from (#99). Null
+    # `paid_until` means "does not expire", which is what every self-hosted
+    # household has and what a permanent comp gets: the tier simply stands.
+    # With a date, `limits.effective_tier` drops the household back to the free
+    # tier once it is past, plus the grace period — and drops it back only for
+    # the purpose of *caps*. Nothing is deleted and nothing becomes unreadable
+    # (planning/08-freemium.md §5), which is why lapsing lives in one derived
+    # function rather than in a job that rewrites `tier`.
+    paid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # 'comp' or the name of the processor the payment came through. Free text
+    # rather than an enum for the same reason `tier` is: a value this build has
+    # not heard of must never be an error.
+    entitlement_source: Mapped[str | None] = mapped_column(String(40), default=None)
+    # Why, in one line, for whoever is reading the list a year later: "early
+    # supporter", "PikaPods", "found the backup bug".
+    entitlement_note: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Dunning's two one-shot marks (§5: one email before expiry, one after).
+    # Both are cleared whenever the entitlement is extended, so the next year
+    # gets its own pair rather than being silently skipped.
+    expiry_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    lapse_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
     # Two foreign keys now join these tables (a user's household, a household's
     # lead), so both relationships have to say which one they travel.
     users: Mapped[list["User"]] = relationship(back_populates="household", foreign_keys="User.household_id")

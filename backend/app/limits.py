@@ -590,15 +590,38 @@ def _upgradable(tier: str, resource: str, cap: int) -> bool:
     return False
 
 
-def effective_tier(household: Household) -> str:
-    """The tier this household is actually treated as being on.
+def has_lapsed(household: Household, *, now: datetime | None = None) -> bool:
+    """Whether this household's entitlement has run out, grace included.
 
-    A column holding a value this build has not heard of resolves to
-    `unlimited` rather than raising, for the same reason `limits_for` does: a
-    household must never be locked out of its own data by a tier name from a
-    newer deployment.
+    `paid_until` is null for every self-hosted household and for a permanent
+    comp, and a null one never lapses: the tier simply stands, which is what
+    keeps this whole idea invisible to a server that sells nothing.
     """
-    return household.tier if household.tier in TIERS else UNLIMITED
+    if household.paid_until is None:
+        return False
+    grace = timedelta(days=get_settings().entitlement_grace_days)
+    return _as_aware(household.paid_until) + grace < (now or datetime.now(UTC))
+
+
+def effective_tier(household: Household, *, now: datetime | None = None) -> str:
+    """The tier this household is actually treated as being on, and the single
+    place anything asks (#99: entitlement is one source of truth, everything
+    else reads it).
+
+    Two things can move it off the stored `tier`:
+
+    - A value this build has not heard of resolves to `unlimited` rather than
+      raising, for the same reason `limits_for` does: a household must never be
+      locked out of its own data by a tier name from a newer deployment.
+    - An entitlement past its expiry *and* its grace period reads as `free`.
+      Deliberately derived rather than written back: §5 promises nothing is
+      deleted and everything stays readable, so lapsing may change what a
+      household can *grow* and nothing else. A job that rewrote `tier` would
+      also lose the record of what they were on, which is exactly what a
+      renewal needs.
+    """
+    tier = household.tier if household.tier in TIERS else UNLIMITED
+    return FREE if has_lapsed(household, now=now) else tier
 
 
 def _verdict(household: Household, spec: _Spec, resource: str, *, used: int, adding: int) -> LimitExceeded | None:
