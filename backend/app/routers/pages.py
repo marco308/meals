@@ -1,8 +1,10 @@
-"""Human-readable pages: the privacy policy and the support page.
+"""Human-readable pages: the privacy policy, the support page and the terms.
 
-The App Store requires both to be publicly reachable URLs, and the deployment
-is the only thing this project already hosts — so they are served from here
-rather than from a second piece of infrastructure that could rot independently.
+The App Store requires the first two to be publicly reachable URLs, and the
+deployment is the only thing this project already hosts — so they are served
+from here rather than from a second piece of infrastructure that could rot
+independently. `/terms` joins them on the same rails because taking money needs
+one and because it is the same three lines of code (issue #98).
 
 Rendered from the same markdown that GitHub shows, for the same reason `/skill`
 is served from `skill/SKILL.md`: one copy, so the published page can't drift
@@ -114,3 +116,13 @@ async def privacy_policy() -> str:
 async def support() -> str:
     """The support page, as published to the App Store. No auth required."""
     return _page("SUPPORT.md")
+
+
+@router.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def terms() -> str:
+    """Terms and refunds for the hosted service. No auth required.
+
+    Served by every deployment, including the ones that sell nothing, which is
+    why the page opens by saying that almost none of it applies to a
+    self-hosted instance."""
+    return _page("TERMS.md")

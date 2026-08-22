@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 13 August 2026**
+**Last updated: 22 August 2026**
 
 Meals is a meal planner you run on your own server. The iOS app is a client:
 it talks to whichever server you point it at, and to nothing else. There is no
@@ -19,6 +19,8 @@ That shape is the whole privacy story, so it is worth being precise about it.
 - If you run that server, you hold the data and nobody else can read it.
 - You can delete your account, and everything belonging to it, from inside the
   app.
+- **No money changes hands anywhere in this project today**, and no payment
+  details have ever reached it. See [Paying for hosting](#paying-for-hosting).
 
 ## What the app stores on your device
 
@@ -72,6 +74,36 @@ asked for:
 If you connect an AI assistant to the API with a personal token, that assistant
 sees whatever it asks for. That connection is yours to make and yours to revoke
 — delete the token and it stops working immediately.
+
+## Paying for hosting
+
+This section exists because `/privacy` is a published, permanent URL and it
+should be right *before* any money moves, not after.
+
+**Today, nothing here applies to anyone.** No payment is taken for any Meals
+server, no card details have ever reached this project, and there is no
+payment processor. If you self-host, that stays true forever: there is nothing
+to pay and nobody to pay it to.
+
+If the hosted service does open, one thing changes and it is worth stating in
+advance:
+
+- **Payment will go through a third-party merchant of record**, and this
+  section will name them here before a single payment is taken. They will
+  handle the card, the receipt and the VAT. Their privacy policy will cover
+  what they hold, and it will be linked from this page.
+- **Card details will never reach this server or its author.** Not stored, not
+  logged, not seen. The most this server would ever record about money is that
+  a household is paid up, until when, and what it agreed to pay.
+- **Your recipes and lists have nothing to do with it.** No content of any kind
+  is shared with a payment processor, ever. The only thing they would be told is
+  what they need to take a payment.
+
+The terms and refunds page (`/terms` on the same server, and
+[TERMS.md](https://github.com/marco308/meals/blob/main/TERMS.md) in the
+repository) covers the other side of this: what the service costs, what is
+promised, and what happens to your data if you stop paying, which is that
+nothing is deleted.
 
 ## App Store analytics and crash reports
 

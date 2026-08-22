@@ -38,9 +38,12 @@ EXEMPT_PREFIXES = (
     "/openapi.json",
     "/skill",
     "/prompt-pack",
-    # Someone stuck on the upgrade screen is exactly who needs the support page.
+    # Someone stuck on the upgrade screen is exactly who needs the support page,
+    # and somebody deciding whether to keep paying is exactly who needs to be
+    # able to read the terms without updating an app first.
     "/privacy",
     "/support",
+    "/terms",
 )
 
 
