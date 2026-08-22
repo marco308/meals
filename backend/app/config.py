@@ -103,6 +103,18 @@ class Settings(BaseSettings):
     max_households: int | None = None
     max_users: int | None = None
 
+    # Entitlements (app/services/entitlements.py, planning/08-freemium.md §5).
+    # Only ever read for a household that has a `paid_until`, which on a
+    # self-hosted instance is none of them.
+    #
+    #   ENTITLEMENT_GRACE_DAYS  how long after expiry before the free tier's
+    #                           caps re-apply. Apple's billing grace period has
+    #                           no equivalent here because there is no Apple, so
+    #                           §5 sets it at 14 days.
+    #   DUNNING_WARN_DAYS       how long before expiry the first email goes out.
+    entitlement_grace_days: int = 14
+    dunning_warn_days: int = 7
+
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
     # And a ceiling on how much of one we'll read (issue #55). The URL is the

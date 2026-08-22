@@ -219,7 +219,10 @@ class TestNothingIsLeftBehind:
 
     #: model → columns that are deliberately not exported, and why.
     EXCLUDED = {
-        # This deployment's bookkeeping about the household, not its data.
+        # This deployment's bookkeeping about the household, not its data:
+        # which tier it is on, what it agreed to pay, when that runs out, and
+        # what it has already been emailed about. All of it means nothing on
+        # the box the household is moving to.
         Household: {
             "tier",
             "price_pence",
@@ -227,6 +230,11 @@ class TestNothingIsLeftBehind:
             "price_set_at",
             "ingest_period_started_at",
             "ingests_used",
+            "paid_until",
+            "entitlement_source",
+            "entitlement_note",
+            "expiry_warned_at",
+            "lapse_notified_at",
         },
         User: {"password_hash", "household_id"},
         Ingredient: {"household_id"},

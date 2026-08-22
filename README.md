@@ -370,7 +370,16 @@ and `MAX_USERS` are the other axis and are also unset by default: they bound how
 many families the box holds rather than what each one costs, so registration
 answers 503 with a waitlist sentence instead of the machine finding its own
 limit. Both sit on `/metrics` next to the counts they bound, which is how you
-see "nearly full" before somebody is turned away. Being over a
+see "nearly full" before somebody is turned away.
+
+If a deployment does charge, the entitlement is one row: `python -m
+app.entitlements` comps, extends, revokes and lists who is paid, and
+`python -m app.dunning` from cron sends one email before an expiry and one
+after. Lapsing is derived rather than written back, so it only ever stops a
+household *growing*: nothing is deleted, everything already there stays
+readable, the plan stays usable, the shopping list keeps working and the export
+stays free. None of it applies to a household with no expiry, which is every
+self-hosted one. Being over a
 limit blocks only the writes that grow a household; nothing is deleted, nothing
 becomes unreadable, and the shopping list is exempt in every case because the
 iPhone app drains its offline queue through it. Whatever you set, `GET /limits`

@@ -191,6 +191,24 @@ instrumentation a new feature usually needs.
   expunged one at a time while streaming** — `expunge_all()` invalidates the
   identity map the open result is still loading through, and everything after
   the first batch is lost.
+- **Entitlement is one row, and lapsing is derived** (`services/entitlements.py`,
+  `planning/08-freemium.md` §5). `households.tier` says which numbers apply;
+  `paid_until`, `entitlement_source` and the price snapshot say until when,
+  where it came from and what was agreed. **A null `paid_until` never lapses**,
+  which is every self-hosted household, and it is what keeps the whole idea
+  invisible on a server that sells nothing. `limits.effective_tier` is the only
+  reader: past expiry plus `ENTITLEMENT_GRACE_DAYS` it answers `free` without
+  anything rewriting `tier` — §5 promises nothing is deleted, so lapsing may
+  change what a household can *grow* and nothing else, and keeping the stored
+  tier is what makes a renewal one column rather than a reconstruction. The
+  founding price is written once and `grant` refuses to overwrite it, because
+  "founding price for life" stored on a row is only worth something if the code
+  defends it. Comp/extend/revoke/list is `python -m app.entitlements` (an
+  operator command on the box, like `app/provision.py`, never an endpoint), and
+  `python -m app.dunning` from cron sends the two emails, each marked once so it
+  never sends a third and never marked on a relay failure so it retries.
+  **There is no billing webhook**: no merchant of record has been chosen (§7),
+  and #99 says decide that before writing it.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above
