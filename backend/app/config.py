@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     limits_overrides: dict[str, dict[str, int | None]] = {}
     default_household_tier: str = "unlimited"
 
+    # Instance ceilings (planning/08-freemium.md §3, "Per instance"). The
+    # limits above bound what one household costs; these bound how many
+    # households the box holds at all, which is the half that makes capacity
+    # planning real. Unset — the default — a server takes everyone it can fit
+    # and falls over on its own terms, exactly as it always has.
+    #
+    #   MAX_HOUSEHOLDS  registrations that would start household N+1 are
+    #                   refused with a waitlist sentence rather than accepted
+    #                   onto a box with no room for them.
+    #   MAX_USERS       the same for accounts, because an invited member grows
+    #                   the user count without growing the household count.
+    max_households: int | None = None
+    max_users: int | None = None
+
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
     # And a ceiling on how much of one we'll read (issue #55). The URL is the

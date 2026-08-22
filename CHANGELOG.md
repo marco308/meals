@@ -22,6 +22,34 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
+- **`MAX_HOUSEHOLDS` and `MAX_USERS` bound the instance, not the household**
+  ([#96](https://github.com/marco308/meals/issues/96),
+  `planning/08-freemium.md` §3). The per-household caps say what one family
+  costs and nothing about how many families the box can hold; these are that
+  number, and the founding-cohort cap from `planning/06-marketing.md` §1b is now
+  a setting rather than a note in a document. Unset by default, so a self-hosted
+  server behaves exactly as it did.
+- **A full server answers 503 with a waitlist sentence** rather than accepting
+  somebody it has no room for. 503 and not 402/403 on purpose: no tier lifts
+  this, the caller has done nothing wrong, and a waitlist means "later, yes",
+  which is the one thing a status code can carry that 403 cannot. Being full
+  stops new registrations and nothing else — everyone already here keeps
+  writing, logging in and shopping.
+- **The refusal depends on who is knocking.** A stranger starting a household of
+  their own is offered the waitlist. Somebody registering against an invite is
+  expected — a household here issued them a code — so they are told their code
+  is unspent and still good once room appears, which it is: the check runs
+  before anything is written, so a refusal consumes no invite and leaves no
+  half-made household. `POST /auth/invites/redeem` is never refused by either
+  ceiling, because moving an existing user between existing households adds no
+  account and can only *lower* the household count.
+- **Both ceilings ride on `/metrics`** as `meals_households_limit` and
+  `meals_users_limit`, beside the counts they bound, so "nearly full" is a
+  dashboard line rather than something learned from the first person turned
+  away. Unset reports `+Inf` rather than 0, which would read as "this server
+  allows no households" and make the ratio a division by zero.
+- `REGISTRATION_ENABLED=false` is untouched and keeps its own 403: that server
+  is closed rather than full, so the answer there is still an invite code.
 - **`GET /limits` publishes what a household is allowed** and how much of it is
   left — every resource with its limit, usage and remainder, plus the tier the
   numbers came from ([#95](https://github.com/marco308/meals/issues/95),

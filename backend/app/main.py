@@ -118,6 +118,21 @@ async def limit_exceeded_handler(_: Request, exc: Exception) -> Response:
     return JSONResponse(status_code=exc.status_code, content=exc.payload())
 
 
+@app.exception_handler(limits.InstanceFull)
+async def instance_full_handler(_: Request, exc: Exception) -> Response:
+    """A deployment that has run out of room, in the same shape as every other
+    refusal.
+
+    503 rather than a 4xx because nothing about the request is wrong: this
+    server is simply full, and a waitlist means "later, yes" (see the instance
+    ceilings section of `app/limits.py`). No `Retry-After` — when room appears
+    is a decision somebody makes, not a duration we can predict, and a number
+    invented here would only send clients back on a schedule.
+    """
+    assert isinstance(exc, limits.InstanceFull)
+    return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+
 # Registered last so it is the *outermost* middleware (Starlette builds the
 # stack in reverse): the access log must see every response, including 426s
 # the gate above short-circuits, and it is the last resort for exceptions
