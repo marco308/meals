@@ -7,8 +7,11 @@ shopping list.
 """
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app import limits
+from app.models import Household
 from app.provision import (
     AMBIGUOUS_CHARACTERS,
     PASSWORD_ALPHABET,
@@ -112,6 +115,47 @@ class TestProvision:
 
         await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
         await sign_in(client, "review@example.com", "s3cret-passphrase")
+
+    async def test_the_account_is_comped_so_review_never_meets_a_cap(self, client, sessions, settings_override):
+        """planning/08-freemium.md §6: a reviewer who hits a cap sees broken
+        functionality and files a 2.1 rejection rather than reading why."""
+        settings_override(LIMITS_PROFILE="hosted", DEFAULT_HOUSEHOLD_TIER="free")
+        await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
+
+        async with sessions() as db:
+            household = (await db.execute(select(Household).where(Household.name == "Apple Review"))).scalars().one()
+        assert household.tier == "paid"
+        assert household.entitlement_source == "comp"
+        # No expiry: a dated comp is a rejection scheduled for whenever it passes.
+        assert household.paid_until is None
+        assert limits.effective_tier(household) == "paid"
+        # And nothing was priced, so a real purchase is not refused later for
+        # trying to change a number nobody paid.
+        assert household.price_pence is None
+
+    async def test_rerunning_re_applies_the_comp(self, client, sessions, settings_override):
+        """An aged-out submission is exactly when a revoked entitlement bites."""
+        settings_override(LIMITS_PROFILE="hosted", DEFAULT_HOUSEHOLD_TIER="free")
+        await provision("review@example.com", "first-passphrase", "Review", "Apple Review", sessions)
+        async with sessions() as db:
+            household = (await db.execute(select(Household).where(Household.name == "Apple Review"))).scalars().one()
+            household.tier = "free"
+            household.entitlement_source = None
+            await db.commit()
+
+        _, created = await provision("review@example.com", "second-passphrase", "Review", "Apple Review", sessions)
+        assert created is False
+        async with sessions() as db:
+            household = (await db.execute(select(Household).where(Household.name == "Apple Review"))).scalars().one()
+        assert household.tier == "paid"
+
+    async def test_a_comp_costs_nothing_on_a_server_with_no_limits(self, client, sessions):
+        """Every self-hosted instance: the tier column is one nothing reads."""
+        await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
+        async with sessions() as db:
+            household = (await db.execute(select(Household).where(Household.name == "Apple Review"))).scalars().one()
+        assert limits.effective_tier(household) == "paid"
+        assert limits.limits_for("paid") == limits.UNLIMITED_LIMITS
 
     async def test_generated_passwords_are_typeable_and_not_guessable(self):
         """It goes in App Review notes and gets retyped on a phone by someone

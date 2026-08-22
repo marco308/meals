@@ -20,7 +20,40 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+### Changed
+
+- **The Apple review account is comped to the paid tier**
+  ([#100](https://github.com/marco308/meals/issues/100),
+  `planning/08-freemium.md` §6). `python -m app.provision` now puts the
+  household it makes on a permanent comp through `services/entitlements.grant`,
+  on creation and on every re-run, because an aged-out resubmission is exactly
+  when a lapsed entitlement would bite. A reviewer who meets a cap sees broken
+  functionality and files a 2.1 rejection rather than reading the reasoning. No
+  expiry (a dated comp is a rejection scheduled for whenever it passes) and no
+  price (nothing was paid, and a written price would make a later real purchase
+  refuse itself). On a server with no limits it is a column nothing reads.
+- **The App Store description no longer says "no subscription."** Not because
+  it was a call to action, but because it stops being true the day the hosted
+  tier opens, and a description contradicting the operator's own terms page is
+  worse than a missing selling point. The replacement says the parts that stay
+  true: the app is free, the software is free and open source, and you can run
+  it yourself. A unit test now lints the fenced blocks that actually ship, since
+  there is no iOS job in CI to catch it.
+- **Guideline 3.1.3 re-read and recorded** (`planning/08-freemium.md` §6). The
+  case is now numbered **3.1.3(f)** and names web hosting outright. The
+  external-link rules did loosen, but only for the **United States storefront**;
+  one binary and one set of metadata ship worldwide, so the strictest storefront
+  sets the rule and the conservative wording stands unchanged.
+
 ### Added
+
+- **Tests pinning that a cap can never become a wall.** `CommerceFreeTests`
+  in the iOS suite asserts that 402, 403 and 503 arrive as ordinary
+  `.server(status:detail:)` errors shown verbatim, and that **only** a 426 can
+  put the app behind `UpgradeRequiredView`, with the 426 case as the control so
+  the check cannot pass vacuously. This is also the answer to "what do the
+  builds already in the wild do with a 402": the same thing, because nothing
+  special-cases them and nothing ever did.
 
 - **Entitlements: one row says what a household is on and until when**
   ([#99](https://github.com/marco308/meals/issues/99),

@@ -187,11 +187,42 @@ of commerce entirely. StoreKit can be added later if hosted ever grows enough
 for the gap to matter, and Apple explicitly allows honouring purchases made
 elsewhere once you do.
 
-One caveat that is deliberately not resolved here: the external-link rules
-moved during 2025 in the US and the EU, so link-outs are less forbidden than
-they were. **Re-read the live guideline text before submitting the build that
-first carries cap errors**, and keep the conservative version above unless it
-has clearly loosened.
+**Re-read verified 2026-08-22** (issue #100). The caveat above was that the
+external-link rules moved during 2025 and the conservative version should hold
+unless they had clearly loosened. They have loosened, but only for one
+storefront, so it holds.
+
+The case this rests on is now numbered **3.1.3(f)**, and it names web hosting
+outright:
+
+> Free apps acting as a stand-alone companion to a paid web based tool (i.e.
+> VoIP, Cloud Storage, Email Services, Web Hosting) do not need to use in-app
+> purchase, provided there is no purchasing inside the app, or calls to action
+> for purchase outside of the app.
+
+What changed is the preamble to 3.1.3, which now reads "Apps in this section
+cannot, within the app, encourage users to use a purchasing method other than
+in-app purchase, **except for apps on the United States storefront** and as set
+forth in 3.1.1(a) and 3.1.3(a)"; 3.1.1(a) says the same from the other side, that
+the prohibition on buttons, external links and other calls to action applies "in
+all other storefronts, except for the United States storefront, where this
+prohibition does not apply".
+
+So a call to action would be permitted on the US storefront and forbidden
+everywhere else. This app ships worldwide from one binary and one set of
+metadata, which means the strictest storefront sets the rule: **no change, and
+the wording above stands.** If that ever stops being true it will be because
+the app ships storefront-specific copy, which is its own decision and a much
+larger one than a link.
+
+Two things follow for whoever reads this next:
+
+- The exemption is conditional on *both* halves, and the second half is the one
+  a cap error can break. "No purchasing inside the app" is easy; "no calls to
+  action for purchase outside of the app" is a property of every sentence the
+  server can make the app render.
+- Re-read it again anyway before the first submission that carries cap errors.
+  This paragraph is a snapshot, and the last one aged in under a year.
 
 ## 7. What still has to be true before taking money
 
