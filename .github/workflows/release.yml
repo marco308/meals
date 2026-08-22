@@ -17,6 +17,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# The default for any job that doesn't say otherwise: a read-only token. The
+# jobs that push images or cut the release declare their own wider grants.
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
 
