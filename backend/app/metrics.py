@@ -21,6 +21,7 @@ count rows, and read nothing anyone entered.
 
 import asyncio
 import logging
+import math
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -36,6 +37,7 @@ from prometheus_client import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import SessionLocal
 from app.models import Household, Recipe, User
 
@@ -74,6 +76,19 @@ _USAGE_GAUGES: tuple[tuple[Gauge, type], ...] = (
     (Gauge("meals_recipes_total", "Recipes across all households.", registry=registry), Recipe),
 )
 
+# The instance ceilings beside the counts they bound, so a dashboard can divide
+# one by the other and see "nearly full" before somebody is turned away. An
+# unset ceiling reports `+Inf` rather than 0: a gauge left at its default would
+# read as "this server allows no households", and the ratio would be a division
+# by zero instead of the 0% that is true.
+# Read straight off the settings rather than through app.limits: that module
+# imports app.observability, which imports this one, and closing that loop
+# breaks whichever of the three is imported first.
+_CEILING_GAUGES: tuple[tuple[Gauge, str], ...] = (
+    (Gauge("meals_households_limit", "MAX_HOUSEHOLDS, or +Inf when unset.", registry=registry), "max_households"),
+    (Gauge("meals_users_limit", "MAX_USERS, or +Inf when unset.", registry=registry), "max_users"),
+)
+
 
 def observe_request(method: str, route: str, status: int, client_platform: str | None, duration_seconds: float) -> None:
     _HTTP_REQUESTS.labels(
@@ -90,6 +105,10 @@ async def refresh_usage_gauges(session: AsyncSession) -> None:
     for gauge, model in _USAGE_GAUGES:
         count = (await session.execute(select(func.count()).select_from(model))).scalar_one()
         gauge.set(count)
+    settings = get_settings()
+    for gauge, setting in _CEILING_GAUGES:
+        ceiling = getattr(settings, setting)
+        gauge.set(math.inf if ceiling is None else ceiling)
 
 
 async def usage_gauge_refresher(interval_seconds: float = 60.0) -> None:

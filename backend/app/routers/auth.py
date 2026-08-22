@@ -96,6 +96,12 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     A valid invite is honoured even when `REGISTRATION_ENABLED=false`. That's
     the point of the flag — a closed server should still let the household admit
     the people it chose, rather than locking out your own family.
+
+    A deployment that has set `MAX_HOUSEHOLDS` or `MAX_USERS` and reached one
+    answers 503 with what it holds and what to do next. That is a different
+    refusal from `REGISTRATION_ENABLED=false`: the server is full rather than
+    closed, so the answer is a waitlist rather than an invite code, and an
+    invite gets past the closed door but not past a full one.
     """
     email = payload.email.lower()
     invite = await _redeem_invite(db, payload.invite_code) if payload.invite_code else None
@@ -110,6 +116,12 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="an account with this email already exists; use POST /auth/login")
+
+    # Last, and before anything is written: a refusal here must leave no
+    # half-made household behind and, for an invited caller, must leave their
+    # code unredeemed — `_redeem_invite` only validates, and `accepted_at` is
+    # set further down.
+    await limits.admit_registration(db, invited=invite is not None)
 
     if invite is not None:
         household = invite.household

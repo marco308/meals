@@ -213,6 +213,10 @@ class TestRefusalsSayNothingAboutMoney:
             for kind in ("cap", "ceiling"):
                 for upgradable in (True, False):
                     yield name, limits._refusal(spec, tier="free", limit=50, used=50, kind=kind, upgradable=upgradable)
+        # A full instance is not something money fixes either, and the same
+        # sentence reaches the same screens.
+        for resource, invited in limits._INSTANCE_REFUSALS:
+            yield resource, limits._instance_refusal(resource, limit=25, used=25, invited=invited)
 
     def test_no_refusal_mentions_money_or_points_anywhere(self):
         for name, sentence in self._every_refusal():
@@ -245,6 +249,51 @@ class TestRefusalsSayNothingAboutMoney:
             limits.RESOURCES["members"], tier="free", limit=1, used=1, kind="cap", upgradable=True
         )
         assert "1 member per household" in sentence
+
+
+class TestInstanceCeilings:
+    """§3's other table. No tier reaches these, so nothing about them is a
+    matter of what the caller is paying."""
+
+    def test_unset_by_default(self):
+        assert limits.instance_ceilings() == {"households": None, "users": None}
+
+    def test_they_read_off_the_environment(self, settings_override):
+        settings_override(MAX_HOUSEHOLDS="25", MAX_USERS="60")
+        assert limits.instance_ceilings() == {"households": 25, "users": 60}
+
+    def test_zero_is_a_ceiling_and_not_a_typo(self, settings_override):
+        """A server closed to new arrivals that still serves everyone on it."""
+        settings_override(MAX_HOUSEHOLDS="0")
+        limits.check_settings()
+        assert limits.instance_ceilings()["households"] == 0
+
+    def test_a_negative_ceiling_stops_the_container(self, settings_override):
+        settings_override(MAX_USERS="-1")
+        with pytest.raises(ValueError, match="MAX_USERS"):
+            limits.check_settings()
+
+    def test_every_sentence_says_the_server_is_full_and_what_to_do(self):
+        for resource, invited in limits._INSTANCE_REFUSALS:
+            sentence = limits._instance_refusal(resource, limit=25, used=25, invited=invited)
+            assert sentence.startswith("This server is full"), sentence
+            assert "ask whoever runs" in sentence, sentence
+
+    def test_a_stranger_is_pointed_at_the_waitlist(self):
+        sentence = limits._instance_refusal("households", limit=25, used=25, invited=False)
+        assert "waitlist" in sentence
+        assert "25 households" in sentence
+
+    def test_somebody_expected_is_not_asked_to_queue(self):
+        """A household here issued them a code; telling them to join a waitlist
+        would be queueing them for something they are already inside."""
+        sentence = limits._instance_refusal("users", limit=25, used=25, invited=True)
+        assert "waitlist" not in sentence
+        assert "invite code has not been used" in sentence
+
+    def test_one_of_something_reads_as_singular(self):
+        assert "at most 1 account and" in limits._instance_refusal("users", limit=1, used=1, invited=False)
+        assert "at most 1 household and" in limits._instance_refusal("households", limit=1, used=1, invited=False)
 
 
 class TestTheIngestMonth:

@@ -357,7 +357,12 @@ enforcement returns before it runs a query, so an install that sets nothing has
 no caps and no idea any exist. If you *want* them — a server you let friends
 onto, a box you'd rather not have somebody fill — `LIMITS_PROFILE=hosted` runs a
 published table of numbers, `LIMITS_OVERRIDES` tunes any single one as JSON, and
-`DEFAULT_HOUSEHOLD_TIER` says what a new registration starts on. Being over a
+`DEFAULT_HOUSEHOLD_TIER` says what a new registration starts on. `MAX_HOUSEHOLDS`
+and `MAX_USERS` are the other axis and are also unset by default: they bound how
+many families the box holds rather than what each one costs, so registration
+answers 503 with a waitlist sentence instead of the machine finding its own
+limit. Both sit on `/metrics` next to the counts they bound, which is how you
+see "nearly full" before somebody is turned away. Being over a
 limit blocks only the writes that grow a household; nothing is deleted, nothing
 becomes unreadable, and the shopping list is exempt in every case because the
 iPhone app drains its offline queue through it. Whatever you set, `GET /limits`

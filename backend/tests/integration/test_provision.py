@@ -99,6 +99,20 @@ class TestProvision:
         await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
         await sign_in(client, "review@example.com", "s3cret-passphrase")
 
+    async def test_it_works_while_the_server_is_full(self, client, sessions, settings_override):
+        """`MAX_HOUSEHOLDS` refuses strangers on the operator's behalf, and
+        somebody running this on the box is the operator making that call
+        themselves — the same reason a closed door does not stop it either."""
+        settings_override(MAX_HOUSEHOLDS="0", MAX_USERS="0")
+        refused = await client.post(
+            "/auth/register",
+            json={"email": "stranger@example.com", "password": "a-strong-password", "display_name": "Stranger"},
+        )
+        assert refused.status_code == 503
+
+        await provision("review@example.com", "s3cret-passphrase", "Review", "Apple Review", sessions)
+        await sign_in(client, "review@example.com", "s3cret-passphrase")
+
     async def test_generated_passwords_are_typeable_and_not_guessable(self):
         """It goes in App Review notes and gets retyped on a phone by someone
         who didn't choose to be here — but it's still a real credential."""

@@ -7,7 +7,10 @@ answer: an invite shares your recipes and shopping list with whoever redeems it.
 
 This creates a **separate, empty household** with one account in it, the same
 shape `POST /auth/register` produces, straight against the database. It bypasses
-the endpoint, not the model.
+the endpoint, not the model — which also means `MAX_HOUSEHOLDS` and `MAX_USERS`
+do not apply to it. That is deliberate: those refuse *strangers* on the
+operator's behalf, and somebody running this on the box has already made the
+decision they exist to make.
 
 Written for the Apple Review account (App Review has to be able to sign in and
 use the app, and cannot see a real household's data while doing it), but it is

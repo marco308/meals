@@ -180,6 +180,19 @@ instrumentation a new feature usually needs.
   enforced. It answers unlimited rather than 404 on an unconfigured server, and
   counts only what is actually limited, so the "no queries when nothing is set"
   promise holds there too.
+- **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
+  bottom of `app/limits.py`). They bound how many households the *box* holds
+  rather than what one costs, so no tier reaches them and none of the above
+  applies: they answer **503**, because the caller has done nothing wrong and
+  "full" means "later, yes" in a way 403 cannot. Only `POST /auth/register`
+  can cross one — `/auth/invites/redeem` moves an existing user and can only
+  lower the household count — and the sentence depends on who is knocking: a
+  stranger gets the waitlist, somebody holding an invite is told their code is
+  still good, because a household here is already expecting them. Keep the
+  check after the duplicate-email 409 and before anything is written, so a
+  refusal leaves no half-made household and no spent invite. Both ceilings are
+  published as `/metrics` gauges beside the counts they bound (`+Inf` when
+  unset, never 0 — a dashboard divides one by the other).
 
 ### The web client (`web/`)
 

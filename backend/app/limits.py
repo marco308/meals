@@ -62,6 +62,17 @@ Counting
 Plain `COUNT`s on the existing `household_id` indexes, and **no locking**: two
 concurrent creates that overshoot a cap by one are cheaper to tolerate than to
 prevent, which is §3's own instruction.
+
+The other axis
+--------------
+
+§3 has a second table, "Per instance", and it is a different question: not what
+one household costs but how many of them the box holds. `MAX_HOUSEHOLDS` and
+`MAX_USERS` live at the bottom of this module under "instance ceilings". They
+share the shape — unset by default, refuse only growth, say what to do next —
+and nothing else: no tier reaches them, no upgrade path leads out of them, and
+they answer 503 because the caller has done nothing wrong and the server is
+simply full.
 """
 
 import json
@@ -467,6 +478,14 @@ def check_settings() -> None:
                     f"LIMITS_OVERRIDES['{name}']['{resource}'] is {value!r}; a limit is a "
                     "non-negative whole number, or null for unlimited"
                 )
+    for name, value in instance_ceilings().items():
+        # A ceiling of zero is meaningful (a server closed to new arrivals but
+        # still serving everyone on it); a negative one is a typo.
+        if value is not None and value < 0:
+            raise ValueError(
+                f"MAX_{name.upper()} is {value!r}; an instance ceiling is a non-negative whole "
+                "number, or unset for no ceiling"
+            )
     # Build the table once so a bad override value fails here rather than later.
     _current_table()
 
@@ -783,6 +802,134 @@ def free_tier_allowances() -> dict[str, int | None]:
     """
     free = limits_for(FREE)
     return {name: getattr(free, name) for name in RESOURCE_NAMES}
+
+
+# ------------------------------------------------------------ instance ceilings
+
+# §3's other half, "Per instance". Everything above bounds what *one household*
+# costs; nothing above says how many households the box can hold, and a server
+# that accepts the two-hundredth family because no number stopped it does not
+# fail politely. `MAX_HOUSEHOLDS` and `MAX_USERS` are that number, and like
+# every other one here they default to unset: a self-hoster who configures
+# nothing is in exactly the position they were before, taking everyone who
+# arrives.
+#
+# Three things make this a different animal from the caps above, and each one
+# shows up in the code:
+#
+# - **It is not about the caller.** No tier lifts it, no upgrade path leads out
+#   of it, and the household reaching it has done nothing wrong — the server is
+#   simply full. So it answers **503**, not 402 or 403: this is capacity, and a
+#   waitlist means "later, yes", which is the one thing a status code can carry
+#   that 403 cannot.
+# - **Only registration can cross it.** `POST /auth/invites/redeem` moves an
+#   existing user between existing households and can only ever *lower* the
+#   household count (`move_user_to_household` collects the one they left), so it
+#   is deliberately not checked — refusing it would block a move that costs the
+#   server nothing.
+# - **Who is knocking changes the sentence.** Somebody starting a household of
+#   their own is a stranger the server has no room for, and the honest answer is
+#   the waitlist. Somebody registering against an invite is expected: a
+#   household here issued them a code and is waiting. Turning them away with a
+#   waitlist sentence would be telling them to queue for something they have
+#   already been let into.
+
+HOUSEHOLDS = "households"
+USERS = "users"
+INSTANCE_RESOURCES = (HOUSEHOLDS, USERS)
+
+
+class InstanceFull(Exception):
+    """This deployment holds as many households, or accounts, as it will.
+
+    Not an `HTTPException` for the same reason `LimitExceeded` isn't: one place
+    in `app/main.py` owns turning it into a response.
+    """
+
+    status_code = 503
+
+    def __init__(self, *, resource: str, limit: int, used: int, detail: str) -> None:
+        super().__init__(detail)
+        self.resource = resource
+        self.limit = limit
+        self.used = used
+        self.detail = detail
+
+    def payload(self) -> dict[str, object]:
+        return {"detail": self.detail, "resource": self.resource, "limit": self.limit, "used": self.used}
+
+
+def instance_ceilings() -> dict[str, int | None]:
+    """What this deployment will hold, `None` for "as much as it can"."""
+    settings = get_settings()
+    return {HOUSEHOLDS: settings.max_households, USERS: settings.max_users}
+
+
+_INSTANCE_MODELS = {HOUSEHOLDS: Household, USERS: User}
+
+#: What each ceiling counts, singular and plural, so "at most 1 account" reads
+#: like English on a server that really is that small.
+_INSTANCE_NOUNS = {HOUSEHOLDS: ("household", "households"), USERS: ("account", "accounts")}
+
+#: One sentence per (resource, was-invited). Every one of them says the server
+#: is full rather than that the caller did something wrong, and none of them
+#: mentions money: a full instance is not something a bigger tier fixes.
+_INSTANCE_REFUSALS = {
+    (HOUSEHOLDS, False): (
+        "This server is full: it holds at most {allowance} and has {used:,}. Nothing here is broken "
+        "and no existing account is affected — ask whoever runs it to put you on the waitlist, and "
+        "register once they say there is room. If you were sent an invite code, register with it "
+        "instead: joining an existing household needs no new one."
+    ),
+    (USERS, False): (
+        "This server is full: it holds at most {allowance} and has {used:,}. Nothing here is broken "
+        "and no existing account is affected — ask whoever runs it to put you on the waitlist, and "
+        "register once they say there is room."
+    ),
+    (USERS, True): (
+        "This server is full: it holds at most {allowance} and has {used:,}, so it cannot open another "
+        "one yet. Your invite code has not been used and the household that sent it is still here — "
+        "ask whoever runs the server to make room, then register with the same code. Nobody needs to "
+        "send you a new one."
+    ),
+}
+
+
+def _instance_refusal(resource: str, *, limit: int, used: int, invited: bool) -> str:
+    singular, plural = _INSTANCE_NOUNS[resource]
+    allowance = f"{limit:,} {singular if limit == 1 else plural}"
+    return _INSTANCE_REFUSALS[(resource, invited)].format(allowance=allowance, used=used)
+
+
+async def admit_registration(db: AsyncSession, *, invited: bool) -> None:
+    """Refuse a registration this server has no room for.
+
+    Called from `POST /auth/register` once the request is known to be otherwise
+    good, and before anything is written — so a refusal leaves no half-made
+    household behind and, for an invited caller, leaves their code unredeemed.
+
+    `invited` decides both what is counted and what the caller is told: a new
+    household needs room for a household *and* an account, while an invited
+    member only ever adds the account.
+    """
+    ceilings = instance_ceilings()
+    resources = INSTANCE_RESOURCES if not invited else (USERS,)
+    for resource in resources:
+        limit = ceilings[resource]
+        if limit is None:
+            continue  # the default everywhere: this server holds what it holds
+        used = await _count(db, _INSTANCE_MODELS[resource])
+        if used < limit:
+            continue
+        # The operator's signal, and the reason it is worth alerting on: by the
+        # time this fires, somebody has already been turned away.
+        log_event("instance.full", outcome=resource, limit=limit, used=used, invited=invited)
+        raise InstanceFull(
+            resource=resource,
+            limit=limit,
+            used=used,
+            detail=_instance_refusal(resource, limit=limit, used=used, invited=invited),
+        )
 
 
 # ------------------------------------------------------------------ ingest quota
