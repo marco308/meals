@@ -351,6 +351,17 @@ existing one; `REGISTRATION_ENABLED=false` additionally stops new households
 being created while still honouring invite codes, so closing a server doesn't
 lock out your own family.
 
+Per-household limits exist and are **off**: `LIMITS_PROFILE` is `unlimited`
+unless you change it, every household's `tier` is `unlimited`, and the
+enforcement returns before it runs a query, so an install that sets nothing has
+no caps and no idea any exist. If you *want* them — a server you let friends
+onto, a box you'd rather not have somebody fill — `LIMITS_PROFILE=hosted` runs a
+published table of numbers, `LIMITS_OVERRIDES` tunes any single one as JSON, and
+`DEFAULT_HOUSEHOLD_TIER` says what a new registration starts on. Being over a
+limit blocks only the writes that grow a household; nothing is deleted, nothing
+becomes unreadable, and the shopping list is exempt in every case because the
+iPhone app drains its offline queue through it.
+
 `make deploy` runs `deploy/deploy.sh`, which is **not in this repo** — a swarm
 stack file is a description of somebody's specific hardware (node names, ingress
 labels, host aliases, which box has the free disk), so it's kept out and

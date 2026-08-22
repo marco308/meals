@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import limits
 from app.models import Ingredient, Recipe, RecipeIngredient
 from app.schemas.catalog import RecipeCreate
 from app.schemas.common import IngredientLineIn
@@ -13,7 +14,9 @@ from app.services.ingredient_names import canonical_ingredient_name
 from app.services.recipe_parser import ParsedRecipe
 
 
-async def get_or_create_ingredient(db: AsyncSession, household_id: uuid.UUID, name: str) -> Ingredient:
+async def get_or_create_ingredient(
+    db: AsyncSession, household_id: uuid.UUID, name: str, *, count_against_limits: bool = True
+) -> Ingredient:
     """Ingredient names are the canonical key: 'chopped tomatoes' from two
     recipes resolves to one ingredient. New ingredients get a best-effort
     aisle from the built-in lookup table.
@@ -21,7 +24,14 @@ async def get_or_create_ingredient(db: AsyncSession, household_id: uuid.UUID, na
     Every write path — JSON-LD ingest, an AI's POST /recipes, a loose meal
     ingredient, an ad-hoc list add — lands here, which is why the name folding
     (Q21) belongs here and nowhere else: 'mint leaves' and 'mint' resolve to
-    one ingredient however they arrived."""
+    one ingredient however they arrived.
+
+    It is also why the ingredient limit is applied here, and why the ad-hoc list
+    add is the one caller that passes `count_against_limits=False`: adding milk
+    to the shopping list must never be refused (planning/08-freemium.md §5). The
+    offline queue replays through that endpoint and iOS drops any op the server
+    rejects, so a limit there would delete what someone typed in a supermarket
+    rather than merely capping them (Q11)."""
     # The fallback matters for names that fold to nothing (","): a punctuation
     # ingredient is bad data, an unnamed one breaks every client that shows it.
     canonical = canonical_ingredient_name(name) or " ".join(name.lower().split())
@@ -30,6 +40,8 @@ async def get_or_create_ingredient(db: AsyncSession, household_id: uuid.UUID, na
     )
     ingredient = result.scalar_one_or_none()
     if ingredient is None:
+        if count_against_limits:
+            await limits.enforce(db, household_id, "ingredients")
         ingredient = Ingredient(household_id=household_id, name=canonical, aisle=guess_aisle(canonical))
         db.add(ingredient)
         await db.flush()
@@ -42,6 +54,7 @@ async def create_recipe_from_payload(
     user_id: uuid.UUID | None,
     payload: RecipeCreate,
 ) -> Recipe:
+    await limits.enforce(db, household_id, "recipes")
     recipe = Recipe(
         household_id=household_id,
         title=payload.title.strip(),

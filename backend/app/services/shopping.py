@@ -115,7 +115,12 @@ async def add_adhoc_item(
             assert item is not None
             return item, False
 
-    ingredient = await get_or_create_ingredient(db, household_id, payload.name)
+    # Never limited, in any tier. `/shopping-list*` is exempt from every billing
+    # block exactly as it is exempt from the client gate (planning/08-freemium.md
+    # §5): this is the endpoint the offline queue drains through, and iOS drops
+    # any op the server refuses, so a cap here would destroy what someone typed
+    # in a supermarket rather than reduce their features (Q11).
+    ingredient = await get_or_create_ingredient(db, household_id, payload.name, count_against_limits=False)
     item = await _find_item(db, shopping_list.id, ingredient.id, payload.unit)
     if item is None:
         # Honour the client-generated id (offline-first sync) unless it is

@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import nullsfirst, select
 
+from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import MealRecipe, Recipe
 from app.observability import log_event
@@ -72,6 +73,17 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     if cached is not None:
         log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
         return IngestOut(recipe=recipe_out(cached), cached=True)
+
+    # The recipe allowance first, even though create_recipe_from_payload checks
+    # it again below: a household that could not store the result should hear
+    # that before this server spends a page fetch and a month's ingest on
+    # something it is going to refuse.
+    await limits.enforce(db, user.household, "recipes")
+    # Then the ingest itself — charged before the fetch and committed, because
+    # the bandwidth is spent whether or not the page turns out to be readable
+    # (see limits.reserve_ingest). A cached URL never reaches here, which is why
+    # the allowance can be as small as it is.
+    await limits.reserve_ingest(db, user.household)
 
     try:
         html = await recipe_parser.fetch_page(url)
@@ -229,6 +241,11 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
         )
 
     host = urlparse(recipe.source_url).hostname
+    # A re-parse is the same outbound fetch as an ingest, so it costs the same
+    # allowance. Metering only /recipes/ingest would leave the limit one POST
+    # away from being bypassed: store any URL as a recipe, then re-parse it.
+    await limits.reserve_ingest(db, user.household)
+
     # Nothing is written until the parse succeeds, so a page that has gone
     # away or lost its JSON-LD leaves the stored recipe exactly as it was.
     try:

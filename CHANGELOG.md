@@ -20,7 +20,62 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the last deploy.
+**One migration**, `b1d73e5c9a24`: six new columns on `households`, all
+additive, all safe under a start-first rollout. Every existing household
+backfills to `tier = 'unlimited'`, which means no limits at all — so applying
+this changes nothing about how the deployment behaves.
+
+### Added
+
+- **Per-household limits, and every one of them defaults to unlimited** (issue
+  [#94](https://github.com/marco308/meals/issues/94), `planning/08-freemium.md`).
+  `app/limits.py` holds one `Limits` set of numbers per tier and one
+  `enforce()` the service layer calls immediately before a row is inserted. A
+  server that sets nothing has no caps, no paywall, and nothing anywhere that
+  says a hosted tier exists — `enforce()` returns before it runs a single query,
+  which is both the promise and the implementation of it. `LIMITS_PROFILE=hosted`
+  runs the published table, `LIMITS_OVERRIDES` tunes any single number as JSON,
+  and `DEFAULT_HOUSEHOLD_TIER` decides what a new registration starts on.
+  Members, recipes, ingredients, meals, lines per meal, plans, meals per plan,
+  supermarkets, API tokens and monthly URL ingests all have a boundary; every
+  one is a plain `COUNT` with no locking, because two concurrent creates
+  overshooting by one is cheaper to tolerate than to prevent.
+- **Two refusals, because a caller has to act differently.** A tier cap a bigger
+  tier would lift answers **402** and says so only in the status code; the
+  sentence stays factual and points nowhere, so it reads the same on a
+  self-hosted box and the iPhone app can render it verbatim without becoming a
+  shop. A fair-use ceiling — or a cap the largest tier cannot lift — answers
+  **403** and says that no tier goes further. Both name the limit, the tier and
+  the number in use, and end with something to do instead, because an assistant
+  bulk-importing will meet these and that sentence is the whole of what it can
+  act on. Every block logs `limit.reached`; `outcome="ceiling"` on a paid
+  household is the one worth alerting on.
+- `households.tier`, plus the price snapshot the founding-price-for-life promise
+  needs (`price_pence`, `price_currency`, `price_set_at`) and the URL-ingest
+  counter (`ingest_period_started_at`, `ingests_used`). The ingest quota is the
+  one limit that cannot be a `COUNT`: counting rows would refund it every time a
+  recipe was deleted, which is exactly the loop it exists to stop. It is charged
+  up front and committed before the page is fetched — the bandwidth is spent
+  whether or not the page turns out to be readable — and `POST
+  /recipes/{id}/reparse` costs the same allowance as `POST /recipes/ingest`,
+  since it makes the same outbound request. A household whose library is
+  already full is refused before either, so a full library never costs a fetch. Archived plans are not counted
+  against the plans cap: there is no way to delete a plan — its cooked history
+  is the reason — so counting them would end the weekly loop at plan 21 with no
+  way back, and finishing a week is what frees the place for the next one.
+
+### Unchanged on purpose
+
+- **`/shopping-list*` is exempt from every limit, in every tier**, exactly as it
+  is exempt from the client gate. iOS drains its offline queue through those
+  endpoints and drops any op the server refuses (Q11), so a cap there would
+  delete what somebody typed in a supermarket rather than reduce their features.
+  That is why an ad-hoc add can still create an ingredient after the ingredient
+  allowance is spent, and why items-per-list and archived-shops carry no
+  enforcement at all.
+- PATs, `/mcp`, `/skill` and `/prompt-pack` are never gated by a tier. Being over
+  a limit blocks only the writes that *grow* a household: nothing is deleted,
+  nobody is ejected, and everything already there stays readable and usable.
 
 ## 2026-08-18 — household admin
 

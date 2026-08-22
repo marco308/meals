@@ -151,6 +151,27 @@ instrumentation a new feature usually needs.
   household's own verdict — unlike an aisle it is **never guessed**, so no
   keyword table. It rides along on list items and recipe lines so it shows up
   at the shelf; the vocabulary is published in the skill.
+- **Limits are config, and every one of them defaults to unlimited**
+  (`app/limits.py`, `planning/08-freemium.md`). `LIMITS_PROFILE` is `unlimited`
+  unless a deployment says otherwise, `households.tier` backfills to
+  `unlimited`, and `enforce()` returns before it runs a single query when
+  nothing is set — so a self-hosted instance sees no cap, no paywall, and no
+  hint that a hosted tier exists. That is the whole feature, and three rules
+  keep it that way. **Never bake a number into a default**: if one is tempting
+  there, it has crossed the line into fencing off the tool. **Call `enforce`
+  from the service layer, next to the insert** — a router holds no number and
+  picks no status code; the module decides 402 (a tier cap a bigger tier would
+  lift) or 403 (a fair-use ceiling, or a cap the top tier cannot lift), and one
+  handler in `main.py` turns either into a response. And **never limit
+  `/shopping-list*`**, in any tier: it is exempt from every billing block
+  exactly as it is exempt from the client gate, because iOS drops any queued
+  `PendingOp` the server refuses (Q11) — a cap there deletes what somebody
+  typed in a supermarket. The one limit that is not a `COUNT` is URL ingests,
+  which carries a monotonic per-month counter on the household because a count
+  of rows would refund the quota every time a recipe was deleted. And a cap has
+  to be one a household can get back under: **archived plans are not counted**,
+  because there is no `DELETE /plans/{id}` (a plan's cooked history is why), so
+  counting them would end the weekly loop at plan 21 with no way back.
 
 ### The web client (`web/`)
 

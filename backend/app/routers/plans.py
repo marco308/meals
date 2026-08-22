@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import Plan, PlanMeal
 from app.models.users import utcnow
@@ -33,6 +34,13 @@ async def _add_meal_to_plan(db: AsyncSession, household_id: uuid.UUID, plan: Pla
     duplicate = await db.execute(select(PlanMeal).where(PlanMeal.plan_id == plan.id, PlanMeal.meal_id == meal_id))
     if duplicate.first() is not None:
         raise HTTPException(status_code=409, detail=f"meal '{meal.name}' is already in plan '{plan.label}'")
+    # Last, and in this helper rather than in the endpoint. Last, because the
+    # two refusals above add no row and so cannot cross a limit — a retried add
+    # of a meal already on a full plan has to hear "it is already there", not be
+    # told to archive the plan. In the helper, because copying a plan (POST
+    # /plans with copy_from_plan_id) reaches this in a loop and has to stop at
+    # the same line.
+    await limits.enforce(db, household_id, "plan_meals", within=plan.id)
     plan_meal = PlanMeal(plan_id=plan.id, meal_id=meal_id)
     db.add(plan_meal)
     await db.flush()
@@ -46,6 +54,7 @@ async def create_plan(payload: PlanCreate, user: CurrentUser, db: DbSession) -> 
     """Start a weekly-ish plan — a pool of meal options, never a calendar.
     Pass copy_from_plan_id to start from a previous week ('same as two weeks
     ago'); copied meals immediately contribute to the shopping list."""
+    await limits.enforce(db, user.household, "plans")
     plan = Plan(household_id=user.household_id, label=payload.label.strip(), starts_on=payload.starts_on)
     db.add(plan)
     await db.flush()

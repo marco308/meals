@@ -68,6 +68,27 @@ class Settings(BaseSettings):
     current_ios_build: int = 26
     ios_upgrade_url: str | None = None
 
+    # Per-household limits (app/limits.py, planning/08-freemium.md). Every
+    # number defaults to unlimited, and these three settings are the only way
+    # any of them becomes a real limit — a self-hoster who sets nothing sees no
+    # cap, no paywall, and no mention that a hosted tier exists.
+    #
+    #   LIMITS_PROFILE          "unlimited" (default) or "hosted", which is the
+    #                           table from that document's §3.
+    #   LIMITS_OVERRIDES        JSON, applied on top of the profile, so a
+    #                           deployment can tune any single number without a
+    #                           code change or a whole profile of its own:
+    #                             {"free": {"recipes": 100},
+    #                              "ceiling": {"ingredients": null}}
+    #                           null means unlimited.
+    #   DEFAULT_HOUSEHOLD_TIER  which tier a newly registered household starts
+    #                           on. Existing households keep whatever their row
+    #                           says, which for every household that predates
+    #                           this is "unlimited".
+    limits_profile: str = "unlimited"
+    limits_overrides: dict[str, dict[str, int | None]] = {}
+    default_household_tier: str = "unlimited"
+
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
     # And a ceiling on how much of one we'll read (issue #55). The URL is the
