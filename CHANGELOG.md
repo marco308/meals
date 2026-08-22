@@ -58,11 +58,20 @@ this changes nothing about how the deployment behaves.
   up front and committed before the page is fetched — the bandwidth is spent
   whether or not the page turns out to be readable — and `POST
   /recipes/{id}/reparse` costs the same allowance as `POST /recipes/ingest`,
-  since it makes the same outbound request. A household whose library is
-  already full is refused before either, so a full library never costs a fetch. Archived plans are not counted
-  against the plans cap: there is no way to delete a plan — its cooked history
-  is the reason — so counting them would end the weekly loop at plan 21 with no
-  way back, and finishing a week is what frees the place for the next one.
+  since it makes the same outbound request. A household whose library is already
+  full is refused before either, so a full library never costs a fetch.
+- **Archived plans do not count against the plans cap.** There is no way to
+  delete a plan — its cooked history is the reason — so counting them would have
+  made that cap a wall nothing could bring a household back under: the twentieth
+  week planned and never another, with the iPhone app's "add to plan" dead
+  behind it. Finishing a week is what frees the place for the next one.
+- **Loo roll, toilet paper and water find their aisles**, and two guards keep
+  the new "water" keyword honest: water chestnuts stay in tins and rose water
+  stays with the baking. Keywords only — the aisle vocabulary the skill
+  publishes is unchanged, so no client needs to know.
+- **`integrations/node-red/`**: a worked example that drains an Alexa shopping
+  list into the household's via `POST /shopping-list/items`. It talks to the
+  public API and ships nothing into the image.
 
 ### Unchanged on purpose
 
