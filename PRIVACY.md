@@ -121,9 +121,18 @@ requests.
 - **Be removed from one** — the household's lead can remove any member. That
   ends your access to its recipes, plans and lists, and nothing else: your
   account is untouched and you keep everything signed in on it.
-- **Export your data** — every endpoint the app uses is a documented REST API
-  (`/docs` on your server). Your data is readable with a personal token and a
-  single `curl`.
+- **Export your data** — one request returns everything your household owns as
+  a JSON file: recipes, ingredients, meals, plans, cooked history, saved
+  supermarkets and every shopping list including the archived ones.
+
+  ```
+  curl -H "Authorization: Bearer <your API token>" https://<your server>/household/export -O -J
+  ```
+
+  It costs nothing on any server, and it never will. Passwords, API tokens and
+  invite codes are deliberately left out — they are credentials, and useless
+  anywhere else. Every other endpoint the app uses is a documented REST API
+  too (`/docs` on your server).
 - **Move servers** — change the server URL on the sign-in screen. Nothing ties
   the app to any particular deployment.
 

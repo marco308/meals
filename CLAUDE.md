@@ -180,6 +180,17 @@ instrumentation a new feature usually needs.
   enforced. It answers unlimited rather than 404 on an unconfigured server, and
   counts only what is actually limited, so the "no queries when nothing is set"
   promise holds there too.
+- **Export is free in every tier, forever** (`services/export.py`,
+  `GET /household/export`, `planning/08-freemium.md` §1). Nothing in
+  `app/limits.py` touches it and nothing ever should — "take your data and go
+  self-host" being one request is the whole answer to the hostage objection.
+  Two rules hold it together: **explicit field lists, never
+  `__table__.columns`**, so the next billing column added to `households` can't
+  silently join the file (a test fails when a new column is neither exported
+  nor written down as excluded, so the omission is loud); and **rows are
+  expunged one at a time while streaming** — `expunge_all()` invalidates the
+  identity map the open result is still loading through, and everything after
+  the first batch is lost.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above

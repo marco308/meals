@@ -351,6 +351,14 @@ existing one; `REGISTRATION_ENABLED=false` additionally stops new households
 being created while still honouring invite codes, so closing a server doesn't
 lock out your own family.
 
+`GET /household/export` returns everything a household owns — recipes,
+ingredients, meals, plans, cooked history, supermarkets and every shopping list
+including archived ones — as one streamed JSON document. It is free on every
+tier and always will be: taking your data elsewhere is not something a server
+should be able to make difficult, and it is also the thing to run before a
+migration. Import is deliberately not built yet; it is a bigger design question
+(id collisions, ingredient folding) and it should not have held the export up.
+
 Per-household limits exist and are **off**: `LIMITS_PROFILE` is `unlimited`
 unless you change it, every household's `tier` is `unlimited`, and the
 enforcement returns before it runs a query, so an install that sets nothing has
