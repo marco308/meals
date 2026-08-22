@@ -266,6 +266,24 @@ be recalled. The contract is therefore **additive-only**:
 - Keep the iOS models free of `String`-backed enums for server vocabularies
   (aisles, slots). A new aisle must never be a decode error.
 
+**The iPhone app carries no commerce, and that is a rule about sentences rather
+than about screens** (`planning/08-freemium.md` §6, issue #100). The listing
+rests on guideline 3.1.3(f), which exempts a free companion to a paid web tool
+only while there is "no purchasing inside the app, *or calls to action for
+purchase outside of the app*" — and Apple counts metadata as part of the app,
+so `ios/AppStore/metadata.md` is in scope too (a unit test lints the fenced
+blocks that actually ship). Three things follow. A billing refusal must stay an
+**ordinary inline error**: 402, 403 and 503 fall through `APIClient` to
+`.server(status:detail:)` and are shown verbatim, which is why every build
+already in the wild handles one correctly and why nothing may special-case them.
+**Only a 426 may blank the app** behind `UpgradeRequiredView`; a cap that did
+would read as broken functionality and invite the 2.1 rejection this app has
+already had once. And the server's refusal sentences have to be true on a
+self-hosted box, which is the tell that they point nowhere — `tests/unit/
+test_limits.py` asserts that for every one of them. The US storefront now
+permits calls to action (verified 2026-08-22, §6); one binary ships worldwide,
+so the strictest storefront still sets the rule.
+
 `app/client_gate.py` is the escape hatch for the rare change that can't be
 additive. The app sends `X-Meals-Client: ios/<version> (<build>)`; builds below
 `min_ios_build` get a 426 and a blocking upgrade screen. Two rules:

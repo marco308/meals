@@ -19,9 +19,18 @@ the general answer to "closed server, one more household".
     docker exec -it <api-container> .venv/bin/python -m app.provision \\
         --email apple.review@example.com --password '…' --household 'Apple Review'
 
+The household is also **comped to the paid tier**, permanently, with no expiry
+(planning/08-freemium.md §6, issue #100). App Review has to be able to use the
+app, and a reviewer who meets a cap sees broken functionality and files a 2.1
+rejection rather than reading any of the reasoning behind it. On a server with
+no limits configured — every self-hosted one — the comp is a column nothing
+reads, so this costs nothing and is not worth a flag to turn off.
+
 Idempotent: run it again with a different password to reset that account's,
 which is what you want when a rejected submission has aged out the credentials
-in the review notes. It never touches any other household.
+in the review notes. Re-running also re-applies the comp, since an aged-out
+submission is exactly when an expired or revoked entitlement would bite. It
+never touches any other household.
 """
 
 import argparse
@@ -32,8 +41,10 @@ import sys
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app import limits
 from app.database import SessionLocal
 from app.models import Household, User
+from app.services import entitlements
 from app.services.security import hash_password
 
 # Look-alikes off a screen, dropped in whole pairs so neither half can turn up:
@@ -48,6 +59,13 @@ PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ2345679"
 
 def _generate_password() -> str:
     return "-".join("".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(5)) for _ in range(3))
+
+
+#: What the review household is put on, and why it never expires: a comp with a
+#: date on it is a rejection scheduled for whenever that date passes, probably
+#: during a resubmission nobody is watching.
+REVIEW_TIER = limits.PAID
+REVIEW_NOTE = "provisioned account: App Review must never meet a cap (08-freemium.md §6)"
 
 
 async def provision(
@@ -71,6 +89,7 @@ async def provision(
             # Deliberately no token revocation here: this is a rescue hatch, and
             # signing every device out mid-review would be its own small disaster.
             await db.commit()
+            await _comp(db, await db.get(Household, existing.household_id))
             return password, False
 
         household = Household(name=household_name)
@@ -90,7 +109,29 @@ async def provision(
         # means a reviewer meeting a 403 on a button the app still offers.
         household.lead_user_id = user.id
         await db.commit()
+        await _comp(db, household)
         return password, True
+
+
+async def _comp(db: AsyncSession, household: Household | None) -> None:
+    """Put the household on the paid tier for good.
+
+    Goes through `services/entitlements.grant` rather than setting the columns
+    here, so there is still exactly one place an entitlement changes and one
+    `entitlement.granted` line in the log. No price is passed: nothing was paid,
+    and writing one would put a number on a row that a real purchase would then
+    be refused for changing.
+    """
+    if household is None:  # deleted underneath us; nothing to comp
+        return
+    await entitlements.grant(
+        db,
+        household,
+        tier=REVIEW_TIER,
+        until=None,
+        source=entitlements.COMP,
+        note=REVIEW_NOTE,
+    )
 
 
 def main() -> None:
@@ -107,6 +148,7 @@ def main() -> None:
 
     print(f"{'created' if created else 'password reset for'} {args.email}")
     print(f"password: {password}")
+    print(f"tier: {REVIEW_TIER}, no expiry (so App Review never meets a cap)")
     if created:
         print(f"household: {args.household} (new and empty — it shares nothing with any other household)")
     print(

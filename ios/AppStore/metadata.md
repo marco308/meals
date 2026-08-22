@@ -53,14 +53,27 @@ Plan meals as options rather than a rigid Mon–Sun grid, and get one aisle-sort
 
 ## Description — 4000 characters max
 
+**Nothing here may mention a subscription, a price, an upgrade or a hosted
+plan** — not even to deny one (issue #100, planning/08-freemium.md §6). The
+exemption this listing relies on, guideline 3.1.3(f), is conditional on there
+being no call to action for purchase outside the app, and the metadata is part
+of the app for that purpose.
+
+Saying "no subscription" is not a call to action, but it was removed anyway for
+a duller reason: it stops being true the day the hosted tier opens, and a
+description that contradicts the operator's own terms page is a worse problem
+than a missing selling point. What replaced it says the same thing about the
+part that will always be true — the app is free, the software is free, and you
+can run it yourself.
+
 ```
 Meals is a meal planner for people who don't want a diary. Pick a handful of
 options for the week, and decide what you actually fancy on the night.
 
-Everything runs on a server you host yourself. There is no company account, no
-subscription and no cloud in the middle: your recipes and your shopping list
-live on your machine, and the app talks to it directly. The server is free and
-open source (AGPL), and starting one is a single command.
+Everything runs on a server you point the app at, and there is no cloud in the
+middle: your recipes and your shopping list live on that server and the app
+talks to it directly. The app is free and asks for nothing. The server is free
+and open source too (AGPL), and starting your own is a single command.
 
 A PLAN, NOT A CALENDAR
 Add four or five meals as this week's options, grouped into dinners and
