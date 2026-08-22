@@ -20,10 +20,16 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**One migration**, `b1d73e5c9a24`: six new columns on `households`, all
-additive, all safe under a start-first rollout. Every existing household
-backfills to `tier = 'unlimited'`, which means no limits at all — so applying
-this changes nothing about how the deployment behaves.
+Nothing merged since the last deploy.
+
+## 2026-08-22 — hosted tier limits
+
+Deployed to `meals.marcuslab.uk` as **1.1.0**. **One migration**,
+`b1d73e5c9a24`, applied on rollout: six additive columns on `households`, and
+both existing households backfilled to `tier = 'unlimited'`. No `LIMITS_*` is
+set on this deployment, so nothing about it is capped and nothing behaves
+differently — which is the promise the feature is built on, checked rather than
+assumed.
 
 ### Added
 
