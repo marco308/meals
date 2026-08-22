@@ -28,15 +28,19 @@ async def get_plan(db: AsyncSession, household_id: uuid.UUID, plan_id: uuid.UUID
 
 
 async def _add_meal_to_plan(db: AsyncSession, household_id: uuid.UUID, plan: Plan, meal_id: uuid.UUID) -> None:
-    # Here rather than in the endpoint, because copying a plan (POST /plans with
-    # copy_from_plan_id) reaches this in a loop and has to stop at the same line.
-    await limits.enforce(db, household_id, "plan_meals", within=plan.id)
     meal = await get_meal(db, household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=422, detail=f"meal {meal_id} not found; list meals via GET /meals")
     duplicate = await db.execute(select(PlanMeal).where(PlanMeal.plan_id == plan.id, PlanMeal.meal_id == meal_id))
     if duplicate.first() is not None:
         raise HTTPException(status_code=409, detail=f"meal '{meal.name}' is already in plan '{plan.label}'")
+    # Last, and in this helper rather than in the endpoint. Last, because the
+    # two refusals above add no row and so cannot cross a limit — a retried add
+    # of a meal already on a full plan has to hear "it is already there", not be
+    # told to archive the plan. In the helper, because copying a plan (POST
+    # /plans with copy_from_plan_id) reaches this in a loop and has to stop at
+    # the same line.
+    await limits.enforce(db, household_id, "plan_meals", within=plan.id)
     plan_meal = PlanMeal(plan_id=plan.id, meal_id=meal_id)
     db.add(plan_meal)
     await db.flush()

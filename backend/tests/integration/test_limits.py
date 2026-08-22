@@ -191,6 +191,29 @@ class TestACeilingIsADifferentAnswer:
         assert (record.outcome, record.tier, record.resource) == ("ceiling", "paid", "recipes")
         assert (record.limit, record.used) == (1, 1)
 
+    async def test_a_server_that_sells_nothing_never_answers_402(self, client, settings_override):
+        """A self-hoster who caps their own box has nothing to sell anybody, so
+        Payment Required would be a lie — and naming the "unlimited tier" in the
+        sentence would be another one."""
+        settings_override(LIMITS_OVERRIDES=json.dumps({"unlimited": {"recipes": 1}}))
+        await signed_in(client)
+        await create_recipe(client, title="One")
+
+        response = await client.post("/recipes", json={"title": "Two", "ingredients": []})
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail.startswith("This server allows at most 1 recipe per household")
+        assert "tier" not in detail.split("No tier")[0]
+
+    async def test_a_cap_with_nothing_bigger_above_it_is_403(self, client, hosted):
+        """Free and paid set to the same number: moving between them would
+        change nothing, so there is nothing to be sold."""
+        hosted(free={"recipes": 1}, paid={"recipes": 1})
+        await signed_in(client)
+        await create_recipe(client, title="One")
+        response = await client.post("/recipes", json={"title": "Two", "ingredients": []})
+        assert response.status_code == 403
+
     async def test_a_comped_household_keeps_the_ceiling(self, client, hosted, set_tier):
         hosted(ceiling={"recipes": 1})
         await signed_in(client)
@@ -301,6 +324,23 @@ class TestEveryResourceHasABoundary:
         assert response.status_code == 402
         assert response.json()["resource"] == "plans"
 
+    async def test_finishing_a_week_frees_the_place_for_the_next_one(self, client, hosted):
+        """Plans cannot be deleted — a plan's cooked history is why — so a cap
+        that counted archived ones could never be got back under, and the weekly
+        loop would simply end. Archiving is the key."""
+        hosted(free={"plans": 1})
+        await signed_in(client)
+        plan = await create_plan(client, label="This week")
+        refused = await client.post("/plans", json={"label": "Next week"})
+        assert refused.status_code == 402
+        assert "POST /plans/{plan_id}/archive" in refused.json()["detail"]
+
+        assert (await client.post(f"/plans/{plan['id']}/archive")).status_code == 200
+        assert (await client.post("/plans", json={"label": "Next week"})).status_code == 201
+        # And the finished week is still there to read.
+        labels = sorted(p["label"] for p in (await client.get("/plans")).json())
+        assert labels == ["Next week", "This week"]
+
     async def test_meals_in_one_plan(self, client, hosted):
         hosted(free={"plan_meals": 1}, paid={"plan_meals": 1}, ceiling={"plan_meals": 1})
         await signed_in(client)
@@ -311,6 +351,25 @@ class TestEveryResourceHasABoundary:
         response = await client.post(f"/plans/{plan['id']}/meals", json={"meal_id": second["id"]})
         assert response.status_code == 403
         assert "at most 1 meal in one plan" in response.json()["detail"]
+
+    async def test_a_full_plan_still_says_it_is_already_there(self, client, hosted):
+        """A write that adds no row cannot cross a limit, so it must not be
+        refused as one — and the plan_meals hint says to archive the plan, which
+        is a destructive thing to tell a retrying assistant to do."""
+        hosted(free={"plan_meals": 1}, paid={"plan_meals": 1}, ceiling={"plan_meals": 1})
+        await signed_in(client)
+        plan = await create_plan(client)
+        meal = await create_meal(client, name="Spag bol")
+        assert (await client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})).status_code == 201
+
+        again = await client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+        assert again.status_code == 409
+        assert "already in plan" in again.json()["detail"]
+
+        missing = await client.post(
+            f"/plans/{plan['id']}/meals", json={"meal_id": "11111111-1111-1111-1111-111111111111"}
+        )
+        assert missing.status_code == 422
 
     async def test_copying_a_plan_stops_at_the_same_line(self, client, hosted):
         """`copy_from_plan_id` reaches the same helper in a loop, so it has to
@@ -367,7 +426,7 @@ class TestMembersAreTheGate:
         body = response.json()
         assert body["resource"] == "members"
         assert "1 member per household" in body["detail"]
-        assert "keeps full access" in body["detail"]
+        assert "still works, so this only stops it growing" in body["detail"]
 
     async def test_an_invite_issued_before_the_headroom_went_is_refused_on_use(self, client, hosted, set_tier):
         """The check at redemption is the authoritative one: an invite can
@@ -527,6 +586,23 @@ class TestTheIngestQuota:
 
         assert (await client.post(f"/recipes/{recipe['id']}/reparse", json={})).status_code == 402
         assert (await client.get(f"/recipes/{recipe['id']}")).json()["title"] == recipe["title"]
+
+    async def test_a_full_library_is_refused_before_the_page_is_fetched(self, client, hosted, fetch_stub):
+        """Otherwise a household at its recipe cap spends a month's ingests, and
+        this server's bandwidth, on pages it is about to refuse to store."""
+        hosted(free={"recipes": 1, "ingests_per_month": 5, "ingredients": None})
+        await signed_in(client)
+        calls = fetch_stub()
+        await create_recipe(client, title="The one we have")
+
+        response = await client.post("/recipes/ingest", json={"url": "https://example.com/a"})
+        assert response.status_code == 402
+        assert response.json()["resource"] == "recipes"
+        assert calls == []  # nothing was fetched
+
+        # And the ingest allowance is untouched, so it is still there once room is made.
+        assert (await client.delete(f"/recipes/{(await client.get('/recipes')).json()[0]['id']}")).status_code == 204
+        assert (await client.post("/recipes/ingest", json={"url": "https://example.com/a"})).status_code == 200
 
     async def test_posting_a_recipe_directly_is_not_an_ingest(self, client, hosted):
         hosted(free={"ingests_per_month": 0, "recipes": None, "ingredients": None})

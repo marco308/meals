@@ -167,7 +167,10 @@ instrumentation a new feature usually needs.
   `PendingOp` the server refuses (Q11) — a cap there deletes what somebody
   typed in a supermarket. The one limit that is not a `COUNT` is URL ingests,
   which carries a monotonic per-month counter on the household because a count
-  of rows would refund the quota every time a recipe was deleted.
+  of rows would refund the quota every time a recipe was deleted. And a cap has
+  to be one a household can get back under: **archived plans are not counted**,
+  because there is no `DELETE /plans/{id}` (a plan's cooked history is why), so
+  counting them would end the weekly loop at plan 21 with no way back.
 
 ### The web client (`web/`)
 

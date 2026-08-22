@@ -74,9 +74,15 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
         log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
         return IngestOut(recipe=recipe_out(cached), cached=True)
 
-    # Charged before the fetch and committed, because the bandwidth is spent
-    # whether or not the page turns out to be readable — see limits.reserve_ingest.
-    # A cached URL never reaches here, which is why the allowance can be small.
+    # The recipe allowance first, even though create_recipe_from_payload checks
+    # it again below: a household that could not store the result should hear
+    # that before this server spends a page fetch and a month's ingest on
+    # something it is going to refuse.
+    await limits.enforce(db, user.household, "recipes")
+    # Then the ingest itself — charged before the fetch and committed, because
+    # the bandwidth is spent whether or not the page turns out to be readable
+    # (see limits.reserve_ingest). A cached URL never reaches here, which is why
+    # the allowance can be as small as it is.
     await limits.reserve_ingest(db, user.household)
 
     try:

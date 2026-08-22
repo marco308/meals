@@ -29,9 +29,12 @@ Two kinds of limit, and they are not the same error (§4)
   user, so every block emits `limit.reached`; alert on
   `outcome="ceiling" AND tier="paid"`.
 
-A cap the top tier cannot lift is a ceiling wearing a cap's clothes, and answers
-403 too: sending 402 to someone already on the largest tier this server offers
-would be telling them to buy something that does not exist.
+A cap nothing can be bought to lift is a ceiling wearing a cap's clothes, and
+answers 403 too — sending 402 to a household already on the largest tier this
+server offers, or to a comped one, or on a self-hosted box that sells nothing at
+all, would be pointing at something that does not exist. `UPGRADE_PATH` is the
+whole of that judgement, and it is deliberately a path rather than "is some
+other tier bigger".
 
 What this module does *not* carry
 ---------------------------------
@@ -195,7 +198,20 @@ async def _count_meals(db: AsyncSession, household_id: uuid.UUID, _within: uuid.
 
 
 async def _count_plans(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
-    return await _count(db, Plan, Plan.household_id == household_id)
+    """Archived plans don't count, and that is the difference between a cap and
+    a wall.
+
+    There is no `DELETE /plans/{id}` — a plan is archived rather than removed,
+    because its `cooked_events` are the record of what the household actually
+    ate. So counting every row would mean a cap nothing could ever bring a
+    household back under: on the free tier they would plan their twentieth week
+    and never plan another, with the iPhone app's "add to plan" dead behind it
+    (`PlanStore.planForWriting` creates the plan implicitly). §5 promises plans
+    stay usable, so what this bounds is how many pools a household is juggling,
+    and finishing a week — the action they already take — is what frees the
+    place for the next one.
+    """
+    return await _count(db, Plan, Plan.household_id == household_id, Plan.status != "archived")
 
 
 async def _count_plan_meals(db: AsyncSession, _household_id: uuid.UUID, within: uuid.UUID | None) -> int:
@@ -260,8 +276,8 @@ RESOURCES: dict[str, _Spec] = {
         holder="this household has",
         count=_count_members,
         hint=(
-            "Everyone already in the household keeps full access to the recipes, plans and shopping list; "
-            "this only stops another person joining."
+            "This counts everyone in the household, so a place frees up only when one of them leaves "
+            "(DELETE /auth/household/members/{user_id}) — and a household of one has nobody to remove."
         ),
     ),
     "recipes": _Spec(
@@ -309,7 +325,10 @@ RESOURCES: dict[str, _Spec] = {
         scope="per household",
         holder="this household has",
         count=_count_plans,
-        hint="Delete an old archived plan, or reuse one: POST /plans accepts copy_from_plan_id.",
+        hint=(
+            "Archived plans do not count, so finishing a week frees a place: "
+            "POST /plans/{plan_id}/archive on one you are done with, which keeps its cooked history."
+        ),
     ),
     "plan_meals": _Spec(
         singular="meal",
@@ -337,7 +356,8 @@ RESOURCES: dict[str, _Spec] = {
         holder="this household has",
         count=_count_api_tokens,
         hint=(
-            "Revoke one you are no longer using (DELETE /auth/tokens/{token_id}) — an unused token is a "
+            "This counts every member's tokens, and GET /auth/tokens lists your own — revoke one you "
+            "are no longer using (DELETE /auth/tokens/{token_id}), since an unused token is a "
             "credential nobody is watching."
         ),
     ),
@@ -500,9 +520,11 @@ def _refusal(spec: _Spec, *, tier: str, limit: int, used: int, kind: str, upgrad
     instance every word of it is still true, which is the test §6 sets for
     anything the iPhone app might render.
     """
+    # A ceiling belongs to the server rather than to a tier, and so does a cap
+    # met by a comped household, so neither names one.
     allowance = (
         f"This server's {tier} tier allows {_quantity(limit, spec)} {spec.scope}"
-        if kind == "cap"
+        if kind == "cap" and tier in NAMED_TIERS
         else f"This server allows at most {_quantity(limit, spec)} {spec.scope}"
     )
     tail = (
@@ -518,20 +540,27 @@ def _refusal(spec: _Spec, *, tier: str, limit: int, used: int, kind: str, upgrad
 
 # ------------------------------------------------------------------ enforcement
 
-#: The tiers a household can actually move between. `unlimited` is a comp rather
-#: than a tier anyone buys, so it is not evidence that a bigger allowance exists:
-#: without this, every cap would look upgradable and answer 402.
-PURCHASABLE_TIERS = (FREE, PAID)
+#: Where a tier can move *up* to, and the only thing that ever justifies a 402.
+#: Deliberately a path rather than "is any other tier bigger": `unlimited` is a
+#: comp, not something anyone buys, so a household on it — or on the largest
+#: tier this server offers — has nothing to be sold and must not be told
+#: otherwise. Without this, a self-hoster who capped one tier and left the rest
+#: alone would have their own server answer them 402 Payment Required.
+UPGRADE_PATH: dict[str, tuple[str, ...]] = {FREE: (PAID,)}
+
+#: The tiers a refusal will name. `unlimited` is not one of them: a household on
+#: it is comped, so "this server's unlimited tier allows 10 recipes" would be a
+#: sentence that contradicts itself.
+NAMED_TIERS = (FREE, PAID)
 
 
-def _best_purchasable_cap(resource: str) -> int | None:
-    """The largest cap any purchasable tier offers, or None if one of them is
-    unlimited. What decides whether a cap is worth a 402 at all."""
-    table = _current_table()
-    caps = [getattr(table[tier], resource) for tier in PURCHASABLE_TIERS]
-    if any(cap is None for cap in caps):
-        return None
-    return max(caps)  # type: ignore[type-var]
+def _upgradable(tier: str, resource: str, cap: int) -> bool:
+    """Whether a tier above this one would actually lift this cap."""
+    for better in UPGRADE_PATH.get(tier, ()):
+        allowance = getattr(limits_for(better), resource)
+        if allowance is None or allowance > cap:
+            return True
+    return False
 
 
 def _verdict(household: Household, spec: _Spec, resource: str, *, used: int, adding: int) -> LimitExceeded | None:
@@ -549,8 +578,7 @@ def _verdict(household: Household, spec: _Spec, resource: str, *, used: int, add
     if ceiling is not None and after > ceiling:
         return _refuse(household, spec, resource, tier=tier, limit=ceiling, used=used, kind="ceiling")
     if cap is not None and after > cap:
-        best = _best_purchasable_cap(resource)
-        upgradable = best is None or best > cap
+        upgradable = _upgradable(tier, resource, cap)
         return _refuse(household, spec, resource, tier=tier, limit=cap, used=used, kind="cap", upgradable=upgradable)
     return None
 

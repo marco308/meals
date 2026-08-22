@@ -58,7 +58,11 @@ this changes nothing about how the deployment behaves.
   up front and committed before the page is fetched — the bandwidth is spent
   whether or not the page turns out to be readable — and `POST
   /recipes/{id}/reparse` costs the same allowance as `POST /recipes/ingest`,
-  since it makes the same outbound request.
+  since it makes the same outbound request. A household whose library is
+  already full is refused before either, so a full library never costs a fetch. Archived plans are not counted
+  against the plans cap: there is no way to delete a plan — its cooked history
+  is the reason — so counting them would end the weekly loop at plan 21 with no
+  way back, and finishing a week is what frees the place for the next one.
 
 ### Unchanged on purpose
 
