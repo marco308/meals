@@ -20,7 +20,15 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Version **1.1.1**. No migration.
+Nothing merged since the last deploy.
+
+## 2026-08-22 — backups that recover on their own
+
+Deployed to `meals.marcuslab.uk` as **1.1.1**, by digest and verified: the live
+API reports 1.1.1, the rollout converged before that was checked, and each
+service runs the digest the deploy asked for. **No migration.** The running
+backup container was checked for the fix itself rather than just a new digest,
+and reports healthy.
 
 ### Fixed
 
