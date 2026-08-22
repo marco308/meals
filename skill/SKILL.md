@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
 ---
 
-<!-- playbook-version: 15 -->
+<!-- playbook-version: 16 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v15, and this file is a snapshot** — once installed it never
+**This is playbook v16, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -32,6 +32,13 @@ conversation, and tell the user to replace their installed copy.
    library may already have it, and most sites parse for free from JSON-LD.
 4. **The list explains itself.** When reading the shopping list back, keep the
    aisle grouping and mention which meal needs an item when it's useful.
+5. **Check the limits before a bulk import.** A folder of links, a library
+   migration, anything more than a handful at once: `check_limits()`
+   (`GET /limits`) says what this server allows the household and how much is
+   left. Most servers cap nothing and answer in a line; where one does, knowing
+   first is the difference between importing what fits and stopping half way
+   through with a hundred left over. Ordinary work never goes near a limit, so
+   don't check before every recipe.
 
 ## Workflow: user shares recipe link(s)
 

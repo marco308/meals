@@ -266,6 +266,12 @@ class _Spec:
     #: What to do instead. Appended to the refusal, so it is the last thing an
     #: assistant reads and the first thing it can act on.
     hint: str = ""
+    #: Whether `count` answers for the household as a whole. `False` for an
+    #: allowance scoped to one parent — a meal's lines, a plan's meals — where
+    #: "how many are used" has no answer until the caller names which meal or
+    #: which plan. `GET /limits` publishes the allowance for those and leaves
+    #: the usage null rather than inventing a household-wide number for them.
+    household_wide: bool = True
 
 
 RESOURCES: dict[str, _Spec] = {
@@ -318,6 +324,7 @@ RESOURCES: dict[str, _Spec] = {
             "A line is one recipe or one loose ingredient. Split this into two meals and put both on the "
             "plan — a plan is a pool of options, so two entries cost nothing."
         ),
+        household_wide=False,
     ),
     "plans": _Spec(
         singular="plan",
@@ -340,6 +347,7 @@ RESOURCES: dict[str, _Spec] = {
             "A plan is a week's pool of options rather than a calendar, so this many is already more than "
             "a week of choices — archive it (POST /plans/{plan_id}/archive) and start the next one."
         ),
+        household_wide=False,
     ),
     "supermarkets": _Spec(
         singular="supermarket",
@@ -563,11 +571,22 @@ def _upgradable(tier: str, resource: str, cap: int) -> bool:
     return False
 
 
+def effective_tier(household: Household) -> str:
+    """The tier this household is actually treated as being on.
+
+    A column holding a value this build has not heard of resolves to
+    `unlimited` rather than raising, for the same reason `limits_for` does: a
+    household must never be locked out of its own data by a tier name from a
+    newer deployment.
+    """
+    return household.tier if household.tier in TIERS else UNLIMITED
+
+
 def _verdict(household: Household, spec: _Spec, resource: str, *, used: int, adding: int) -> LimitExceeded | None:
     """Whether this household may add `adding` more of `resource`, and if not,
     the refusal to raise. The single place caps, ceilings and status codes meet.
     """
-    tier = household.tier if household.tier in TIERS else UNLIMITED
+    tier = effective_tier(household)
     cap = getattr(limits_for(tier), resource)
     ceiling = getattr(ceilings(), resource)
     after = used + adding
@@ -586,7 +605,7 @@ def _verdict(household: Household, spec: _Spec, resource: str, *, used: int, add
 def _has_limit(household: Household, resource: str) -> bool:
     """Whether either a cap or a ceiling applies here — the check that keeps an
     unconfigured server from ever running a COUNT."""
-    tier = household.tier if household.tier in TIERS else UNLIMITED
+    tier = effective_tier(household)
     return getattr(limits_for(tier), resource) is not None or getattr(ceilings(), resource) is not None
 
 
@@ -670,6 +689,100 @@ async def enforce(
     refusal = _verdict(row, spec, resource, used=used, adding=adding)
     if refusal is not None:
         raise refusal
+
+
+# ----------------------------------------------------------------- publication
+
+# §4: "Better than a good error is not hitting the wall at all, so limits are
+# published." An assistant about to import two hundred recipes can ask what it
+# is allowed before it starts, rather than finding out on the fifty-first — and
+# on a server that has configured nothing, the honest answer is "no limits",
+# which is why `GET /limits` answers rather than 404s.
+
+
+@dataclass(frozen=True)
+class ResourceAllowance:
+    """One row of `GET /limits`: what this household is allowed, and how much of
+    it is spent."""
+
+    resource: str
+    #: The number this household will actually meet, whichever of the tier cap
+    #: and the fair-use ceiling is lower. `None` means unlimited.
+    limit: int | None
+    #: How many exist now, or `None` when the number has no meaning here:
+    #: unlimited (so nothing was counted), or an allowance scoped to one meal
+    #: or one plan, which has no household-wide answer.
+    used: int | None
+    remaining: int | None
+    #: Where the allowance applies: "per household", "in one meal", "a month".
+    scope: str
+    #: Whether a larger tier on this server would raise this number. `False` is
+    #: the ceiling, the top tier and the self-hosted default alike, and it is
+    #: the same judgement that decides 402 from 403 on a refusal.
+    upgradable: bool
+
+
+@dataclass(frozen=True)
+class LimitsSnapshot:
+    tier: str
+    #: Whether this deployment limits anything at all. `False` on a self-hosted
+    #: server that has set nothing, where every allowance below is unlimited.
+    limited: bool
+    resources: tuple[ResourceAllowance, ...]
+
+
+def _effective(tier: str, resource: str) -> tuple[int | None, bool]:
+    """The binding number for this tier and resource, and whether money lifts it.
+
+    Ties go to the ceiling, because `_verdict` checks the ceiling first: when a
+    tier's cap has caught up with it, "no tier fixes this" is the true answer.
+    """
+    cap = getattr(limits_for(tier), resource)
+    ceiling = getattr(ceilings(), resource)
+    if ceiling is not None and (cap is None or cap >= ceiling):
+        return ceiling, False
+    if cap is None:
+        return None, False
+    return cap, _upgradable(tier, resource, cap)
+
+
+async def snapshot(db: AsyncSession, household: Household) -> LimitsSnapshot:
+    """Every allowance this household has, with usage where usage means anything.
+
+    Counts only what is actually limited, which keeps the module's first promise
+    on the endpoint too: a self-hosted server answers this without running a
+    single query, because there is nothing to be short of.
+    """
+    tier = effective_tier(household)
+    allowances = []
+    for resource, spec in RESOURCES.items():
+        limit, upgradable = _effective(tier, resource)
+        used = None
+        if limit is not None and spec.count is not None and spec.household_wide:
+            used = await spec.count(db, household.id, None)
+        allowances.append(
+            ResourceAllowance(
+                resource=resource,
+                limit=limit,
+                used=used,
+                remaining=None if limit is None or used is None else max(0, limit - used),
+                scope=spec.scope,
+                upgradable=upgradable,
+            )
+        )
+    return LimitsSnapshot(tier=tier, limited=anything_configured(), resources=tuple(allowances))
+
+
+def free_tier_allowances() -> dict[str, int | None]:
+    """The free tier's own numbers, for the unauthenticated pricing table (§4).
+
+    The tier caps rather than the effective numbers: a pricing table is about
+    what the tiers differ by, and a ceiling is the same in all of them. On a
+    server that has configured nothing every value is `None`, which says
+    "unlimited" and reveals no hosted tier that does not exist.
+    """
+    free = limits_for(FREE)
+    return {name: getattr(free, name) for name in RESOURCE_NAMES}
 
 
 # ------------------------------------------------------------------ ingest quota

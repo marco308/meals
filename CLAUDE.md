@@ -172,6 +172,14 @@ instrumentation a new feature usually needs.
   to be one a household can get back under: **archived plans are not counted**,
   because there is no `DELETE /plans/{id}` (a plan's cooked history is why), so
   counting them would end the weekly loop at plan 21 with no way back.
+  Whatever is configured is **published** by `GET /limits` (`routers/limits.py`
+  over `limits.snapshot`) and, for the free tier alone, unauthenticated on
+  `GET /client-config` — a signup page has nobody to log in as yet. The endpoint
+  holds no numbers of its own, which is the point: a limit published from a
+  second source is one that will eventually disagree with the one being
+  enforced. It answers unlimited rather than 404 on an unconfigured server, and
+  counts only what is actually limited, so the "no queries when nothing is set"
+  promise holds there too.
 
 ### The web client (`web/`)
 
@@ -257,7 +265,7 @@ verbatim — never add a server-side token fallback in http mode. That header
 reaches the tools through the `_capture_caller_headers` middleware, which
 publishes them in a contextvar for the life of the request: SDK 2.0 only hands
 the request context to a handler that declares a `Context` parameter, and the
-alternative is threading one through all 29 tools and their helpers. Keep the
+alternative is threading one through all 30 tools and their helpers. Keep the
 middleware registered — without it every remote call silently drops to the
 stdio env-token path.
 

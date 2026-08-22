@@ -168,6 +168,100 @@ class TestShoppingList:
         assert result.rstrip().endswith("onion — ×2"), "untagged items stay unadorned"
 
 
+def _allowance(resource, limit, used, scope="per household", upgradable=True):
+    return {
+        "resource": resource,
+        "limit": limit,
+        "used": used,
+        "remaining": None if limit is None or used is None else max(0, limit - used),
+        "scope": scope,
+        "upgradable": upgradable,
+    }
+
+
+class TestCheckLimits:
+    """The tool exists so a bulk import asks before it starts rather than
+    stopping half way through."""
+
+    @respx.mock
+    async def test_a_server_that_limits_nothing_says_so_in_one_line(self):
+        respx.get(f"{API}/limits").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tier": "unlimited",
+                    "limited": False,
+                    "resources": [_allowance("recipes", None, None, upgradable=False)],
+                },
+            )
+        )
+        assert await server.check_limits() == "Nothing is capped here — import as much as you like."
+
+    @respx.mock
+    async def test_a_configured_server_that_caps_nothing_for_this_household_reads_the_same(self):
+        """A deployment can have numbers set for a tier this household is not
+        on, and "the free tier allows 50 recipes" is not an answer to "what am
+        I allowed"."""
+        respx.get(f"{API}/limits").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tier": "unlimited",
+                    "limited": True,
+                    "resources": [_allowance("recipes", None, None, upgradable=False)],
+                },
+            )
+        )
+        assert await server.check_limits() == "Nothing is capped here — import as much as you like."
+
+    @respx.mock
+    async def test_it_reads_back_the_numbers_and_what_is_left(self):
+        respx.get(f"{API}/limits").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tier": "free",
+                    "limited": True,
+                    "resources": [
+                        _allowance("recipes", 50, 12),
+                        _allowance("ingests_per_month", 20, 3, scope="a month"),
+                        _allowance("meal_lines", 50, None, scope="in one meal", upgradable=False),
+                        _allowance("plans", None, None, upgradable=False),
+                    ],
+                },
+            )
+        )
+        result = await server.check_limits()
+        assert "This household is on the free tier." in result
+        assert "recipes: 12 of 50 used, 38 left" in result
+        assert "ingests per month: 3 of 20 used, 17 left" in result
+        # No household-wide usage for a per-meal allowance, so it reads as the
+        # bound it is.
+        assert "meal lines: at most 50 in one meal" in result
+        assert "plans" not in result  # unlimited, so nothing to report
+
+    @respx.mock
+    async def test_a_spent_allowance_is_called_out_rather_than_left_to_arithmetic(self):
+        respx.get(f"{API}/limits").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tier": "free",
+                    "limited": True,
+                    "resources": [_allowance("recipes", 50, 50), _allowance("members", 1, 1)],
+                },
+            )
+        )
+        result = await server.check_limits()
+        assert "recipes: 50 of 50 used, 0 left" in result
+        assert "Already at the limit for recipes, members" in result
+
+    @respx.mock
+    async def test_an_api_error_comes_back_as_the_servers_own_sentence(self):
+        respx.get(f"{API}/limits").mock(return_value=httpx.Response(401, json={"detail": "nope"}))
+        assert "authentication failed" in await server.check_limits()
+
+
 class TestValueTier:
     def _ingredient(self, **extra):
         return {
