@@ -315,11 +315,19 @@ one, so the constraints it adds are load-bearing:
 `{{API_URL}}` substituted from the request's forwarded-proto/host headers.
 Keep `SKILL.md`, `prompt-pack.md` and the API in step when endpoints change.
 
-`PRIVACY.md` and `SUPPORT.md` ship the same way and render at `/privacy` and
-`/support` (`routers/pages.py`). **These are the App Store's privacy and support
-URLs**, so a build that fails to COPY them takes down a live store listing —
-which is why CI curls both against the built image. They're also exempt from the
-client gate: someone stuck on the upgrade screen is exactly who needs them.
+`PRIVACY.md`, `SUPPORT.md` and `TERMS.md` ship the same way and render at
+`/privacy`, `/support` and `/terms` (`routers/pages.py`). **The first two are the
+App Store's privacy and support URLs**, so a build that fails to COPY them takes
+down a live store listing — which is why CI curls all three against the built
+image. They're also exempt from the client gate: someone stuck on the upgrade
+screen is exactly who needs them, and deciding whether to keep paying must not
+require updating an app first. Every deployment serves all three, including the
+ones that sell nothing, so `TERMS.md` opens by saying that almost none of it
+applies to a self-hosted instance — keep it true on a server with no commerce,
+the same test the limit refusals have to pass. Cross-page links are written as
+prose plus a code span (`/privacy`) rather than as markdown links: a
+root-relative link 404s for anyone reading the file on GitHub, and a repo-
+relative one 404s on the served page.
 
 ## Testing
 

@@ -123,6 +123,30 @@ class TestPublicPages:
         assert response.headers["content-type"].startswith("text/html")
         assert "server URL" in response.text
 
+    async def test_terms_page_renders_as_html(self, client):
+        """Not an App Store URL, but the page somebody reads before paying and
+        the one they reach for when they want to stop."""
+        response = await client.get("/terms")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "<h1" in response.text
+        assert "Terms and refunds" in response.text
+        assert "## What is on offer" not in response.text  # rendered, not dumped
+
+    async def test_the_terms_are_true_on_a_server_that_sells_nothing(self, client):
+        """Every deployment serves this page, including every self-hosted one,
+        so it has to open by saying that almost none of it is about them."""
+        text = (await client.get("/terms")).text
+        assert "If you self-host, almost none of this applies" in text
+        assert "Nothing is on sale yet" in text
+
+    async def test_the_privacy_policy_is_straight_about_money(self, client):
+        """`/privacy` is a live App Store URL and it promises this project holds
+        no payment details. That promise needs a section, not a silence."""
+        text = (await client.get("/privacy")).text
+        assert 'id="paying-for-hosting"' in text
+        assert "Card details will never reach this server" in text
+
     async def test_tables_survive_the_render(self, client):
         """Most of what the privacy policy actually promises lives in its tables,
         so plain commonmark (which has none) would drop the substance."""
@@ -138,7 +162,7 @@ class TestPublicPages:
 
     async def test_pages_need_no_auth(self, client):
         """`client` is unauthenticated — Apple's reviewer opens these in a browser."""
-        for path in ("/privacy", "/support"):
+        for path in ("/privacy", "/support", "/terms"):
             assert (await client.get(path)).status_code == 200, path
 
     async def test_missing_documents_404_not_500(self, client, monkeypatch):
@@ -152,6 +176,7 @@ class TestPublicPages:
         landing = (await client.get("/")).json()
         assert landing["privacy"] == "http://test/privacy"
         assert landing["support"] == "http://test/support"
+        assert landing["terms"] == "http://test/terms"
 
 
 # The playbook's guidance, pinned to the version that announces it. The digest

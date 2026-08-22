@@ -22,6 +22,25 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
+- **`/terms`, a terms and refunds page**
+  ([#98](https://github.com/marco308/meals/issues/98)), shipped exactly the way
+  `/privacy` and `/support` are: a markdown file COPYed into the image,
+  rendered by `routers/pages.py`, exempt from the client gate, curled by CI
+  against the built image, and advertised on the JSON landing at `/`.
+- **It is written to be true on a server that sells nothing**, which is every
+  server today. It opens by saying that almost none of it applies to a
+  self-hosted instance, where the AGPL is the whole agreement, and it states
+  plainly that nothing is on sale yet and nobody has been charged. What it
+  commits to when that changes: £20 a year per household, a full no-questions
+  refund inside 30 days, best effort rather than an SLA from a one-person
+  operation, tested nightly backups, 90 days' notice and a pro-rata refund if
+  the service ever ends, and nothing deleted on cancellation ever.
+- **A billing section in `PRIVACY.md`**, because `/privacy` is a live App Store
+  URL that promises this project holds no payment details. It now says so
+  explicitly: no payment is taken anywhere today, and when it is, it goes
+  through a third-party merchant of record whose name will appear there before
+  the first charge, with card details never reaching this server or its author.
+
 - **`GET /household/export` returns everything a household owns in one request**
   ([#97](https://github.com/marco308/meals/issues/97)) — recipes with their
   lines, the ingredient library, meals, plans, the cooked history, saved
