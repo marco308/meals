@@ -21,6 +21,16 @@ class TestGuessAisle:
             ("shampoo", "🧼"),
             ("sun cream", "🧼"),  # longest keyword wins over 'cream'
             ("toilet roll", "🧴"),  # paper goods stay household
+            ("loo roll", "🧴"),  # longest keyword wins over 'roll' -> bakery
+            ("loo rolls", "🧴"),
+            ("toilet paper", "🧴"),
+            ("bread rolls", "🍞"),  # 'roll' still means bakery when it is bread
+            ("sausage roll", "❄️"),
+            ("water", "🥤"),
+            ("bottled water", "🥤"),
+            ("watercress", "🥬"),  # whole-word matching: 'water' must not match inside it
+            ("water chestnuts", "🥫"),  # longest keyword wins over 'water'
+            ("rose water", "🍝"),  # a flavouring, shelved with vanilla extract
             ("smoked paprika", "🌶️"),
             ("self-raising flour", "🍝"),
             ("sourdough", "🍞"),

@@ -198,6 +198,7 @@ _KEYWORDS: dict[str, str] = {
     "cannellini beans": "🥫",
     "chickpeas": "🥫",
     "coconut milk": "🥫",
+    "water chestnut": "🥫",  # guard: the "water" keyword would put these in Drinks
     "tuna": "🥫",
     "sweetcorn tin": "🥫",
     "olives": "🥫",
@@ -257,6 +258,7 @@ _KEYWORDS: dict[str, str] = {
     "bicarbonate of soda": "🍝",
     "yeast": "🍝",
     "vanilla extract": "🍝",
+    "rose water": "🍝",  # guard: a flavouring, not a drink
     "olive oil": "🍝",
     "vegetable oil": "🍝",
     "sunflower oil": "🍝",
@@ -302,6 +304,7 @@ _KEYWORDS: dict[str, str] = {
     "juice": "🥤",
     "squash": "🥤",
     "sparkling water": "🥤",
+    "water": "🥤",
     "cola": "🥤",
     "lemonade": "🥤",
     "beer": "🥤",
@@ -336,6 +339,8 @@ _KEYWORDS: dict[str, str] = {
     "bin bags": "🧴",
     "kitchen roll": "🧴",
     "toilet roll": "🧴",
+    "loo roll": "🧴",
+    "toilet paper": "🧴",
     "washing up liquid": "🧴",
     "dishwasher tablets": "🧴",
     "laundry detergent": "🧴",
