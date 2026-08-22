@@ -22,6 +22,33 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
+- **`GET /household/export` returns everything a household owns in one request**
+  ([#97](https://github.com/marco308/meals/issues/97)) — recipes with their
+  lines, the ingredient library, meals, plans, the cooked history, saved
+  supermarkets and every shopping list including the archived ones, as one JSON
+  document. Ids are kept so it is importable in principle; every reference
+  carries the name beside the id so it is readable in practice, without joining
+  anything.
+- **It is free on every tier and always will be** (`planning/08-freemium.md`
+  §1). Nothing in `app/limits.py` touches it: "take your data and go self-host"
+  being one request is what makes hosting somebody's data defensible, and it is
+  the same answer whether or not anyone is paying. It is equally useful with no
+  hosting business at all — the thing to run before a migration, and the
+  per-household complement to the whole-database `backup/` sidecar.
+- **Streamed row by row**, so a 2,000-recipe household starts arriving
+  immediately instead of being assembled in memory. Deterministic ordering
+  throughout, so two exports of an unchanged household are the same bytes and
+  can be diffed.
+- **Credentials and bookkeeping stay behind**: no password hashes, API tokens
+  or invite codes, and none of this server's own record *about* the household
+  (its tier, any price, the ingest counter), which means nothing on the box it
+  is moving to. The field lists are explicit rather than reflected off the
+  table, and a test fails when a new column is neither exported nor written
+  down as deliberately excluded.
+- Import is **not** included, on purpose: id collisions, ingredient folding and
+  unit canonicalisation make it a bigger design question, and it should not have
+  held the export up.
+
 - **`MAX_HOUSEHOLDS` and `MAX_USERS` bound the instance, not the household**
   ([#96](https://github.com/marco308/meals/issues/96),
   `planning/08-freemium.md` §3). The per-household caps say what one family
