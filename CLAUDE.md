@@ -207,8 +207,24 @@ instrumentation a new feature usually needs.
   operator command on the box, like `app/provision.py`, never an endpoint), and
   `python -m app.dunning` from cron sends the two emails, each marked once so it
   never sends a third and never marked on a relay failure so it retries.
-  **There is no billing webhook**: no merchant of record has been chosen (§7),
-  and #99 says decide that before writing it.
+- **The billing webhook is off unless configured, and its failures are loud**
+  (`services/billing.py`, `POST /billing/webhook`). Unset `BILLING_PROCESSOR`
+  and the route **404s** rather than existing and refusing — a self-hosted
+  instance must not be able to acquire billing by accident, the same posture
+  `/metrics` takes without a token. The signature *is* the authentication
+  (the caller has never heard of this app's accounts), verified constant-time
+  against the raw body. **Both Paddle and Lemon Squeezy are supported and the
+  choice is a setting**, because which merchant of record to use is a
+  commercial decision that had not been made; the adapters cost about forty
+  lines and remove the need to guess. `billing_events` is the idempotency
+  ledger and the reason a retry cannot grant a second year — processors retry
+  on any non-2xx, so the blip between granting and answering 200 is the
+  expected case, not a rare one. **Deterministic failures answer 200 on
+  purpose** (a duplicate, an unknown household, an entitlement refusal):
+  retrying would fail identically, so they are counted and alerted on instead,
+  which is the whole point — `increase(meals_billing_webhooks_total{outcome=~
+  "orphan|refused|bad_signature|unsigned|stale|unreadable"}[1h]) > 0`. Only
+  genuinely transient failures are left to 500 and be retried.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above

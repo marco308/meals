@@ -20,6 +20,36 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+### Added
+
+- **The billing webhook** ([#99](https://github.com/marco308/meals/issues/99)),
+  and it **ships inert**: with `BILLING_PROCESSOR` unset the route does not
+  exist at all (404, the posture `/metrics` takes without a token), because a
+  self-hosted instance has no billing and must not be able to acquire one by
+  accident. **One migration**, a new `billing_events` table.
+- **Paddle and Lemon Squeezy are both supported**, selected by
+  `BILLING_PROCESSOR`. Which merchant of record to use is a commercial decision
+  that had not been made, and both adapters together cost about forty lines,
+  which is cheaper than guessing and rewriting. Both formats were read from the
+  live documentation: Paddle signs `"{ts}:{body}"` and sends `Paddle-Signature`,
+  Lemon Squeezy signs the raw body and sends `X-Signature`.
+- **A retry cannot grant a second year.** Every event is recorded once in a
+  ledger keyed on `(processor, event_id)`; Lemon Squeezy sends no event id, so
+  its key is a digest of the body, which makes an identical retry land on the
+  same row. Processors retry on any non-2xx, so a blip between granting and
+  answering 200 is the expected case rather than a rare one.
+- **Nothing fails quietly**, which is the point of the whole design: every
+  request ends as exactly one counted, logged, recorded outcome, including the
+  ones that decide to do nothing. Deterministic failures — a duplicate, an event
+  naming no household, one the entitlement layer refused — answer 200 so the
+  processor stops retrying something that will fail identically, and are counted
+  for the alert instead. Only genuinely transient failures 500 and are retried.
+  Alert on `increase(meals_billing_webhooks_total{outcome=~"orphan|refused|bad_signature|unsigned|stale|unreadable"}[1h]) > 0`.
+- A cancellation is deliberately **not** a revocation: Lemon Squeezy's
+  `subscription_cancelled` starts a grace period that runs to the paid-through
+  date, and cutting the entitlement short there would take away days somebody
+  paid for. The entitlement expires on its own.
+
 ### Changed
 
 - **The Apple review account is comped to the paid tier**
