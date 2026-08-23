@@ -181,6 +181,9 @@ async def test_stripe_checkout_carries_the_household_and_the_merchant_of_record(
     assert sent["success_url"].endswith("/app/#/settings")
     # The key authenticates and is never anywhere else.
     assert route.calls.last.request.headers["authorization"].startswith("Basic ")
+    # Pinned, not inherited: `managed_payments` exists from this version on, and
+    # the account default is a dashboard setting this server cannot see.
+    assert route.calls.last.request.headers["stripe-version"] == "2025-03-31.basil"
 
 
 @respx.mock

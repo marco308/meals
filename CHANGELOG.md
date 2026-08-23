@@ -22,11 +22,24 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-08-23 — pin the version that decides who is selling
+
+Released as **1.3.1**. No migrations.
+
+### Fixed
+
+- **The Stripe API version is pinned on the checkout request** rather than
+  inherited from the account's default. `managed_payments[enabled]` — the
+  parameter that makes Stripe the merchant of record, and the whole reason §7
+  chose one — exists only from `2025-03-31.basil`. An account on an older
+  default would have rejected it and failed every checkout, and the setting that
+  decides it is one this server cannot see. Found while setting up a sandbox:
+  Stripe's own integration snippet sends the header and this code did not.
+
 ## 2026-08-23 — the web half of it
 
-Released as **1.3.0**, and **not yet deployed**: unlike the sections below this
-one, `meals.marcuslab.uk` is still on 1.2.0 until `make deploy` runs. **No
-migrations**, so the rollout is an image swap.
+Released as **1.3.0** and deployed to `meals.marcuslab.uk` the same evening.
+**No migrations**, so the rollout was an image swap.
 
 Nothing here is switched on for that deployment either. It sets no
 `LIMITS_PROFILE` and no `BILLING_API_KEY`, so the usage panel, the signup table
