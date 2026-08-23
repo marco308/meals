@@ -379,7 +379,16 @@ after. Lapsing is derived rather than written back, so it only ever stops a
 household *growing*: nothing is deleted, everything already there stays
 readable, the plan stays usable, the shopping list keeps working and the export
 stays free. None of it applies to a household with no expiry, which is every
-self-hosted one. Being over a
+self-hosted one.
+
+Payment itself is a webhook, and it is **off unless a deployment sets both
+`BILLING_PROCESSOR` and `BILLING_WEBHOOK_SECRET`** — off meaning the route does
+not exist, not that it exists and refuses. Paddle and Lemon Squeezy are both
+supported because both are merchants of record and handle EU VAT; which one is
+a setting, not a rewrite. Every webhook is signature-verified, recorded once in
+a ledger so a retry cannot grant a second year, and counted by outcome, because
+the expensive failure here is the quiet one: somebody paying and not being
+credited. Being over a
 limit blocks only the writes that grow a household; nothing is deleted, nothing
 becomes unreadable, and the shopping list is exempt in every case because the
 iPhone app drains its offline queue through it. Whatever you set, `GET /limits`

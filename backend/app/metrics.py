@@ -90,6 +90,27 @@ _CEILING_GAUGES: tuple[tuple[Gauge, str], ...] = (
 )
 
 
+# Billing webhooks, by what this server made of each one (app/services/billing.py).
+# This exists because the expensive failure is the *quiet* one: a webhook that
+# is refused, orphaned or never verified means somebody paid and was not
+# credited, and nobody finds that by reading logs. Alert on it:
+#
+#   increase(meals_billing_webhooks_total{outcome=~"orphan|refused|bad_signature|unsigned|stale|unreadable"}[1h]) > 0
+#
+# `granted` and `duplicate` are the healthy outcomes; `duplicate` is a retry
+# doing its job, not a problem.
+_BILLING_WEBHOOKS = Counter(
+    "meals_billing_webhooks_total",
+    "Billing webhooks received, by outcome.",
+    labelnames=("outcome",),
+    registry=registry,
+)
+
+
+def count_billing_webhook(outcome: str) -> None:
+    _BILLING_WEBHOOKS.labels(outcome=outcome).inc()
+
+
 def observe_request(method: str, route: str, status: int, client_platform: str | None, duration_seconds: float) -> None:
     _HTTP_REQUESTS.labels(
         method=method, route=route, status=str(status), client_platform=client_platform or "none"

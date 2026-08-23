@@ -12,7 +12,19 @@ from fastapi.staticfiles import StaticFiles
 from app import client_gate, limits, mcp_mount, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
-from app.routers import auth, household, ingredients, meals, pages, plans, recipes, shopping, skill, supermarkets
+from app.routers import (
+    auth,
+    billing,
+    household,
+    ingredients,
+    meals,
+    pages,
+    plans,
+    recipes,
+    shopping,
+    skill,
+    supermarkets,
+)
 from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version
 
@@ -151,6 +163,7 @@ app.include_router(skill.router)
 app.include_router(pages.router)
 app.include_router(limits_router.router)
 app.include_router(household.router)
+app.include_router(billing.router)
 
 # The web client is served by the API itself so it is always same-origin with
 # the endpoints it calls — no CORS, no second host to deploy or certify. Plain

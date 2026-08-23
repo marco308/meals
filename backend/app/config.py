@@ -115,6 +115,32 @@ class Settings(BaseSettings):
     entitlement_grace_days: int = 14
     dunning_warn_days: int = 7
 
+    # Billing webhook (app/services/billing.py, planning/08-freemium.md §2).
+    # **Off unless both of these are set**, the same shape SMTP has: a
+    # self-hosted instance has no billing and must not be able to acquire one by
+    # accident, so with BILLING_PROCESSOR unset the endpoint does not exist at
+    # all (404, exactly like /metrics with no token).
+    #
+    #   BILLING_PROCESSOR   'paddle' or 'lemonsqueezy'. Both are merchants of
+    #                       record, which is the point (§7): they handle EU B2C
+    #                       digital-services VAT, which applies from the first
+    #                       sale regardless of the UK threshold.
+    #   BILLING_WEBHOOK_SECRET  the signing secret from that processor's
+    #                       dashboard. Every request is verified against it.
+    #   BILLING_SIGNATURE_TOLERANCE_SECONDS  how old a signed timestamp may be
+    #                       (Paddle only; Lemon Squeezy does not sign one).
+    #                       Paddle's SDKs default to 5s, which is tight enough
+    #                       that one slow hop loses a payment; replay is already
+    #                       prevented by the event ledger, so this is generous
+    #                       on purpose.
+    billing_processor: str | None = None
+    billing_webhook_secret: str | None = None
+    billing_signature_tolerance_seconds: int = 300
+
+    @property
+    def billing_configured(self) -> bool:
+        return bool(self.billing_processor and self.billing_webhook_secret)
+
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
     # And a ceiling on how much of one we'll read (issue #55). The URL is the
