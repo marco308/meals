@@ -20,6 +20,20 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-08-23 — the web half of it
+
+Released as **1.3.0**, and **not yet deployed**: unlike the sections below this
+one, `meals.marcuslab.uk` is still on 1.2.0 until `make deploy` runs. **No
+migrations**, so the rollout is an image swap.
+
+Nothing here is switched on for that deployment either. It sets no
+`LIMITS_PROFILE` and no `BILLING_API_KEY`, so the usage panel, the signup table
+and the subscription card are all absent, `POST /billing/checkout` does not
+exist, and `billing_enabled` is false. What changes for a user of it is one
+button: their household's data, in one file, from Settings.
+
 The web half of the money, and the web half of the limits. Two issues, both of
 them the same shape: the freemium machinery existed and nothing a household
 could see used it.
