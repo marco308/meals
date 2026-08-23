@@ -383,7 +383,11 @@ self-hosted one.
 
 Payment itself is a webhook, and it is **off unless a deployment sets both
 `BILLING_PROCESSOR` and `BILLING_WEBHOOK_SECRET`** — off meaning the route does
-not exist, not that it exists and refuses. Stripe Managed Payments, Paddle and
+not exist, not that it exists and refuses. Starting a payment is a second switch
+again (`BILLING_API_KEY` and `BILLING_PRICE_ID`): a server can be told about
+payments while holding no key that could charge anybody, and until it does,
+`POST /billing/checkout` is not there either. Nothing about any of this reaches
+the iPhone app, which carries no price, no button and no link to one. Stripe Managed Payments, Paddle and
 Lemon Squeezy are all supported because all three are merchants of record and
 handle EU VAT; which one is a setting, not a rewrite. Every webhook is signature-verified, recorded once in
 a ledger so a retry cannot grant a second year, and counted by outcome, because

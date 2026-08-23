@@ -274,7 +274,14 @@ async def client_config() -> dict:
     `free_tier_limits` is what an account costs nothing here, so a signup page
     can show it before anyone has an account to authenticate with. Every value
     is null on a server that limits nothing, which is the same thing an
-    authenticated `GET /limits` says in more detail."""
+    authenticated `GET /limits` says in more detail.
+
+    `billing_enabled` says whether this deployment sells anything at all, which
+    is a different question from whether it limits anything: a server can cap
+    what one household holds and have no way to take a penny, and almost every
+    one does. It is the single answer to that question — a client that inferred
+    it from the shape of the limits, or from a 404, would eventually disagree
+    with the server about it."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -283,6 +290,7 @@ async def client_config() -> dict:
         "upgrade_url": config.ios_upgrade_url,
         "password_reset_enabled": config.email_configured,
         "free_tier_limits": limits.free_tier_allowances(),
+        "billing_enabled": config.billing_sells,
     }
 
 

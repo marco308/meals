@@ -142,10 +142,17 @@ class TestPublicPages:
 
     async def test_the_privacy_policy_is_straight_about_money(self, client):
         """`/privacy` is a live App Store URL and it promises this project holds
-        no payment details. That promise needs a section, not a silence."""
+        no payment details. That promise needs a section, not a silence.
+
+        The tense moved from "will never" to "never" when #121 named the
+        processor and built the checkout: the section stopped describing a
+        future and started describing what the code does."""
         text = (await client.get("/privacy")).text
         assert 'id="paying-for-hosting"' in text
-        assert "Card details will never reach this server" in text
+        assert "Card details never reach this server or its author" in text
+        # And who the merchant of record is, which the section promised to say
+        # before any money moved.
+        assert "Stripe Managed Payments" in text
 
     async def test_tables_survive_the_render(self, client):
         """Most of what the privacy policy actually promises lives in its tables,

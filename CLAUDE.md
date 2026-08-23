@@ -207,6 +207,26 @@ instrumentation a new feature usually needs.
   operator command on the box, like `app/provision.py`, never an endpoint), and
   `python -m app.dunning` from cron sends the two emails, each marked once so it
   never sends a third and never marked on a relay failure so it retries.
+- **Taking a payment is two switches, and both are off by default**
+  (`services/billing.py`, `routers/billing.py`). `BILLING_PROCESSOR` +
+  `BILLING_WEBHOOK_SECRET` let this server be *told* about payments;
+  `BILLING_API_KEY` + `BILLING_PRICE_ID` (`billing_sells`) let it start one, and
+  until both halves are set `POST /billing/checkout` does not exist either. The
+  split is the point: a box can receive webhooks while holding no credential
+  that could charge anybody. `POST /billing/checkout` is the household lead's
+  alone, which is the one place Q23 gates on them, and it **grants nothing** —
+  only a verified webhook with a billing period end does that, so an abandoned
+  checkout leaves no trace. The household id rides in the checkout's custom data
+  and has to land where the webhook reads it (`subscription_data[metadata]` for
+  Stripe, `custom_data` for Paddle, `checkout_data.custom` for Lemon Squeezy);
+  a payment that names no household is an orphan and somebody has paid for
+  nothing. **`managed_payments[enabled]=true` is what makes Stripe the merchant
+  of record** — omit it and the payment still succeeds, with the EU VAT silently
+  back on us, which is the whole reason §7 chose an MoR. Managing or cancelling
+  belongs to the processor (`BILLING_MANAGE_URL`), because they are the seller.
+  `GET /client-config` publishes `billing_enabled`, the single answer to "does
+  this server sell anything", which is a different question from whether it
+  limits anything.
 - **The billing webhook is off unless configured, and its failures are loud**
   (`services/billing.py`, `POST /billing/webhook`). Unset `BILLING_PROCESSOR`
   and the route **404s** rather than existing and refusing — a self-hosted
