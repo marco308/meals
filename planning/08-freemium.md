@@ -287,6 +287,28 @@ Backend first is deliberate: every one of 1 to 5 is worth having on a
 self-hosted instance too, so if the hosted business never happens they are not
 wasted, which is the same test 06 §Phase 3 applies to the whole plan.
 
+**1 to 7 are done** (1.1.0 and 1.2.0). Finishing them made plain what backend
+first had left out, which is everything a household touches, so the list gained
+three more on 2026-08-23:
+
+8. The web app showing a household what it is allowed, and where to get its data
+   ([#120](https://github.com/marco308/meals/issues/120)). No commerce in it:
+   `limited` from `GET /limits` is the switch, so a server that configures
+   nothing shows nothing.
+9. Web purchase and subscription management
+   ([#121](https://github.com/marco308/meals/issues/121)) — the half of §7 that
+   happens before the webhook. `routers/billing.py` holds one route, so the
+   checkout it waits for is one nothing here can start, and `LimitsOut` cannot
+   describe a subscription it has no `paid_until` for.
+10. Opening registration ([#122](https://github.com/marco308/meals/issues/122)):
+    the email verification this codebase does not have, signup rate limits, and
+    a policy for reaping abandoned free households. Named in §7's last
+    paragraph, carried as a bullet in #99, and closed with it unbuilt.
+
+9 and 10 sit behind §9's gate. 8 does not, because a household on a limited
+server deserves to know where it stands whether or not anything is ever sold,
+and the export button is the same promise §1 makes.
+
 ## 9. Decision metric
 
 Unchanged from 06 §Phase 3: waitlist size one month after the Show HN push.

@@ -21,6 +21,7 @@ export function renderLogin(root) {
           <button data-mode="register" class="${mode === "register" ? "on" : ""}">Register</button>
         </div>
         <form data-form>${formBody()}</form>
+        <div data-allowances></div>
         <p class="login-foot">${footNote()}</p>
       </div>
     </div>
@@ -55,6 +56,8 @@ export function renderLogin(root) {
     };
   }
 
+  paintAllowances(root);
+
   const form = root.querySelector("[data-form]");
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -69,6 +72,53 @@ export function renderLogin(root) {
       button.disabled = false;
     }
   };
+}
+
+// ── what an account here includes ────────────────────────────────────────
+//
+// planning/08-freemium.md §4: the numbers ride on the unauthenticated
+// GET /client-config precisely so this page can show them, since a signup page
+// has nobody to log in as yet. On a server that limits nothing every one of
+// them is null and this says nothing at all, which is §1 doing its job.
+//
+// Shown only when starting a household: an invite code joins somebody else's,
+// whose allowances are theirs and not these.
+
+const ALLOWANCES = [
+  // The order is the order the wall is met in: the member limit is the gate.
+  ["members", (n) => `${n} ${n === 1 ? "person" : "people"}`],
+  ["recipes", (n) => `${n} recipes`],
+  ["meals", (n) => `${n} meals`],
+  ["plans", (n) => `${n} plans on the go`],
+  ["ingredients", (n) => `${n} ingredients`],
+  ["supermarkets", (n) => `${n} ${n === 1 ? "supermarket" : "supermarkets"}`],
+  ["api_tokens", (n) => `${n} API ${n === 1 ? "token" : "tokens"}`],
+  ["ingests_per_month", (n) => `${n} recipes read from a URL each month`],
+];
+
+let allowances = null; // null until asked; {} once the answer is in
+
+function paintAllowances(root) {
+  const slot = root.querySelector("[data-allowances]");
+  if (!slot || mode !== "register" || joinMode !== "new") return;
+  if (allowances === null) {
+    allowances = {};
+    api("/client-config")
+      .then((config) => {
+        allowances = config.free_tier_limits || {};
+        paintAllowances(root); // painting a slot, never re-rendering: the form may be half typed
+      })
+      .catch(() => {}); // a server that cannot answer this has a louder problem
+    return;
+  }
+  const rows = ALLOWANCES.filter(([name]) => allowances[name] !== null && allowances[name] !== undefined);
+  if (rows.length === 0) return;
+  render(slot, html`
+    <div class="allow-note">
+      <b>What an account here includes</b>
+      <ul>${rows.map(([name, phrase]) => html`<li>${phrase(allowances[name])}</li>`)}</ul>
+    </div>
+  `);
 }
 
 function formBody() {

@@ -823,6 +823,40 @@ dialog .sub { color: var(--ink-mute); font-size: .9rem; margin: .2rem 0 .9rem; }
 
 .market-pick { width: auto; font: inherit; font-size: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .05rem .35rem; }
 
+/* ── allowances: what this server allows, and the signup note ───────── */
+
+.allow-list { margin-top: .3rem; }
+.allow-row { display: flex; align-items: center; gap: 1rem; padding: .55rem .1rem; border-bottom: 1px dashed var(--line); }
+.allow-row:last-child { border-bottom: 0; }
+.allow-row .a-main { display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 0; }
+.allow-row .a-main b { font-family: var(--display); font-size: .98rem; }
+.allow-row .a-cap { font-family: var(--mono); font-size: .82rem; color: var(--ink-mute); flex: none; }
+.allow-row .a-bar {
+  flex: none;
+  width: 140px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--cream-2);
+  overflow: hidden;
+}
+/* The width of the fill is set through the CSSOM in settings.js — a style
+   attribute would need 'unsafe-inline' in the CSP, which is not a trade worth
+   making for a progress bar. */
+.allow-row .a-bar span { display: block; height: 100%; background: var(--leek); border-radius: 999px; }
+.allow-row .a-bar.full span { background: var(--tomato); }
+
+.allow-note {
+  margin-top: 1.1rem;
+  padding: .85rem 1rem;
+  background: var(--cream-2);
+  border-radius: 14px;
+  font-size: .85rem;
+  color: var(--ink-soft);
+}
+.allow-note b { font-family: var(--display); display: block; margin-bottom: .35rem; }
+.allow-note ul { margin: 0; padding-left: 1.1rem; }
+.allow-note li { margin: .12rem 0; }
+
 /* ── responsive ─────────────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
