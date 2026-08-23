@@ -281,7 +281,10 @@ async def test_a_processor_refusal_says_nobody_was_charged(stripe, auth_client, 
     response = await auth_client.post("/billing/checkout")
     assert response.status_code == 502
     assert "nothing was charged" in response.json()["detail"]
-    # The processor's own words stay out of it: they name price ids.
+    # The processor's own words stay out of it. They name price ids, and a
+    # rejected request is commonly quoted back with its parameters — one of
+    # which is the customer's email address, which /privacy promises this server
+    # does not write down.
     assert "price_founding_year" not in response.json()["detail"]
 
     household = await only_household(sessions)

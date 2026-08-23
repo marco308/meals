@@ -513,17 +513,23 @@ async def start_checkout(household: Household, *, email: str, return_url: str) -
 
 
 def _fail(processor: str, household: Household, response: httpx.Response) -> CheckoutError:
-    """One place for "the processor said no", so the operator gets the detail and
-    the caller gets a sentence."""
+    """One place for "the processor said no": a counted, findable log line, and
+    a sentence for whoever pressed the button.
+
+    **The response body is deliberately not logged.** It reads like operator
+    business — price ids, API versions — but a processor that rejects a request
+    commonly quotes the offending parameter back, and one of the parameters here
+    is the customer's email address. `/privacy` promises this server does not
+    write those down, and CodeQL is right to call the shortcut what it is. The
+    status and the processor are enough to find the request in their dashboard,
+    which holds the whole exchange anyway.
+    """
     log_event(
         "billing.checkout_failed",
         household_id=household.id,
         processor=processor,
         outcome="refused",
         status=response.status_code,
-        # The processor's own words, truncated. They name price ids and API
-        # versions — operator business, and nothing personal.
-        detail=response.text[:300],
     )
     return CheckoutError("the payment processor refused to open a checkout, so nothing was charged.")
 
