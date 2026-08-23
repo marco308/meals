@@ -503,31 +503,38 @@ async def start_checkout(household: Household, *, email: str, return_url: str) -
             else:
                 url = await _lemonsqueezy_checkout(client, base, settings, household, email, return_url)
     except httpx.HTTPError as exc:
-        log_event("billing.checkout_failed", household_id=household.id, processor=processor, outcome="unreachable")
+        log_event("billing.checkout_failed", household_id=household.id, outcome="unreachable")
         raise CheckoutError(
             "the payment processor did not answer, so nothing was charged. Try again in a minute."
         ) from exc
 
-    log_event("billing.checkout_started", household_id=household.id, processor=processor)
+    log_event("billing.checkout_started", household_id=household.id)
     return url
 
 
-def _fail(processor: str, household: Household, response: httpx.Response) -> CheckoutError:
-    """One place for "the processor said no": a counted, findable log line, and
-    a sentence for whoever pressed the button.
+def _fail(household: Household, response: httpx.Response) -> CheckoutError:
+    """One place for "the processor said no": a findable log line, and a sentence
+    for whoever pressed the button.
 
-    **The response body is deliberately not logged.** It reads like operator
-    business — price ids, API versions — but a processor that rejects a request
-    commonly quotes the offending parameter back, and one of the parameters here
-    is the customer's email address. `/privacy` promises this server does not
-    write those down, and CodeQL is right to call the shortcut what it is. The
-    status and the processor are enough to find the request in their dashboard,
-    which holds the whole exchange anyway.
+    Two things are deliberately *not* in that line.
+
+    **The response body.** It reads like operator business — a bad price id, an
+    API version — but a processor rejecting a request commonly quotes the
+    offending parameter back, and one of the parameters here is the customer's
+    email address. `/privacy` promises this server does not write those down.
+
+    **Which processor it was.** That is `BILLING_PROCESSOR`, one value for the
+    whole deployment, so repeating it on every event says nothing the settings do
+    not already say. (CodeQL also reads any field whose name contains "billing"
+    as personal data, which it is not; dropping a redundant field was the
+    cheaper answer to that than arguing.)
+
+    The status and the timestamp are enough to find the exchange in the
+    processor's own dashboard, which has all of it.
     """
     log_event(
         "billing.checkout_failed",
         household_id=household.id,
-        processor=processor,
         outcome="refused",
         status=response.status_code,
     )
@@ -559,10 +566,10 @@ async def _stripe_checkout(
         auth=(settings.billing_api_key, ""),
     )
     if response.status_code >= 400:
-        raise _fail(STRIPE, household, response)
+        raise _fail(household, response)
     url = (response.json() or {}).get("url")
     if not url:
-        raise _fail(STRIPE, household, response)
+        raise _fail(household, response)
     return str(url)
 
 
@@ -582,12 +589,12 @@ async def _paddle_checkout(client: httpx.AsyncClient, base: str, settings, house
         headers={"Authorization": f"Bearer {settings.billing_api_key}", "Paddle-Version": "1"},
     )
     if response.status_code >= 400:
-        raise _fail(PADDLE, household, response)
+        raise _fail(household, response)
     url = (((response.json() or {}).get("data") or {}).get("checkout") or {}).get("url")
     if not url:
         # Paddle answers 200 with a null checkout url when no default payment
         # link is set, which is a dashboard setting rather than a bad request.
-        raise _fail(PADDLE, household, response)
+        raise _fail(household, response)
     return str(url)
 
 
@@ -617,8 +624,8 @@ async def _lemonsqueezy_checkout(
         },
     )
     if response.status_code >= 400:
-        raise _fail(LEMONSQUEEZY, household, response)
+        raise _fail(household, response)
     url = (((response.json() or {}).get("data") or {}).get("attributes") or {}).get("url")
     if not url:
-        raise _fail(LEMONSQUEEZY, household, response)
+        raise _fail(household, response)
     return str(url)
