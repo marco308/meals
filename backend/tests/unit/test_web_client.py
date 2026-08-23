@@ -73,3 +73,25 @@ def test_per_item_allowances_are_still_per_item(name):
     """The two the signup note leaves out are left out because of this flag, so
     if one ever becomes household-wide the note has to gain it."""
     assert limits.RESOURCES[name].household_wide is False
+
+
+async def test_login_hides_the_reset_link_by_the_key_the_server_publishes():
+    """A server with no SMTP answers 503 to POST /auth/password-reset, so the
+    sign-in foot asks first rather than offering a door nobody can open — the
+    same thing the iOS app does (issue #49). It has to read the key that is
+    actually published, so a rename here fails rather than silently reverting
+    the link to always-on."""
+    from app.main import client_config
+
+    published = await client_config()
+    assert "password_reset_enabled" in published, "/client-config no longer publishes the key login.js reads"
+
+    source = (WEB / "login.js").read_text()
+    assert "config === null || config.password_reset_enabled === false" in source, (
+        "web/js/views/login.js should withhold the reset link until /client-config settles, then "
+        "hide it on an explicit false only — absent means an older server that does send reset codes"
+    )
+    assert ".catch(() => {\n      config = {};" in source, (
+        "the failed fetch must still settle config, or a /client-config that errors hides the reset "
+        "link for good rather than for a moment"
+    )
