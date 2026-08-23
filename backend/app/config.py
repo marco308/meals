@@ -121,10 +121,13 @@ class Settings(BaseSettings):
     # accident, so with BILLING_PROCESSOR unset the endpoint does not exist at
     # all (404, exactly like /metrics with no token).
     #
-    #   BILLING_PROCESSOR   'paddle' or 'lemonsqueezy'. Both are merchants of
-    #                       record, which is the point (§7): they handle EU B2C
-    #                       digital-services VAT, which applies from the first
-    #                       sale regardless of the UK threshold.
+    #   BILLING_PROCESSOR   'stripe', 'paddle' or 'lemonsqueezy'. All three are
+    #                       merchants of record, which is the point (§7): they
+    #                       are the legal seller, so EU B2C digital-services VAT
+    #                       — due from the first sale regardless of the UK
+    #                       threshold — is theirs to file rather than ours.
+    #                       'stripe' means Stripe **Managed Payments**, not
+    #                       ordinary Stripe, which leaves the tax with you.
     #   BILLING_WEBHOOK_SECRET  the signing secret from that processor's
     #                       dashboard. Every request is verified against it.
     #   BILLING_SIGNATURE_TOLERANCE_SECONDS  how old a signed timestamp may be

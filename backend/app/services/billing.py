@@ -15,15 +15,15 @@ failure mode this module refuses to have is the quiet one.
 Which processor, and why both are here
 --------------------------------------
 
-§7 requires a **merchant of record** rather than raw Stripe: EU B2C
-digital-services VAT applies from the first sale regardless of the UK threshold,
-and Paddle and Lemon Squeezy both handle it for roughly 5%, which is cheaper
-than the problem. Which of the two is a commercial decision that has not been
-made, so both adapters are here and `BILLING_PROCESSOR` picks one. That costs
-about forty lines and removes the need to guess; the alternative was writing
-this against one of them and rewriting it if the other won.
+§7 requires a **merchant of record**: EU B2C digital-services VAT applies from
+the first sale regardless of the UK threshold, so somebody has to be the legal
+seller and file in the customer's country. That requirement is what matters, and
+it is not the same as "not Stripe" — **Stripe Managed Payments** (2026) is
+Stripe acting as merchant of record, which means the account this project
+already has can do the job. `BILLING_PROCESSOR` picks between three adapters
+rather than committing the code to one.
 
-Both were read from the live documentation on 2026-08-22:
+All three were read from the live documentation on 2026-08-22 and 2026-08-23:
 
 - **Paddle** signs `"{ts}:{raw body}"` with HMAC-SHA256, hex, and sends it as
   `Paddle-Signature: ts=<unix>;h1=<hex>`. The payload carries `event_id`,
@@ -33,10 +33,20 @@ Both were read from the live documentation on 2026-08-22:
   `meta.event_name`. It sends **no event id**, so the ledger key is a digest of
   the body — an identical retry hashes identically, which is exactly what the
   key is for.
+- **Stripe** signs `"{ts}.{raw body}"` with HMAC-SHA256, hex, and sends it as
+  `Stripe-Signature: t=…,v1=…`. Two details its docs are explicit about and a
+  hand-rolled verifier gets wrong: there can be **several `v1` signatures** at
+  once, because rolling an endpoint secret keeps the old one live for up to 24
+  hours, so any match counts; and every other scheme must be **ignored**,
+  because `v0` is a deliberately fake signature sent alongside test events and
+  accepting it would be a downgrade attack.
 
-The linkage to a household is `custom_data.household_id`, set on the checkout.
-Both processors pass custom data through to the webhook; Paddle puts it on
-`data`, Lemon Squeezy on `meta`.
+The linkage to a household is `household_id` in the checkout's custom data:
+Paddle puts it on `data.custom_data`, Lemon Squeezy on `meta.custom_data`, and
+Stripe on the object's `metadata`. For Stripe subscriptions that means setting
+`subscription_data.metadata.household_id` on the Checkout Session — metadata on
+the *session* does not reach the subscription, and a payment nobody can match to
+a household is recorded as an orphan rather than guessed at.
 """
 
 import hashlib
@@ -60,7 +70,8 @@ _UNSET: Any = object()
 
 PADDLE = "paddle"
 LEMONSQUEEZY = "lemonsqueezy"
-PROCESSORS = (PADDLE, LEMONSQUEEZY)
+STRIPE = "stripe"
+PROCESSORS = (PADDLE, LEMONSQUEEZY, STRIPE)
 
 #: What this server made of a webhook. Every request ends as exactly one of
 #: these, and every one of them is counted.
@@ -126,6 +137,27 @@ def verify(raw_body: bytes, headers: dict[str, str], *, now: datetime | None = N
         if not hmac.compare_digest(expected, provided):
             raise BillingError("signature does not match", status_code=401, outcome="bad_signature")
         _check_freshness(timestamp, now=now)
+    elif processor == STRIPE:
+        header = lowered.get("stripe-signature", "")
+        timestamp = ""
+        offered = []
+        for part in header.split(","):
+            prefix, _, value = part.strip().partition("=")
+            if prefix == "t":
+                timestamp = value
+            elif prefix == "v1":
+                # Only v1. Every other scheme is ignored on purpose: Stripe
+                # sends a deliberately fake `v0` beside test events, and
+                # accepting one would be a downgrade attack.
+                offered.append(value)
+        if not timestamp or not offered:
+            raise BillingError("missing or malformed Stripe-Signature header", status_code=401, outcome="unsigned")
+        expected = hmac.new(secret, f"{timestamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
+        # Any match counts: rolling an endpoint secret leaves the old one live
+        # for up to 24 hours, and Stripe signs once per active secret.
+        if not any(hmac.compare_digest(expected, candidate) for candidate in offered):
+            raise BillingError("signature does not match", status_code=401, outcome="bad_signature")
+        _check_freshness(timestamp, now=now)
     else:
         provided = lowered.get("x-signature", "")
         expected = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
@@ -179,6 +211,19 @@ _LEMONSQUEEZY_ACTIONS = {
 }
 
 
+#: Stripe's subscription lifecycle. `updated` is the catch-all and carries the
+#: paid-through date, which is the only thing this server needs from it.
+#: Invoice events are deliberately absent: the subscription object is the source
+#: of truth for "paid until when", and acting on both would be two writes for
+#: one payment. `checkout.session.completed` is absent for a sharper reason —
+#: it carries no billing period, and nothing here may grant without one.
+_STRIPE_ACTIONS = {
+    "customer.subscription.created": "grant",
+    "customer.subscription.updated": "grant",
+    "customer.subscription.deleted": "revoke",
+}
+
+
 def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
     processor = get_settings().billing_processor
     lowered = {name.lower(): value for name, value in headers.items()}
@@ -189,6 +234,13 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         custom = (data.get("custom_data") or {}) if isinstance(data, dict) else {}
         renews_at = _timestamp((data.get("current_billing_period") or {}).get("ends_at"))
         actions = _PADDLE_ACTIONS
+    elif processor == STRIPE:
+        event_type = str(payload.get("type") or "")
+        event_id = str(payload.get("id") or "")
+        obj = (payload.get("data") or {}).get("object") or {}
+        custom = obj.get("metadata") or {}
+        renews_at = _stripe_period_end(obj)
+        actions = _STRIPE_ACTIONS
     else:
         meta = payload.get("meta") or {}
         event_type = str(lowered.get("x-event-name") or meta.get("event_name") or "")
@@ -213,6 +265,22 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         household_id=_household_id(custom),
         renews_at=renews_at,
     )
+
+
+def _stripe_period_end(obj: dict) -> datetime | None:
+    """When the subscription is paid through.
+
+    `current_period_end` sits on the subscription in older API versions and on
+    each subscription *item* in newer ones, so both are read. The latest item
+    end is the one that matters: it is the point after which nothing has been
+    paid for.
+    """
+    ends = [obj.get("current_period_end")]
+    for item in (obj.get("items") or {}).get("data") or []:
+        if isinstance(item, dict):
+            ends.append(item.get("current_period_end"))
+    stamps = [value for value in ends if isinstance(value, int)]
+    return datetime.fromtimestamp(max(stamps), tz=UTC) if stamps else None
 
 
 def _household_id(custom: object) -> uuid.UUID | None:
@@ -276,6 +344,19 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
             ORPHAN,
             detail=f"household {event.household_id} is not on this server",
             household_id=None,
+        )
+
+    if event.action == "grant" and event.renews_at is None:
+        # A grant with no expiry never lapses, so this would quietly hand out a
+        # subscription that nobody has to renew. Every processor sends the
+        # paid-through date; an event that does not carry one is a shape this
+        # server has not understood, and understanding it wrongly is worse than
+        # refusing it.
+        return await _record(
+            db,
+            event,
+            REFUSED,
+            detail="event carries no billing period end, and a grant without one would never expire",
         )
 
     try:

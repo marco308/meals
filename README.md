@@ -383,9 +383,9 @@ self-hosted one.
 
 Payment itself is a webhook, and it is **off unless a deployment sets both
 `BILLING_PROCESSOR` and `BILLING_WEBHOOK_SECRET`** — off meaning the route does
-not exist, not that it exists and refuses. Paddle and Lemon Squeezy are both
-supported because both are merchants of record and handle EU VAT; which one is
-a setting, not a rewrite. Every webhook is signature-verified, recorded once in
+not exist, not that it exists and refuses. Stripe Managed Payments, Paddle and
+Lemon Squeezy are all supported because all three are merchants of record and
+handle EU VAT; which one is a setting, not a rewrite. Every webhook is signature-verified, recorded once in
 a ledger so a retry cannot grant a second year, and counted by outcome, because
 the expensive failure here is the quiet one: somebody paying and not being
 credited. Being over a

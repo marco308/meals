@@ -122,8 +122,10 @@ meal planning is a shared family utility with natural yearly cadence.
 **Amended 2026-08-21:** the tier structure, the caps, the payment route and the
 reason the iPhone app never mentions money are decided in
 [`08-freemium.md`](08-freemium.md). Blockers 1 and 2 below are done; blocker 3
-is now a merchant of record rather than Stripe links, because EU B2C digital
-services VAT applies from the first sale.
+is now a merchant of record rather than plain Stripe payment links, because EU
+B2C digital services VAT applies from the first sale. **Corrected 2026-08-23:**
+that does not mean "not Stripe" — Stripe Managed Payments is itself a merchant
+of record, and is the recommendation. See [`08-freemium.md`](08-freemium.md) §7.
 
 Hard blockers before taking anyone's money, in order:
 
