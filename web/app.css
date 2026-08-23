@@ -682,6 +682,9 @@ table.plain tr:last-child td { border-bottom: 0; }
 .login-tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow-sm); }
 .login-card .btn { width: 100%; justify-content: center; padding: .65rem 1rem; font-size: 1rem; margin-top: .4rem; }
 .login-foot { text-align: center; margin-top: 1.1rem; font-size: .85rem; color: var(--ink-mute); }
+/* A server with no SMTP has no reset link to offer, so the foot can be empty
+   on the sign-in tab — don't leave its margin behind. */
+.login-foot:empty { display: none; }
 
 .seg { display: flex; gap: .3rem; background: var(--cream-2); border-radius: 999px; padding: .22rem; margin-bottom: 1rem; }
 .seg button { flex: 1; border: 0; background: none; padding: .35rem .5rem; border-radius: 999px; font-weight: 600; font-size: .85rem; color: var(--ink-mute); cursor: pointer; }

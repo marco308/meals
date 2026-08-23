@@ -22,7 +22,7 @@ export function renderLogin(root) {
         </div>
         <form data-form>${formBody()}</form>
         <div data-allowances></div>
-        <p class="login-foot">${footNote()}</p>
+        <p class="login-foot" data-foot></p>
       </div>
     </div>
   `);
@@ -34,21 +34,6 @@ export function renderLogin(root) {
       renderLogin(root);
     };
   }
-  const forgot = root.querySelector("[data-forgot]");
-  if (forgot) {
-    forgot.onclick = () => {
-      mode = "reset";
-      resetStage = "request";
-      renderLogin(root);
-    };
-  }
-  const back = root.querySelector("[data-back]");
-  if (back) {
-    back.onclick = () => {
-      mode = "signin";
-      renderLogin(root);
-    };
-  }
   for (const seg of root.querySelectorAll("[data-join]")) {
     seg.onclick = () => {
       joinMode = seg.dataset.join;
@@ -56,7 +41,9 @@ export function renderLogin(root) {
     };
   }
 
+  paintFoot(root);
   paintAllowances(root);
+  loadConfig(root);
 
   const form = root.querySelector("[data-form]");
   form.onsubmit = async (event) => {
@@ -74,15 +61,24 @@ export function renderLogin(root) {
   };
 }
 
-// ── what an account here includes ────────────────────────────────────────
+// ── what this server can do, and what an account here includes ───────────
 //
 // planning/08-freemium.md §4: the numbers ride on the unauthenticated
 // GET /client-config precisely so this page can show them, since a signup page
 // has nobody to log in as yet. On a server that limits nothing every one of
 // them is null and this says nothing at all, which is §1 doing its job.
 //
-// Shown only when starting a household: an invite code joins somebody else's,
-// whose allowances are theirs and not these.
+// The same answer says whether the server can send email at all, which is what
+// decides the reset link below: a deployment with no SMTP answers 503 to
+// POST /auth/password-reset, so offering it regardless points people at a door
+// they can do nothing about (issue #49 fixed exactly this in the iOS app).
+//
+// It lands after the card is on screen, so both readers paint their own slot
+// rather than re-rendering: the form may be half typed by then.
+//
+// Which is also why the fetch settles into `config` whether it succeeded or
+// not. The link is withheld until the answer is in, so a rejection that left
+// it null would hide a working feature for good rather than for a moment.
 
 const ALLOWANCES = [
   // The order is the order the wall is met in: the member limit is the gate.
@@ -96,21 +92,31 @@ const ALLOWANCES = [
   ["ingests_per_month", (n) => `${n} recipes read from a URL each month`],
 ];
 
-let allowances = null; // null until asked; {} once the answer is in
+let config = null; // the answer, or {} if it could not be had; null until it settles
+let asked = false; // a re-render mid-flight must not ask a second time
+
+function loadConfig(root) {
+  if (asked) return;
+  asked = true;
+  api("/client-config")
+    .then((answer) => {
+      config = answer || {};
+    })
+    .catch(() => {
+      config = {}; // a server that cannot answer this has a louder problem
+    })
+    .finally(() => {
+      paintFoot(root);
+      paintAllowances(root);
+    });
+}
 
 function paintAllowances(root) {
   const slot = root.querySelector("[data-allowances]");
   if (!slot || mode !== "register" || joinMode !== "new") return;
-  if (allowances === null) {
-    allowances = {};
-    api("/client-config")
-      .then((config) => {
-        allowances = config.free_tier_limits || {};
-        paintAllowances(root); // painting a slot, never re-rendering: the form may be half typed
-      })
-      .catch(() => {}); // a server that cannot answer this has a louder problem
-    return;
-  }
+  // Shown only when starting a household: an invite code joins somebody else's,
+  // whose allowances are theirs and not these.
+  const allowances = config?.free_tier_limits || {};
   const rows = ALLOWANCES.filter(([name]) => allowances[name] !== null && allowances[name] !== undefined);
   if (rows.length === 0) return;
   render(slot, html`
@@ -119,6 +125,30 @@ function paintAllowances(root) {
       <ul>${rows.map(([name, phrase]) => html`<li>${phrase(allowances[name])}</li>`)}</ul>
     </div>
   `);
+}
+
+// The foot's buttons are bound here rather than in renderLogin because a
+// repaint replaces them, and the reset link only learns whether it belongs
+// once /client-config has answered.
+function paintFoot(root) {
+  const slot = root.querySelector("[data-foot]");
+  if (!slot) return;
+  render(slot, footNote());
+  const forgot = slot.querySelector("[data-forgot]");
+  if (forgot) {
+    forgot.onclick = () => {
+      mode = "reset";
+      resetStage = "request";
+      renderLogin(root);
+    };
+  }
+  const back = slot.querySelector("[data-back]");
+  if (back) {
+    back.onclick = () => {
+      mode = "signin";
+      renderLogin(root);
+    };
+  }
 }
 
 function formBody() {
@@ -170,7 +200,16 @@ function formBody() {
 }
 
 function footNote() {
-  if (mode === "signin") return html`<button class="link-btn" data-forgot>Forgotten your password?</button>`;
+  if (mode === "signin") {
+    // Withheld until /client-config has settled, so it never appears and then
+    // vanishes. After that only an explicit false keeps it away: absent means a
+    // server that never published the key, and those do send reset codes — the
+    // same reading the iOS app takes. A fetch that failed settles to {} for
+    // exactly that reason, so being unable to ask offers the link rather than
+    // quietly removing one that works.
+    if (config === null || config.password_reset_enabled === false) return html``;
+    return html`<button class="link-btn" data-forgot>Forgotten your password?</button>`;
+  }
   if (mode === "register") {
     return joinMode === "new"
       ? html`Your recipes, plan and list are visible only to your household.`
