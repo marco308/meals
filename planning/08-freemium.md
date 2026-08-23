@@ -297,17 +297,26 @@ three more on 2026-08-23:
    nothing shows nothing.
 9. Web purchase and subscription management
    ([#121](https://github.com/marco308/meals/issues/121)) — the half of §7 that
-   happens before the webhook. `routers/billing.py` holds one route, so the
-   checkout it waits for is one nothing here can start, and `LimitsOut` cannot
-   describe a subscription it has no `paid_until` for.
+   happens before the webhook. **Done**: `POST /billing/checkout` opens a hosted
+   checkout with the household id where the webhook will look for it,
+   `GET /billing/subscription` says what a household has and where to manage it,
+   and both are absent unless a deployment holds a key that can charge somebody.
+   Two decisions worth keeping: the subscription lives on its own endpoint
+   rather than on `GET /limits`, which stays about allowances and says nothing
+   about money; and managing or cancelling is the processor's page rather than
+   one served here, because with a merchant of record they are the seller and
+   the refund is theirs to give.
 10. Opening registration ([#122](https://github.com/marco308/meals/issues/122)):
     the email verification this codebase does not have, signup rate limits, and
     a policy for reaping abandoned free households. Named in §7's last
     paragraph, carried as a bullet in #99, and closed with it unbuilt.
 
-9 and 10 sit behind §9's gate. 8 does not, because a household on a limited
-server deserves to know where it stands whether or not anything is ever sold,
-and the export button is the same promise §1 makes.
+10 sits behind §9's gate. 8 does not, because a household on a limited server
+deserves to know where it stands whether or not anything is ever sold, and the
+export button is the same promise §1 makes. 9 is built but **not switched on**:
+the code ships inert, and turning it on still needs the two confirmations in §7
+(Managed Payments pricing read off Stripe's own page, and an accountant on the
+UK-seller position), the Postgres separation, and the gate itself.
 
 ## 9. Decision metric
 

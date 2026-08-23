@@ -140,9 +140,54 @@ class Settings(BaseSettings):
     billing_webhook_secret: str | None = None
     billing_signature_tolerance_seconds: int = 300
 
+    # Starting a checkout (issue #121). The webhook is the *end* of a payment;
+    # these are what it takes to begin one, and they are deliberately separate
+    # settings: a deployment can take webhooks with no key on the box that can
+    # charge anybody, which is the safer half to turn on first.
+    #
+    #   BILLING_API_KEY     the processor's secret key. The only credential here
+    #                       that can create a charge, so it is never logged and
+    #                       never reaches a client.
+    #   BILLING_PRICE_ID    what is being sold: a Stripe price id, a Paddle
+    #                       price id, or a Lemon Squeezy *variant* id.
+    #   BILLING_STORE_ID    Lemon Squeezy only, which wants the store beside the
+    #                       variant.
+    #   BILLING_API_BASE    override the processor's API host. Paddle's sandbox
+    #                       is a different one (sandbox-api.paddle.com), and it
+    #                       is how the tests point at a stub.
+    #   BILLING_MANAGE_URL  where a household goes to change a card, read an
+    #                       invoice or cancel. With a merchant of record that is
+    #                       the processor's own portal, so it is a URL out of
+    #                       their dashboard rather than anything served here.
+    #   BILLING_PRICE_PENCE / BILLING_PRICE_CURRENCY  what to *say* it costs, on
+    #                       the one screen that offers it. No default, like every
+    #                       other number in this project: a deployment that has
+    #                       not set one shows no price rather than someone
+    #                       else's.
+    billing_api_key: str | None = None
+    billing_price_id: str | None = None
+    billing_store_id: str | None = None
+    billing_api_base: str | None = None
+    billing_manage_url: str | None = None
+    billing_price_pence: int | None = None
+    billing_price_currency: str = "GBP"
+    billing_api_timeout_seconds: float = 20.0
+
     @property
     def billing_configured(self) -> bool:
         return bool(self.billing_processor and self.billing_webhook_secret)
+
+    @property
+    def billing_sells(self) -> bool:
+        """Whether this deployment can actually take money.
+
+        Deliberately stricter than `billing_configured`: a server that can only
+        *receive* webhooks has no checkout to offer, and offering one it cannot
+        create would be a button that 500s. This is the single answer to "does
+        this server sell anything", published on `/client-config` so no client
+        has to infer it from a 404 or, worse, from the shape of the limits.
+        """
+        return bool(self.billing_configured and self.billing_api_key and self.billing_price_id)
 
     # Timeout for fetching external recipe pages during ingestion.
     recipe_fetch_timeout_seconds: float = 15.0
@@ -174,6 +219,30 @@ class Settings(BaseSettings):
     @property
     def email_sender(self) -> str:
         return self.smtp_from or self.smtp_username or "meals@localhost"
+
+    @model_validator(mode="after")
+    def _a_server_that_sells_needs_somebody_to_sell_to(self) -> Self:
+        # A household that starts on the top tier already has everything a
+        # subscription would buy, so `POST /billing/checkout` correctly refuses
+        # it — and a deployment that enabled billing and left this alone would
+        # have a checkout nobody on it can ever use, with no error to explain
+        # why. Fail at boot instead, where it is one line to fix.
+        if self.billing_sells and self.default_household_tier != "free":
+            raise ValueError(
+                f"billing is configured but DEFAULT_HOUSEHOLD_TIER is {self.default_household_tier!r}: "
+                "a new household would already have everything a subscription buys, so nothing could be sold. "
+                "Set DEFAULT_HOUSEHOLD_TIER=free."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _lemonsqueezy_needs_its_store(self) -> Self:
+        # Lemon Squeezy is the one processor whose checkout names two things,
+        # and a missing store id fails at the API rather than at boot, which is
+        # to say at the first person trying to pay.
+        if self.billing_processor == "lemonsqueezy" and self.billing_price_id and not self.billing_store_id:
+            raise ValueError("BILLING_STORE_ID is required with lemonsqueezy: its checkout names a store and a variant")
+        return self
 
     @model_validator(mode="after")
     def _client_floor_must_be_reachable(self) -> Self:

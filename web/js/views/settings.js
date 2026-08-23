@@ -12,13 +12,16 @@ import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, ske
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, household, invites, tokens, markets, allowances] = await Promise.all([
+  const [user, household, invites, tokens, markets, allowances, subscription] = await Promise.all([
     api("/auth/me"),
     api("/auth/household"),
     api("/auth/invites"),
     api("/auth/tokens"),
     api("/supermarkets"),
     api("/limits"),
+    // 404 is the answer on every server that has no billing, which is almost
+    // all of them, and it is the server's own answer rather than a guess.
+    api("/billing/subscription").catch(() => null),
   ]);
   session.saveUser(user);
   const youLead = household.lead_user_id === user.id;
@@ -99,6 +102,8 @@ export async function renderSettings(root) {
       </div>
 
       ${allowancesSection(allowances)}
+
+      ${subscriptionSection(subscription, household, youLead, leadName)}
 
       <div class="section card">
         <h2>Supermarkets &amp; aisle order</h2>
@@ -346,6 +351,22 @@ export async function renderSettings(root) {
   // deliberately does not police.
   for (const fill of root.querySelectorAll("[data-fill]")) fill.style.width = `${fill.dataset.fill}%`;
 
+  const subscribe = root.querySelector("[data-subscribe]");
+  if (subscribe) {
+    subscribe.onclick = async () => {
+      subscribe.disabled = true;
+      try {
+        // The URL is the processor's, single-use, and bound to this household.
+        // Leaving the app for it is the whole design: no commerce is served here.
+        const checkout = await api("/billing/checkout", { method: "POST" });
+        window.location.assign(checkout.url);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+        subscribe.disabled = false;
+      }
+    };
+  }
+
   root.querySelector("[data-export]").onclick = async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -360,6 +381,78 @@ export async function renderSettings(root) {
   };
 
   root.querySelector("[data-delete-account]").onclick = () => deleteAccountDialog();
+}
+
+// ── the subscription ─────────────────────────────────────────────────────
+//
+// The only commerce in this project, and it is here rather than in the iPhone
+// app on purpose (planning/08-freemium.md §6): the app carries no price, no
+// button and no link to one, and the App Store listing rests on that.
+//
+// `GET /billing/subscription` 404s on every server with no billing configured,
+// which is almost all of them, so a null here means the card is absent — the
+// same rule the allowances card follows, from the same §1.
+//
+// Paying leaves this app entirely. The processor is the merchant of record, so
+// the checkout, the card details, the invoices and any refund are theirs, and
+// this server never sees a card number.
+
+function subscriptionSection(subscription, household, youLead, leadName) {
+  if (!subscription) return "";
+  return html`
+    <div class="section card">
+      <h2>Subscription</h2>
+      <p class="sub">${subscriptionState(subscription)}</p>
+      ${subscription.can_checkout && !youLead
+        ? html`<p class="sub">${leadName} leads “${household.name}”, so this is theirs to arrange.</p>`
+        : ""}
+      <div class="dialog-actions">
+        ${subscription.can_checkout && youLead
+          ? html`<button class="btn" data-subscribe>${subscribeLabel(subscription)}</button>`
+          : ""}
+        ${subscription.manage_url
+          ? html`<a class="btn ghost" href="${subscription.manage_url}" target="_blank" rel="noopener">
+              Manage billing
+            </a>`
+          : ""}
+      </div>
+    </div>
+  `;
+}
+
+function subscriptionState(subscription) {
+  const paid = money(subscription.price_pence, subscription.price_currency);
+  const from = subscription.source === "comp" ? ", with the compliments of whoever runs it" : "";
+  switch (subscription.state) {
+    case "paid":
+      return `Paid until ${fmtDate(subscription.paid_until)}${from}${paid ? `, at ${paid} a year` : ""}.`;
+    case "grace":
+      // §5: lapsing reduces what a household can add, and takes nothing away.
+      return `This ran out on ${fmtDate(subscription.paid_until)}. The free tier's limits come back on
+        ${fmtDate(subscription.grace_ends_at)} and nothing is deleted, then or ever.`;
+    case "lapsed":
+      return `This ran out on ${fmtDate(subscription.paid_until)}, so the free tier's limits apply again.
+        Everything already here stayed, and the shopping list never stopped.`;
+    default:
+      // No expiry at all: a standing comp, or a household that has never paid.
+      return subscription.source
+        ? "This household is paid up, with no expiry."
+        : "This household pays nothing here.";
+  }
+}
+
+function subscribeLabel(subscription) {
+  const offer = money(subscription.offer_price_pence, subscription.offer_price_currency);
+  return offer ? `Subscribe — ${offer} a year` : "Subscribe";
+}
+
+function money(pence, currency) {
+  if (pence === null || pence === undefined) return "";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency || "GBP",
+    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
+  }).format(pence / 100);
 }
 
 // ── what this server allows ──────────────────────────────────────────────

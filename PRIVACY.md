@@ -81,23 +81,32 @@ This section exists because `/privacy` is a published, permanent URL and it
 should be right *before* any money moves, not after.
 
 **Today, nothing here applies to anyone.** No payment is taken for any Meals
-server, no card details have ever reached this project, and there is no
-payment processor. If you self-host, that stays true forever: there is nothing
-to pay and nobody to pay it to.
+server, and no card details have ever reached this project. If you self-host,
+that stays true forever: the software takes no payments unless whoever runs it
+configures a processor, and with none configured there is not even an endpoint
+to take one — there is nothing to pay and nobody to pay it to.
 
 If the hosted service does open, one thing changes and it is worth stating in
-advance:
+advance. The processor is now chosen and named here, which is what this section
+promised to do before any money moved:
 
-- **Payment will go through a third-party merchant of record**, and this
-  section will name them here before a single payment is taken. They will
-  handle the card, the receipt and the VAT. Their privacy policy will cover
-  what they hold, and it will be linked from this page.
-- **Card details will never reach this server or its author.** Not stored, not
-  logged, not seen. The most this server would ever record about money is that
-  a household is paid up, until when, and what it agreed to pay.
+- **Payment goes through a third-party merchant of record**, which for the
+  author's hosted service is **Stripe Managed Payments** — Stripe acting as the
+  legal seller. They handle the card, the receipt and the VAT, and what they
+  hold is covered by Stripe's own privacy policy at `stripe.com/privacy`. A
+  different operator running this software may configure a different one
+  (Paddle and Lemon Squeezy are also supported), so if you are paying somebody
+  else, ask them which.
+- **Card details never reach this server or its author.** Not stored, not
+  logged, not seen. Paying means leaving for a page the processor hosts, and
+  the most this server ever records about money is that a household is paid up,
+  until when, what it agreed to pay, and which processor said so.
+- **One thing is sent to the processor when you start a checkout**: the email
+  address of the account doing it, so the receipt has somewhere to go, and an
+  internal id for the household so the payment can be matched back to it. That
+  is the whole of it.
 - **Your recipes and lists have nothing to do with it.** No content of any kind
-  is shared with a payment processor, ever. The only thing they would be told is
-  what they need to take a payment.
+  is shared with a payment processor, ever.
 
 The terms and refunds page (`/terms` on the same server, and
 [TERMS.md](https://github.com/marco308/meals/blob/main/TERMS.md) in the

@@ -1,6 +1,8 @@
-"""The billing webhook: a payment becoming an entitlement, exactly once.
+"""Both ends of a payment: opening a checkout, and a payment becoming an
+entitlement exactly once.
 
-Issue #99, planning/08-freemium.md §2. Two things shape every line of it.
+Issues #99 and #121, planning/08-freemium.md §2 and §7. Two things shape every
+line of it.
 
 **It ships inert.** With `BILLING_PROCESSOR` unset the route does not exist —
 404, the same posture `/metrics` has without a token. A self-hosted instance has
@@ -56,6 +58,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -426,3 +429,190 @@ def count(outcome: str) -> None:
     never reach the ledger — a bad signature, an unreadable body — are counted
     too. Those are the ones that would otherwise be silent."""
     metrics.count_billing_webhook(outcome)
+
+
+# ------------------------------------------------------- starting a checkout
+#
+# The webhook above is the *end* of a payment. This is the beginning, and issue
+# #121 exists because the beginning was missing: the route waited for a checkout
+# that nothing in this repo could start.
+#
+# Three things shape every line of it.
+#
+# **The household id has to land where the webhook reads it.** That link is the
+# only one there is — a payment that names no household is recorded as an orphan
+# and somebody has paid for nothing. Stripe carries it on
+# `subscription_data[metadata]`, because metadata on the *session* does not reach
+# the subscription and the subscription is what the webhook sees; Paddle on
+# `custom_data`, which it copies onto the subscription for recurring items; Lemon
+# Squeezy on `checkout_data.custom`, which comes back as `meta.custom_data`.
+#
+# **Managed Payments is a parameter, not just a setting.** `managed_payments
+# [enabled]=true` on the Checkout Session is what makes Stripe the merchant of
+# record for that sale. Leave it off and the payment still succeeds, the customer
+# still gets their subscription, and *you* are the seller of record with the EU
+# VAT to file — the exact thing §7 chose a merchant of record to avoid, failing
+# silently. It is one line and it is the most expensive line here to lose.
+#
+# **Nothing here grants anything.** Starting a checkout is not a payment;
+# `entitlements.grant` is reached only from a verified webhook carrying a billing
+# period end. A checkout that is abandoned leaves no trace but a log line.
+
+#: Where each processor's API lives. `BILLING_API_BASE` overrides it, which is
+#: how you reach Paddle's sandbox (`sandbox-api.paddle.com`) and how the tests
+#: point this at a stub instead of the internet.
+_API_BASES = {
+    STRIPE: "https://api.stripe.com",
+    PADDLE: "https://api.paddle.com",
+    LEMONSQUEEZY: "https://api.lemonsqueezy.com",
+}
+
+
+class CheckoutError(Exception):
+    """No checkout could be started, so nobody was charged.
+
+    Carries a sentence for the person who pressed the button rather than the
+    processor's own words: those name price ids and API versions, which is
+    operator business and reaches the operator through the log instead.
+    """
+
+    def __init__(self, detail: str, *, status_code: int = 502) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+
+
+async def start_checkout(household: Household, *, email: str, return_url: str) -> str:
+    """Create a hosted checkout for this household and return where to send them.
+
+    The URL is the processor's, is single-use, and is deliberately never logged:
+    it is a payment page bound to one household.
+    """
+    settings = get_settings()
+    processor = settings.billing_processor
+    base = (settings.billing_api_base or _API_BASES.get(processor, "")).rstrip("/")
+    if not base:
+        raise CheckoutError("this server's billing is not configured", status_code=503)
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.billing_api_timeout_seconds) as client:
+            if processor == STRIPE:
+                url = await _stripe_checkout(client, base, settings, household, email, return_url)
+            elif processor == PADDLE:
+                url = await _paddle_checkout(client, base, settings, household, email)
+            else:
+                url = await _lemonsqueezy_checkout(client, base, settings, household, email, return_url)
+    except httpx.HTTPError as exc:
+        log_event("billing.checkout_failed", household_id=household.id, processor=processor, outcome="unreachable")
+        raise CheckoutError(
+            "the payment processor did not answer, so nothing was charged. Try again in a minute."
+        ) from exc
+
+    log_event("billing.checkout_started", household_id=household.id, processor=processor)
+    return url
+
+
+def _fail(processor: str, household: Household, response: httpx.Response) -> CheckoutError:
+    """One place for "the processor said no", so the operator gets the detail and
+    the caller gets a sentence."""
+    log_event(
+        "billing.checkout_failed",
+        household_id=household.id,
+        processor=processor,
+        outcome="refused",
+        status=response.status_code,
+        # The processor's own words, truncated. They name price ids and API
+        # versions — operator business, and nothing personal.
+        detail=response.text[:300],
+    )
+    return CheckoutError("the payment processor refused to open a checkout, so nothing was charged.")
+
+
+async def _stripe_checkout(
+    client: httpx.AsyncClient, base: str, settings, household: Household, email: str, return_url: str
+) -> str:
+    form = {
+        "mode": "subscription",
+        "line_items[0][price]": settings.billing_price_id,
+        "line_items[0][quantity]": "1",
+        # Stripe as merchant of record for this sale. See the note above: losing
+        # this line does not break the payment, it moves the tax liability.
+        "managed_payments[enabled]": "true",
+        "success_url": return_url,
+        "cancel_url": return_url,
+        # On the subscription, not the session: the webhook reads the
+        # subscription object, and metadata does not travel from one to the other.
+        "subscription_data[metadata][household_id]": str(household.id),
+        # Belt and braces, and what the Dashboard shows beside the payment.
+        "client_reference_id": str(household.id),
+        "customer_email": email,
+    }
+    response = await client.post(
+        f"{base}/v1/checkout/sessions",
+        data=form,
+        auth=(settings.billing_api_key, ""),
+    )
+    if response.status_code >= 400:
+        raise _fail(STRIPE, household, response)
+    url = (response.json() or {}).get("url")
+    if not url:
+        raise _fail(STRIPE, household, response)
+    return str(url)
+
+
+async def _paddle_checkout(client: httpx.AsyncClient, base: str, settings, household: Household, email: str) -> str:
+    # No `checkout.url` is sent: that field names a page of yours hosting
+    # Paddle.js, and this server hosts none. Omitted, Paddle composes the link
+    # from the default payment link in the dashboard, which is the whole of the
+    # setup here.
+    body = {
+        "items": [{"price_id": settings.billing_price_id, "quantity": 1}],
+        "custom_data": {"household_id": str(household.id)},
+        "customer": {"email": email},
+    }
+    response = await client.post(
+        f"{base}/transactions",
+        json=body,
+        headers={"Authorization": f"Bearer {settings.billing_api_key}", "Paddle-Version": "1"},
+    )
+    if response.status_code >= 400:
+        raise _fail(PADDLE, household, response)
+    url = (((response.json() or {}).get("data") or {}).get("checkout") or {}).get("url")
+    if not url:
+        # Paddle answers 200 with a null checkout url when no default payment
+        # link is set, which is a dashboard setting rather than a bad request.
+        raise _fail(PADDLE, household, response)
+    return str(url)
+
+
+async def _lemonsqueezy_checkout(
+    client: httpx.AsyncClient, base: str, settings, household: Household, email: str, return_url: str
+) -> str:
+    body = {
+        "data": {
+            "type": "checkouts",
+            "attributes": {
+                "checkout_data": {"email": email, "custom": {"household_id": str(household.id)}},
+                "product_options": {"redirect_url": return_url},
+            },
+            "relationships": {
+                "store": {"data": {"type": "stores", "id": str(settings.billing_store_id)}},
+                "variant": {"data": {"type": "variants", "id": str(settings.billing_price_id)}},
+            },
+        }
+    }
+    response = await client.post(
+        f"{base}/v1/checkouts",
+        json=body,
+        headers={
+            "Authorization": f"Bearer {settings.billing_api_key}",
+            "Accept": "application/vnd.api+json",
+            "Content-Type": "application/vnd.api+json",
+        },
+    )
+    if response.status_code >= 400:
+        raise _fail(LEMONSQUEEZY, household, response)
+    url = (((response.json() or {}).get("data") or {}).get("attributes") or {}).get("url")
+    if not url:
+        raise _fail(LEMONSQUEEZY, household, response)
+    return str(url)

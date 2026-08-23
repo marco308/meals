@@ -20,7 +20,42 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the last deploy.
+The web half of the money, and the web half of the limits. Two issues, both of
+them the same shape: the freemium machinery existed and nothing a household
+could see used it.
+
+### Added
+
+- **The web app shows a household what it is allowed**
+  ([#120](https://github.com/marco308/meals/issues/120)). Settings gains a
+  usage panel from `GET /limits`, the signup screen lists what an account here
+  includes from the unauthenticated `GET /client-config`, and there is finally a
+  button for `GET /household/export`, which had worked since #97 and been
+  reachable only by somebody who knew the API existed. `limited` is the switch:
+  on a server that has configured nothing, none of it appears.
+- **A checkout can be started** ([#121](https://github.com/marco308/meals/issues/121)).
+  `POST /billing/checkout` opens a hosted checkout with the household id where
+  the webhook will look for it, and `GET /billing/subscription` says what a
+  household has, until when, where it came from and where to manage it. Stripe,
+  Paddle and Lemon Squeezy, as before. Web only: the iPhone app carries no price,
+  no button and no link to one (`planning/08-freemium.md` §6).
+- **`GET /client-config` publishes `billing_enabled`**, the single answer to
+  whether this server sells anything at all — a different question from whether
+  it limits anything, and one a client would otherwise have to infer from a 404.
+- **`PRIVACY.md` names the processor**, which that section promised to do before
+  any money moved: Stripe Managed Payments for the author's hosted service, with
+  what is sent to them when a checkout starts (an email address and a household
+  id, and nothing else).
+
+### Notes for whoever deploys this
+
+- **Still inert.** `BILLING_API_KEY` and `BILLING_PRICE_ID` are unset here, so
+  `POST /billing/checkout` does not exist, and `billing_enabled` is false.
+- **A server that sells must set `DEFAULT_HOUSEHOLD_TIER=free`** and it now
+  refuses to boot otherwise: households starting on the top tier already have
+  everything a subscription would buy, so every checkout would be refused with a
+  409 that reads like a bug rather than a setting.
+- No migrations.
 
 ## 2026-08-23 — the freemium backend, end to end
 

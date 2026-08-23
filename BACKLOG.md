@@ -54,8 +54,9 @@ the backend was finished and the web app turned out to consume none of it:
 [#120](https://github.com/marco308/meals/issues/120) the web app showing a
 household what it is allowed — done, and no commerce in it;
 [#121](https://github.com/marco308/meals/issues/121) the half of the money that
-happens *before* the webhook, since `routers/billing.py` holds one route and
-nothing in this repo can start the checkout it waits for; and
+happens *before* the webhook — done, and inert: a checkout exists but no
+deployment holds a key to open one, and switching that on is still gated on §7's
+two confirmations and the Postgres separation; and
 [#122](https://github.com/marco308/meals/issues/122) what has to exist before
 `REGISTRATION_ENABLED` can be true on a public instance — email verification,
 which does not exist, signup rate limits, and a policy for reaping abandoned
