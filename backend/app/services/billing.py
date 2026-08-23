@@ -458,6 +458,17 @@ def count(outcome: str) -> None:
 # `entitlements.grant` is reached only from a verified webhook carrying a billing
 # period end. A checkout that is abandoned leaves no trace but a log line.
 
+#: The Stripe API version this integration is written against, sent on every
+#: request rather than left to the account's default.
+#:
+#: `managed_payments` exists from `2025-03-31.basil`, and the account default is
+#: a dashboard setting this server cannot see. Left unpinned, an account on an
+#: older version would reject the parameter and every checkout would fail — or,
+#: worse for the one thing §7 turns on, a future default could change what it
+#: means. The version that decides who the legal seller is should not be
+#: invisible, so it is written here where it can be read and changed on purpose.
+STRIPE_API_VERSION = "2025-03-31.basil"
+
 #: Where each processor's API lives. `BILLING_API_BASE` overrides it, which is
 #: how you reach Paddle's sandbox (`sandbox-api.paddle.com`) and how the tests
 #: point this at a stub instead of the internet.
@@ -564,6 +575,7 @@ async def _stripe_checkout(
         f"{base}/v1/checkout/sessions",
         data=form,
         auth=(settings.billing_api_key, ""),
+        headers={"Stripe-Version": STRIPE_API_VERSION},
     )
     if response.status_code >= 400:
         raise _fail(household, response)
