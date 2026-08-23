@@ -20,6 +20,29 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the last deploy.
+
+## 2026-08-23 — the freemium backend, end to end
+
+Deployed to `meals.marcuslab.uk` as **1.2.0**. **Two migrations**
+(`74e2494dfabf`, `508d35134cdc`), both additive: five nullable columns on
+`households` and one new `billing_events` table. Safe under the start-first
+rollout, since neither takes anything away from the outgoing container still
+reading those tables.
+
+**Nothing in this release is switched on here.** The family instance sets no
+`LIMITS_PROFILE`, no `MAX_HOUSEHOLDS`, no `BILLING_PROCESSOR` and no entitlement
+on any household, so every limit is unlimited, the instance ceilings are
+absent, `/billing/webhook` does not exist, and no household has an expiry to
+lapse past. What actually changes for a user of this deployment is two new
+endpoints that answer honestly about having no limits, and a `/terms` page that
+says almost none of it applies to them. That is the whole point of §1: the
+freemium machinery is invisible on a server that sells nothing, and this deploy
+is the first real test of that claim against a live household.
+
+This closes issues #95 through #100, which is the whole of
+`planning/08-freemium.md` §8.
+
 ### Added
 
 - **The billing webhook** ([#99](https://github.com/marco308/meals/issues/99)),
