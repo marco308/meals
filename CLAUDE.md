@@ -213,10 +213,16 @@ instrumentation a new feature usually needs.
   instance must not be able to acquire billing by accident, the same posture
   `/metrics` takes without a token. The signature *is* the authentication
   (the caller has never heard of this app's accounts), verified constant-time
-  against the raw body. **Both Paddle and Lemon Squeezy are supported and the
-  choice is a setting**, because which merchant of record to use is a
-  commercial decision that had not been made; the adapters cost about forty
-  lines and remove the need to guess. `billing_events` is the idempotency
+  against the raw body. **Stripe Managed Payments, Paddle and Lemon
+  Squeezy are all supported and the choice is a setting.** The requirement is a
+  merchant of record — somebody else being the legal seller, so EU B2C VAT is
+  theirs to file — and that is *not* the same as "not Stripe": Managed Payments
+  is Stripe acting as MoR (ordinary Stripe is not). Stripe's is the scheme a
+  hand-rolled verifier gets wrong: **several `v1` signatures can be live at once**
+  while an endpoint secret rolls, so any match counts, and every other scheme
+  must be ignored because `v0` is a deliberately fake test signature.
+  **No webhook may ever grant without a billing period end** — a grant with no
+  expiry never lapses, so it would hand out a subscription nobody has to renew. `billing_events` is the idempotency
   ledger and the reason a retry cannot grant a second year — processors retry
   on any non-2xx, so the blip between granting and answering 200 is the
   expected case, not a rare one. **Deterministic failures answer 200 on

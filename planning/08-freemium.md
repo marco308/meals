@@ -228,9 +228,34 @@ Two things follow for whoever reads this next:
 
 06 §1b listed four blockers. Three are done: backups with a tested restore
 (2026-08-17), SMTP on the deployment (2026-08-13), and a payment mechanism is
-now scoped as web-only (§6, and a merchant of record rather than raw Stripe,
-because EU B2C digital services VAT applies from the first sale regardless of
-the UK threshold).
+now scoped as web-only (§6) and taken through a **merchant of record**, because
+EU B2C digital services VAT applies from the first sale regardless of the UK
+threshold.
+
+**Corrected 2026-08-23.** This used to read "a merchant of record rather than
+raw Stripe", which stated the requirement and then a false dichotomy. The
+requirement is right and unchanged: somebody has to be the legal seller and file
+in the customer's country, and doing that ourselves means registering for VAT
+OSS, charging 27 rates, keeping two pieces of location evidence per sale and
+filing quarterly, for the sake of the ~3% between a processor's fee and an
+MoR's. At 25 households that difference is about £17 a year.
+
+What was wrong is the implication that an MoR means *not Stripe*. **Stripe
+Managed Payments** (2026) is Stripe acting as merchant of record: it handles
+sales tax, VAT and GST in 80+ countries, plus fraud, disputes and
+transaction-level support, on the Stripe account this project already has. So
+the choice is now between three, and the code supports all three
+(`app/services/billing.py`, `BILLING_PROCESSOR`):
+
+| | Merchant of record | Notes |
+|---|---|---|
+| **Stripe Managed Payments** | Stripe | The recommendation. Uses the existing account. Enabled on Checkout or Payment Links; **does not support creating a subscription outside those**, which is fine for a web-only flow and rules out a bespoke checkout later. |
+| Paddle | Paddle | The independent option, if an MoR that is not also the payment processor is worth something. |
+| Lemon Squeezy | Lemon Squeezy | **Do not start here.** Stripe acquired it in 2024 and its founder confirmed in January 2026 that migration paths *off* it and into Managed Payments are being built. The adapter stays for anyone already on it. |
+
+Still to confirm before the first sale: Managed Payments pricing (reported at
+5% + $0.50, not read off Stripe's own pricing page), and an accountant's five
+minutes on the UK-seller position. The adapter is written either way.
 
 The fourth is not, and freemium makes it worse rather than better, because free
 households arrive faster than paying ones: **strangers' data should not share a

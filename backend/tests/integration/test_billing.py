@@ -87,6 +87,57 @@ def lemon_event(household: uuid.UUID | None, *, kind="subscription_created", ren
     return {"meta": meta, "data": {"type": "subscriptions", "id": "1", "attributes": {"renews_at": renews}}}
 
 
+@pytest.fixture
+def stripe(settings_override):
+    settings_override(BILLING_PROCESSOR="stripe", BILLING_WEBHOOK_SECRET=SECRET)
+
+
+def stripe_post(
+    payload: dict,
+    *,
+    secret: str = SECRET,
+    at: datetime | None = None,
+    extra_schemes: str = "",
+    secrets_live: tuple[str, ...] = (),
+) -> tuple[str, dict]:
+    """Sign the way Stripe does: `t=…,v1=…`, over "{t}.{body}".
+
+    `secrets_live` signs once per secret, which is what a rolled endpoint secret
+    looks like for the 24 hours both are active.
+    """
+    body = json.dumps(payload)
+    stamp = str(int((at or datetime.now(UTC)).timestamp()))
+    keys = secrets_live or (secret,)
+    signatures = ",".join(
+        f"v1={hmac.new(key.encode(), f'{stamp}.{body}'.encode(), hashlib.sha256).hexdigest()}" for key in keys
+    )
+    header = f"t={stamp},{signatures}"
+    if extra_schemes:
+        header = f"{header},{extra_schemes}"
+    return body, {"Stripe-Signature": header, "Content-Type": "application/json"}
+
+
+def stripe_event(
+    household: uuid.UUID | None,
+    *,
+    kind="customer.subscription.updated",
+    event_id="evt_stripe_1",
+    period_end: int | None = 1_818_000_000,
+    on_items: bool = False,
+):
+    obj: dict = {"id": "sub_1", "object": "subscription"}
+    if household is not None:
+        obj["metadata"] = {"household_id": str(household)}
+    if period_end is not None:
+        # Newer API versions carry the period on the items rather than the
+        # subscription; both shapes have to work.
+        if on_items:
+            obj["items"] = {"data": [{"id": "si_1", "current_period_end": period_end}]}
+        else:
+            obj["current_period_end"] = period_end
+    return {"id": event_id, "object": "event", "type": kind, "data": {"object": obj}}
+
+
 class TestItDoesNotExistUnlessTurnedOn:
     async def test_no_processor_means_no_endpoint(self, auth_client):
         """404, not 401 or 403: on almost every deployment the route really is
@@ -293,6 +344,122 @@ class TestARetryCannotGrantASecondYear:
         await client.post("/billing/webhook", content=body, headers=headers)
         async with sessions() as db:
             assert (await db.get(Household, target)).paid_until == first
+
+
+class TestStripeManagedPayments:
+    """Stripe is a merchant of record too since Managed Payments, so the account
+    this project already has can do the job. The signature scheme is the one
+    place a hand-rolled verifier goes wrong."""
+
+    async def test_a_subscription_grants_until_the_period_ends(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target))
+
+        response = await client.post("/billing/webhook", content=body, headers=headers)
+        assert response.json() == {"outcome": "granted"}
+        async with sessions() as db:
+            household = await db.get(Household, target)
+        assert (household.tier, household.entitlement_source) == ("paid", "stripe")
+        assert entitlements.describe(household).paid_until == datetime.fromtimestamp(1_818_000_000, tz=UTC)
+
+    async def test_the_period_can_live_on_the_subscription_items(self, client, stripe, sessions):
+        """Newer API versions moved `current_period_end` onto each item."""
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target, on_items=True))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "granted"
+
+    async def test_a_deleted_subscription_revokes(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target))
+        await client.post("/billing/webhook", content=body, headers=headers)
+
+        ended, ended_headers = stripe_post(
+            stripe_event(target, kind="customer.subscription.deleted", event_id="evt_stripe_2")
+        )
+        assert (await client.post("/billing/webhook", content=ended, headers=ended_headers)).json()[
+            "outcome"
+        ] == "revoked"
+        async with sessions() as db:
+            assert (await db.get(Household, target)).tier == "free"
+
+    async def test_an_invoice_event_is_ignored_rather_than_double_counted(self, client, stripe, sessions):
+        """The subscription object is the source of truth for "paid until when";
+        acting on the invoice too would be two writes for one payment."""
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target, kind="invoice.paid", event_id="evt_stripe_3"))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "ignored"
+
+    async def test_any_live_signature_matches_while_a_secret_is_rolling(self, client, stripe, sessions):
+        """Rolling an endpoint secret keeps the old one live for up to 24 hours,
+        and Stripe signs once per active secret. Checking only the first would
+        break every webhook for a day."""
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target), secrets_live=("the-previous-secret", SECRET))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "granted"
+
+    async def test_a_v0_signature_is_never_accepted(self, client, stripe, sessions):
+        """Stripe sends a deliberately fake `v0` beside test events. Accepting
+        any scheme but v1 is a downgrade attack."""
+        await register(client)
+        target = await household_id(sessions)
+        payload = stripe_event(target)
+        body = json.dumps(payload)
+        stamp = str(int(datetime.now(UTC).timestamp()))
+        # A perfectly good signature, offered under the wrong scheme.
+        forged = hmac.new(SECRET.encode(), f"{stamp}.{body}".encode(), hashlib.sha256).hexdigest()
+        headers = {"Stripe-Signature": f"t={stamp},v0={forged}", "Content-Type": "application/json"}
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).status_code == 401
+
+    async def test_a_wrong_secret_is_refused(self, client, stripe, sessions):
+        await register(client)
+        body, headers = stripe_post(stripe_event(await household_id(sessions)), secret="not-the-secret")
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).status_code == 401
+
+    async def test_a_stale_signature_is_refused(self, client, stripe, sessions):
+        await register(client)
+        old = datetime.now(UTC) - timedelta(hours=2)
+        body, headers = stripe_post(stripe_event(await household_id(sessions)), at=old)
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).status_code == 401
+
+    async def test_a_retry_is_absorbed(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "granted"
+        # Stripe re-signs every retry, so the header differs while the event id
+        # does not. The ledger keys on the id, which is why this is caught.
+        again, again_headers = stripe_post(stripe_event(target))
+        assert (await client.post("/billing/webhook", content=again, headers=again_headers)).json()[
+            "outcome"
+        ] == "duplicate"
+
+
+class TestAGrantAlwaysHasAnEndDate:
+    """A grant with no expiry never lapses, so a webhook that produced one would
+    quietly hand out a subscription nobody has to renew."""
+
+    async def test_stripe_without_a_period_end(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(target, period_end=None))
+        response = await client.post("/billing/webhook", content=body, headers=headers)
+        assert response.json()["outcome"] == "refused"
+        async with sessions() as db:
+            household = await db.get(Household, target)
+            event = (await db.execute(select(BillingEvent))).scalars().one()
+        assert household.tier == "unlimited"  # untouched
+        assert "would never expire" in event.detail
+
+    async def test_paddle_without_a_billing_period(self, client, paddle, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = paddle_post(paddle_event(target, ends=None))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "refused"
 
 
 class TestNothingFailsQuietly:

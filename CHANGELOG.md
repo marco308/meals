@@ -27,12 +27,22 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   exist at all (404, the posture `/metrics` takes without a token), because a
   self-hosted instance has no billing and must not be able to acquire one by
   accident. **One migration**, a new `billing_events` table.
-- **Paddle and Lemon Squeezy are both supported**, selected by
-  `BILLING_PROCESSOR`. Which merchant of record to use is a commercial decision
-  that had not been made, and both adapters together cost about forty lines,
-  which is cheaper than guessing and rewriting. Both formats were read from the
-  live documentation: Paddle signs `"{ts}:{body}"` and sends `Paddle-Signature`,
-  Lemon Squeezy signs the raw body and sends `X-Signature`.
+- **Stripe Managed Payments, Paddle and Lemon Squeezy are all supported**,
+  selected by `BILLING_PROCESSOR`. The requirement is a merchant of record, so
+  that EU B2C digital-services VAT is the seller's to file rather than ours;
+  that is not the same as "not Stripe", since **Managed Payments is Stripe
+  acting as merchant of record** and runs on an existing Stripe account.
+  Ordinary Stripe leaves the tax with you and is deliberately not what
+  `stripe` means here. All three formats were read from the live
+  documentation: Paddle signs `"{ts}:{body}"`, Lemon Squeezy signs the raw
+  body, Stripe signs `"{ts}.{body}"`. Stripe's is the one a hand-rolled
+  verifier gets wrong — several `v1` signatures can be live at once while an
+  endpoint secret rolls, and the `v0` scheme it sends beside test events must
+  be ignored rather than accepted.
+- **No webhook can grant an entitlement with no end date.** A grant without an
+  expiry never lapses, so it would quietly hand out a subscription nobody has
+  to renew; an event carrying no billing period is refused and recorded
+  instead.
 - **A retry cannot grant a second year.** Every event is recorded once in a
   ledger keyed on `(processor, event_id)`; Lemon Squeezy sends no event id, so
   its key is a digest of the body, which makes an identical retry land on the
