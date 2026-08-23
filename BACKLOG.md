@@ -47,7 +47,20 @@ Filed, in the order they should be built:
 [#100](https://github.com/marco308/meals/issues/100) keeping the app free of
 commerce. The first five are worth having on a self-hosted instance too, which
 is why they come first: if the hosted business never happens they are not
-wasted.
+wasted. **All seven are done**, and shipped in 1.1.0 and 1.2.0.
+
+What is left is the half a household actually touches, filed 2026-08-23 once
+the backend was finished and the web app turned out to consume none of it:
+[#120](https://github.com/marco308/meals/issues/120) the web app showing a
+household what it is allowed — done, and no commerce in it;
+[#121](https://github.com/marco308/meals/issues/121) the half of the money that
+happens *before* the webhook, since `routers/billing.py` holds one route and
+nothing in this repo can start the checkout it waits for; and
+[#122](https://github.com/marco308/meals/issues/122) what has to exist before
+`REGISTRATION_ENABLED` can be true on a public instance — email verification,
+which does not exist, signup rate limits, and a policy for reaping abandoned
+free households. #122 was a bullet inside #99 and closed with it unbuilt, which
+is why it is now its own line.
 
 **None of it ships unless the waitlist gate in 06 §Phase 3 is passed**, and one
 blocker stays off the tracker because it is deployment topology rather than

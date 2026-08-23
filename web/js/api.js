@@ -60,19 +60,23 @@ function detailText(data, status) {
   return `request failed (${status})`;
 }
 
+function headers(extra) {
+  const out = { "X-Meals-Client": CLIENT_HEADER, ...extra };
+  if (session.token) out["Authorization"] = `Bearer ${session.token}`;
+  return out;
+}
+
 export async function api(path, { method = "GET", body, query } = {}) {
   const url = new URL(".." + path, window.location.href);
   for (const [key, value] of Object.entries(query || {})) {
     if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
   }
 
-  const headers = { "X-Meals-Client": CLIENT_HEADER };
-  if (session.token) headers["Authorization"] = `Bearer ${session.token}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const requestHeaders = headers(body === undefined ? {} : { "Content-Type": "application/json" });
 
   const response = await fetch(url, {
     method,
-    headers,
+    headers: requestHeaders,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
@@ -92,6 +96,39 @@ export async function api(path, { method = "GET", body, query } = {}) {
     throw new ApiError(response.status, detailText(data, response.status));
   }
   return data;
+}
+
+// A file, not a payload: /household/export streams a whole household and
+// arrives as a download. The bearer token has to travel in a header — never in
+// a URL, which /privacy is a promise about — so the browser cannot simply be
+// pointed at the endpoint. We fetch it, wrap the body in a blob, and click our
+// own link. The CSP needs no `blob:` source for that — a download is not a
+// fetch — and `connect-src 'self'` already covers the request itself.
+export async function download(path) {
+  const response = await fetch(new URL(".." + path, window.location.href), { headers: headers() });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    if (response.status === 401 && session.token) {
+      session.clear();
+      window.location.hash = "#/login";
+    }
+    throw new ApiError(response.status, detailText(data, response.status));
+  }
+
+  // The server names the file (Content-Disposition), because it knows the date
+  // it assembled and we would only be guessing it.
+  const named = /filename="?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") || "");
+  const href = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = named ? named[1] : path.slice(path.lastIndexOf("/") + 1);
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Revoking straight away cancels the save in some browsers; the tab keeping
+  // one blob alive for a minute is the cheaper mistake.
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
 }
 
 let aisleCache = null;

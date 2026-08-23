@@ -268,6 +268,22 @@ it boring to operate:
   strings outside it.
 - Dialog code must not depend on the `close` *event* — some embedded browsers
   never deliver it; `openDialog` patches `close()` to also remove the element.
+- **No inline `style` attributes**: the CSP's `style-src 'self'` forbids them.
+  A computed width (the allowance bars in Settings) travels on a data attribute
+  and is applied through the CSSOM, which CSP deliberately does not police.
+- **It is the only client that shows a household its allowances**, and it shows
+  them only where there is something to show: Settings reads `GET /limits` and
+  the signup screen reads the unauthenticated `GET /client-config`, and on a
+  deployment that has configured nothing both are silent. `limited` is the
+  switch rather than the numbers, so a household comped to the unlimited tier on
+  a server that *does* limit things is still told where it stands. Neither
+  surface names a price or points anywhere to pay one — whether this server
+  sells anything at all is a question neither endpoint answers. `settings.js`
+  carries a label for every resource in `app/limits.py` and the signup note a
+  phrase for every household-wide one, both linted by
+  `tests/unit/test_web_client.py`, because this is the second place that
+  vocabulary is written down. Downloading the household export is here too, on
+  the same footing as everywhere else: free of every limit, in every tier.
 - The 4xx `detail` strings the API writes for AI clients are shown verbatim in
   toasts — another reason to keep them human sentences.
 

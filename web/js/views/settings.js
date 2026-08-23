@@ -1,22 +1,24 @@
 // Settings: account, the household and who is in it (Q19/Q23), supermarkets &
-// aisle order, AI access tokens, and the danger zone (Q20). Invite codes and
-// API tokens are shown exactly once — the server stores only hashes.
+// aisle order, AI access tokens, what this server allows, taking your data
+// away, and the danger zone (Q20). Invite codes and API tokens are shown
+// exactly once — the server stores only hashes.
 //
 // The lead is the only member who can invite, remove or rename (Q23), so those
 // controls are hidden rather than shown-and-refused for everyone else. Leaving
 // is nobody's business but your own, so that button is always there.
 
-import { aisles, api, invalidateAisles, session } from "../api.js";
+import { aisles, api, download, invalidateAisles, session } from "../api.js";
 import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, household, invites, tokens, markets] = await Promise.all([
+  const [user, household, invites, tokens, markets, allowances] = await Promise.all([
     api("/auth/me"),
     api("/auth/household"),
     api("/auth/invites"),
     api("/auth/tokens"),
     api("/supermarkets"),
+    api("/limits"),
   ]);
   session.saveUser(user);
   const youLead = household.lead_user_id === user.id;
@@ -95,6 +97,8 @@ export async function renderSettings(root) {
           : html`<p class="sub">No invites issued yet.</p>`}
         ${youLead ? html`<div class="dialog-actions"><button class="btn" data-invite>Invite someone</button></div>` : ""}
       </div>
+
+      ${allowancesSection(allowances)}
 
       <div class="section card">
         <h2>Supermarkets &amp; aisle order</h2>
@@ -178,6 +182,19 @@ export async function renderSettings(root) {
           <p class="sub">Other signed-in devices get logged out; API tokens deliberately survive.</p>
           <div class="dialog-actions"><button class="btn" type="submit">Change password</button></div>
         </form>
+      </div>
+
+      <div class="section card">
+        <h2>Take everything with you</h2>
+        <p class="sub">
+          One file holding every recipe, ingredient, meal, plan, cooked shop and
+          saved supermarket this household owns — the whole thing rather than a
+          summary, and readable without joining anything back together.
+          Passwords, API tokens and invite codes are deliberately left out.
+          It is free of every limit on every server, because leaving should
+          never be the hard part.
+        </p>
+        <div class="dialog-actions"><button class="btn ghost" data-export>Download everything</button></div>
       </div>
 
       <div class="section card danger-zone">
@@ -323,7 +340,109 @@ export async function renderSettings(root) {
     }
   };
 
+  // The bars are the one place a width is computed rather than written, and
+  // index.html's `style-src 'self'` forbids a style *attribute*, so the number
+  // rides on a data attribute and is applied through the CSSOM, which CSP
+  // deliberately does not police.
+  for (const fill of root.querySelectorAll("[data-fill]")) fill.style.width = `${fill.dataset.fill}%`;
+
+  root.querySelector("[data-export]").onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await download("/household/export");
+      toast("Your household is on its way to your downloads.", "ok");
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  };
+
   root.querySelector("[data-delete-account]").onclick = () => deleteAccountDialog();
+}
+
+// ── what this server allows ──────────────────────────────────────────────
+//
+// planning/08-freemium.md §1: a quota on somebody's hosting, never a fence
+// around the tool. On a server that has configured nothing, this card is
+// absent — not empty, not a row of "unlimited", absent — and `limited` from
+// GET /limits is the switch that decides it. Reading the flag rather than
+// inferring it from the numbers is deliberate: a household comped to the
+// unlimited tier on a server that *does* limit things has every number null
+// and still deserves to be told where it stands.
+//
+// Nothing here names a price or points anywhere to pay one. Whether this
+// server sells anything at all is a question GET /limits cannot answer, and
+// answering it is issue #121's job rather than this card's.
+
+const RESOURCE_LABELS = {
+  members: "People in this household",
+  recipes: "Recipes",
+  ingredients: "Ingredients",
+  meals: "Meals",
+  meal_lines: "Lines in one meal",
+  plans: "Plans on the go",
+  plan_meals: "Meals in one plan",
+  supermarkets: "Supermarkets",
+  api_tokens: "API tokens",
+  ingests_per_month: "Recipes read from a URL",
+};
+
+// A server vocabulary, so an unknown name must render rather than vanish —
+// the same rule that keeps aisles and slots out of the iOS enums.
+const resourceLabel = (name) => RESOURCE_LABELS[name] || name.replace(/_/g, " ");
+
+function allowancesSection(allowances) {
+  if (!allowances.limited) return "";
+  const capped = allowances.resources.filter((row) => row.limit !== null);
+  return html`
+    <div class="section card">
+      <h2>What this server allows</h2>
+      <p class="sub">
+        ${capped.length === 0
+          ? "This server sets limits, and none of them apply to this household."
+          : html`Nothing you have already saved is ever removed by a limit, and the shopping list is
+              never limited at all — a cap only ever stops something new being added.`}
+      </p>
+      ${capped.length === 0 ? "" : html`<div class="allow-list">${capped.map(allowanceRow)}</div>`}
+    </div>
+  `;
+}
+
+function allowanceRow(row) {
+  // `used` is null where a household-wide count would mean nothing: the
+  // per-meal and per-plan allowances bound the next one rather than tally what
+  // exists, so they get the number alone and no bar to fill.
+  if (row.used === null) {
+    return html`
+      <div class="allow-row">
+        <div class="a-main"><b>${resourceLabel(row.resource)}</b></div>
+        <span class="a-cap">up to ${row.limit}</span>
+      </div>
+    `;
+  }
+  const percent = Math.min(100, Math.round((row.used / row.limit) * 100));
+  return html`
+    <div class="allow-row">
+      <div class="a-main">
+        <b>${resourceLabel(row.resource)}</b>
+        <span class="sub">${allowanceUsage(row)}</span>
+      </div>
+      <div class="a-bar ${row.remaining === 0 ? "full" : ""}"><span data-fill="${percent}"></span></div>
+    </div>
+  `;
+}
+
+function allowanceUsage(row) {
+  const period = row.scope === "a month" ? " this month" : "";
+  if (row.remaining !== 0) return `${row.used} of ${row.limit} used${period} · ${row.remaining} left`;
+  // At the wall is the one moment the difference between the two kinds of
+  // limit (§4) is worth a sentence: one is this household's tier, the other is
+  // this server's own ceiling, which no tier lifts.
+  return row.upgradable
+    ? `${row.used} of ${row.limit} used${period} — at the limit for this household's tier`
+    : `${row.used} of ${row.limit} used${period} — at the most this server allows`;
 }
 
 function addMarketDialog(root) {
