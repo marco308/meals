@@ -44,6 +44,9 @@ EXEMPT_PREFIXES = (
     "/privacy",
     "/support",
     "/terms",
+    # And an attribution page that a licence upstream might one day depend on
+    # is not something to put behind a client version.
+    "/credits",
 )
 
 

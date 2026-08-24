@@ -102,7 +102,7 @@ class TestExemptions:
         The terms are the same argument with money in it: deciding whether to
         keep paying must not require updating an app first."""
         min_build(99)
-        for path in ("/privacy", "/support", "/terms"):
+        for path in ("/privacy", "/support", "/terms", "/credits"):
             assert (await client.get(path, headers=ios(1))).status_code == 200, path
 
 

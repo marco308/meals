@@ -24,8 +24,9 @@ COPY skill ./skill
 COPY web ./web
 # The App Store's privacy and support URLs point at /privacy and /support, which
 # render these. If they don't ship, those URLs 404 and the listing is broken.
-# TERMS.md rides along for /terms, and is just as easy to forget.
-COPY PRIVACY.md SUPPORT.md TERMS.md ./
+# TERMS.md and CREDITS.md ride along for /terms and /credits, and are just
+# as easy to forget.
+COPY PRIVACY.md SUPPORT.md TERMS.md CREDITS.md ./
 RUN uv sync --frozen --no-dev
 
 # Runs as a normal user, and one that owns nothing it doesn't need to write.
