@@ -1,6 +1,17 @@
 from datetime import timedelta
 
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.models import Household, User
+from app.routers import auth as auth_router
 from tests.conftest import create_recipe, register
+
+
+@pytest.fixture
+def sessions(engine):
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 class TestRegisterAndLogin:
@@ -20,6 +31,28 @@ class TestRegisterAndLogin:
         )
         assert response.status_code == 409
         assert "/auth/login" in response.json()["detail"]
+
+    async def test_two_registrations_that_overlap_still_answer_409(self, client, monkeypatch, sessions):
+        """What a double-tapped "Create household" looks like from inside: the
+        check misses, and the unique index has the last word. That must be the
+        same sentence rather than a 500, and it must leave nothing behind — a
+        half-made household would sit there counting against MAX_HOUSEHOLDS."""
+
+        async def _missed(db, email):
+            return False
+
+        await register(client)
+        monkeypatch.setattr(auth_router, "_email_taken", _missed)
+        response = await client.post(
+            "/auth/register",
+            json={"email": "marcus@example.com", "password": "another-password", "display_name": "M"},
+        )
+        assert response.status_code == 409
+        assert "/auth/login" in response.json()["detail"]
+
+        async with sessions() as db:
+            assert len((await db.execute(select(Household))).scalars().all()) == 1
+            assert len((await db.execute(select(User))).scalars().all()) == 1
 
     async def test_email_is_case_insensitive(self, client):
         await register(client)

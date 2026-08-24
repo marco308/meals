@@ -20,7 +20,35 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Fixed
+
+- **A payment now records what was agreed.** `households.price_pence` was
+  written by nothing that ships: the webhook granted without it and the
+  operator command has no flag for it, so every household that actually paid
+  had an empty price snapshot. §6's "founding price for life" is a promise
+  stored on the row, `/privacy` says the server records "what it agreed to
+  pay", the ops listing has a column for it and the web app has a sentence for
+  it, and all four were describing a column nothing filled in. A grant now
+  writes `BILLING_PRICE_PENCE` the first time a household pays, and
+  deliberately never again: sending today's price on a renewal would make
+  `entitlements.grant` refuse the renewal of anybody who bought before a rise,
+  which is the promise failing in the most expensive direction.
+- **Two deliveries of one webhook that overlap are a duplicate, not a 500.**
+  Processors send duplicates and retry on any non-2xx, so both copies can pass
+  the ledger check before either writes, and the second was answered with an
+  unhandled `IntegrityError`. No second year was ever granted — the ledger's
+  uniqueness is what refused it — but the response asked for a retry that would
+  fail identically, and the outcome reached no counter, which is exactly the
+  silent billing failure that module exists to not have. It now reads that
+  refusal as the duplicate it is, and re-raises anything that is not the
+  ledger's uniqueness.
+- **A double-tapped "Create household" answers 409 rather than 500.**
+  `POST /auth/register` checks the address and then inserts, so two overlapping
+  registrations for one email raced to the unique index and the loser got an
+  unhandled error instead of the sentence pointing at `POST /auth/login`.
+  Nothing was left behind either way (the rollback takes the half-made
+  household with it, which is why the instance ceilings are checked before any
+  of it), and that is now covered by a test.
 
 ## 2026-08-24 — say what this is built on
 
