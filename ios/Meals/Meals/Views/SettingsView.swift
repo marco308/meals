@@ -148,6 +148,9 @@ struct SettingsView: View {
             Link(destination: AppLinks.support(server: session.serverURL)) {
                 Label("Help & support", systemImage: "questionmark.circle")
             }
+            Link(destination: AppLinks.credits(server: session.serverURL)) {
+                Label("Credits", systemImage: "heart")
+            }
             Link(destination: AppLinks.sourceCode) {
                 Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right")
             }

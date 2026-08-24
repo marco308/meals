@@ -20,7 +20,29 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Added
+
+- **`/credits`**, served by every deployment from
+  [CREDITS.md](CREDITS.md) on the same rails as `/privacy`, `/support` and
+  `/terms`: what the server is built on, under which licences, with a note on
+  each of the fifteen dependencies this project actually chose. Neither client
+  ships third-party code, and the page says so rather than letting anyone
+  assume otherwise. Nothing obliges it (the wheels carry their own licence
+  files into the image, which is what MIT, BSD and Apache-2.0 ask of a
+  distribution) beyond it being the decent thing to do.
+- `backend/tests/unit/test_credits.py` resolves both `uv.lock` files down to
+  what installs on Linux and fails when a shipped package is uncredited, when a
+  credited one no longer ships, or when a row names no licence. A credits page
+  nobody lints is a credits page that quietly stops being true.
+- **An About card in the web app's Settings**, which is the first link anywhere
+  in the web client to `/privacy`, `/support`, `/terms` and `/credits`. Linted
+  against the pages router, so a fifth page fails CI until somebody decides
+  where it belongs.
+- **A Credits link in the iPhone app's Settings**, following the connected
+  server like the privacy and support links do. Still no link to `/terms` from
+  iOS, deliberately: that is the page with the price on it, and 3.1.3(f) is
+  what the listing rests on. A lint in the Python suite keeps it that way,
+  since there is no iOS job in CI.
 
 ## 2026-08-23 — pin the version that decides who is selling
 

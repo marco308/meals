@@ -1,10 +1,11 @@
-"""Human-readable pages: the privacy policy, the support page and the terms.
+"""Human-readable pages: the privacy policy, the support page, the terms and the credits.
 
 The App Store requires the first two to be publicly reachable URLs, and the
 deployment is the only thing this project already hosts — so they are served
 from here rather than from a second piece of infrastructure that could rot
 independently. `/terms` joins them on the same rails because taking money needs
-one and because it is the same three lines of code (issue #98).
+one and because it is the same three lines of code (issue #98), and `/credits`
+for the same three lines again.
 
 Rendered from the same markdown that GitHub shows, for the same reason `/skill`
 is served from `skill/SKILL.md`: one copy, so the published page can't drift
@@ -126,3 +127,15 @@ async def terms() -> str:
     why the page opens by saying that almost none of it applies to a
     self-hosted instance."""
     return _page("TERMS.md")
+
+
+@router.get("/credits", response_class=HTMLResponse, include_in_schema=False)
+async def credits_page() -> str:
+    """What this server is built on, and under which licences. No auth required.
+
+    Nothing obliges this page: the wheels install their own licence files into
+    site-packages, which is what MIT, BSD and Apache-2.0 actually ask for. It
+    is here because a project that asks people to self-host it should be able
+    to say what it stands on, and because `tests/unit/test_credits.py` can then
+    make an uncredited dependency a CI failure rather than an oversight."""
+    return _page("CREDITS.md")

@@ -221,6 +221,7 @@ async def root(request: Request) -> Response:
         "privacy": f"{base}/privacy",
         "support": f"{base}/support",
         "terms": f"{base}/terms",
+        "credits": f"{base}/credits",
     }
     if _mcp_attached:
         # This deployment serves the MCP endpoint itself, so an assistant can

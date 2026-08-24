@@ -1,4 +1,5 @@
-"""The web client's half of the limits vocabulary (issue #120).
+"""The web client's half of the limits vocabulary (issue #120), and the pages
+it is the only route to.
 
 `web/` ships inside this image and calls `GET /limits` and `GET /client-config`
 to tell a household what it is allowed. Both answer with the resource *names*
@@ -94,4 +95,26 @@ async def test_login_hides_the_reset_link_by_the_key_the_server_publishes():
     assert ".catch(() => {\n      config = {};" in source, (
         "the failed fetch must still settle config, or a /client-config that errors hides the reset "
         "link for good rather than for a moment"
+    )
+
+
+def test_settings_links_every_page_this_server_publishes():
+    """`/privacy`, `/support`, `/terms` and `/credits` are served by every
+    deployment, and the web app is the only client that can reach all four
+    (the iPhone app deliberately carries no link to the terms). A page the
+    server renders and nothing links to is a page nobody reads, so the About
+    card is linted against the router rather than against a list written here:
+    adding a fifth page fails until somebody decides where it belongs.
+
+    Relative hrefs, because `web/` is mounted at `/app/` on the same origin as
+    the API and hardcoding a host would break every self-hosted install."""
+    from app.routers import pages as pages_router
+
+    published = {route.path for route in pages_router.router.routes}
+    assert published, "the pages router serves nothing, so this would pass vacuously"
+
+    source = (WEB / "settings.js").read_text()
+    missing = [path for path in sorted(published) if f'href="..{path}"' not in source]
+    assert missing == [], (
+        f"web/js/views/settings.js links to none of {missing}, which this server renders. Add them to the About card."
     )

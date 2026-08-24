@@ -146,7 +146,7 @@ final class AccountTests: XCTestCase {
 
     func testPolicyLinksFollowTheConnectedServer() {
         // The operator of your data is whoever runs your server, so that's
-        // whose policy Settings should open — every deployment serves both.
+        // whose policy Settings should open — every deployment serves all three.
         XCTAssertEqual(
             AppLinks.privacy(server: "https://meals.example.com").absoluteString,
             "https://meals.example.com/privacy"
@@ -154,6 +154,10 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(
             AppLinks.support(server: "http://localhost:8000").absoluteString,
             "http://localhost:8000/support"
+        )
+        XCTAssertEqual(
+            AppLinks.credits(server: "https://meals.example.com").absoluteString,
+            "https://meals.example.com/credits"
         )
     }
 

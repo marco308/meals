@@ -132,10 +132,12 @@ jobs:
           curl -fsS --max-time 10 http://localhost:8000/privacy > privacy.html
           grep -q '<h1' privacy.html
           curl -fsS --max-time 10 -o /dev/null http://localhost:8000/support
-          # /terms rides the same rails and is COPYed the same way, so it can
-          # be forgotten the same way.
+          # /terms and /credits ride the same rails and are COPYed the same
+          # way, so they can be forgotten the same way.
           curl -fsS --max-time 10 http://localhost:8000/terms > terms.html
           grep -q '<h1' terms.html
+          curl -fsS --max-time 10 http://localhost:8000/credits > credits.html
+          grep -q '<table' credits.html
           # The web client is COPYed into the image separately from app/ too —
           # a build that forgets it serves a 404 where the big-screen UI was.
           curl -fsS --max-time 10 http://localhost:8000/app/ > app.html

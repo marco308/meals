@@ -409,8 +409,8 @@ one, so the constraints it adds are load-bearing:
 `{{API_URL}}` substituted from the request's forwarded-proto/host headers.
 Keep `SKILL.md`, `prompt-pack.md` and the API in step when endpoints change.
 
-`PRIVACY.md`, `SUPPORT.md` and `TERMS.md` ship the same way and render at
-`/privacy`, `/support` and `/terms` (`routers/pages.py`). **The first two are the
+`PRIVACY.md`, `SUPPORT.md`, `TERMS.md` and `CREDITS.md` ship the same way and
+render at `/privacy`, `/support`, `/terms` and `/credits` (`routers/pages.py`). **The first two are the
 App Store's privacy and support URLs**, so a build that fails to COPY them takes
 down a live store listing — which is why CI curls all three against the built
 image. They're also exempt from the client gate: someone stuck on the upgrade
@@ -422,6 +422,26 @@ the same test the limit refusals have to pass. Cross-page links are written as
 prose plus a code span (`/privacy`) rather than as markdown links: a
 root-relative link 404s for anyone reading the file on GitHub, and a repo-
 relative one 404s on the served page.
+
+`CREDITS.md` is the odd one out: no licence in the image requires it (every
+wheel installs its own licence file, which is what MIT, BSD and Apache-2.0
+actually ask of a distribution), so it exists because a project that asks to be
+self-hosted should be able to say what it stands on. That makes rot the only
+real risk, so it is linted rather than trusted: `tests/unit/test_credits.py`
+resolves both `uv.lock` files to what `uv sync --no-dev` installs **on Linux**
+and fails on a shipped-but-uncredited package, a credited-but-gone one, or a row
+with no licence. Direct dependencies live in the first table with a line saying
+what they do here, and that split is linted too, against the two `pyproject.toml`
+files. Everything that is not a Python package (Postgres, rclone, SwiftUI) is
+hand-written in bullets, which the lint ignores by only reading table rows.
+
+The web app's Settings has an **About card**, and it is the only route from
+`web/` to any of those four pages; `tests/unit/test_web_client.py` lints it
+against the pages router, so a new page fails until it is linked. iOS links
+`/credits` and, deliberately, **never `/terms`** — that is the page with the
+price on it, and the listing rests on 3.1.3(f). Because there is no iOS job in
+CI, that absence is asserted from `tests/unit/test_app_store_metadata.py`
+alongside the metadata lint.
 
 ## Testing
 

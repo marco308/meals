@@ -292,6 +292,15 @@ select { cursor: pointer; }
   padding: 1.4rem 1.5rem;
 }
 
+/* A row of plain links: the About card's pages, and anywhere else a card
+   ends in "here is where to read more" rather than in a button. */
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1.1rem;
+  margin: .9rem 0 0;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

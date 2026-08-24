@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 METADATA = Path(__file__).resolve().parents[3] / "ios" / "AppStore" / "metadata.md"
+IOS = Path(__file__).resolve().parents[3] / "ios" / "Meals" / "Meals"
 
 #: Words that would either invite a 3.1.3 problem or stop being true the day the
 #: hosted tier opens. "Subscription" is on the list in both directions: as a
@@ -84,3 +85,25 @@ def test_the_prose_is_free_to_explain_the_rule():
     use the words, or the rule could not be written down next to the copy."""
     text = METADATA.read_text(encoding="utf-8").lower()
     assert "subscription" in text, "the reasoning for this rule should live beside the copy it constrains"
+
+
+def test_the_app_links_the_credits_and_never_the_terms():
+    """Settings gained a link to `/credits` and must not gain one to `/terms`.
+
+    Both pages are served by every deployment and the web app links all four,
+    but they are not alike from Cupertino: the terms are where the price is
+    written down, and 3.1.3(f) exempts this app only while it carries no call
+    to action for a purchase outside it. The credits carry no such sentence.
+
+    This lives here rather than in XCTest for the reason at the top of the
+    file: there is no iOS job in CI, so a "for consistency" commit adding the
+    terms link would otherwise reach TestFlight unchallenged, and a build
+    cannot be recalled."""
+    settings = (IOS / "Views" / "SettingsView.swift").read_text()
+    links = (IOS / "App" / "AppLinks.swift").read_text()
+
+    assert "AppLinks.credits(" in settings, "the About section should link the connected server's credits page"
+    assert 'page("/credits"' in links
+
+    for source, name in ((settings, "SettingsView.swift"), (links, "AppLinks.swift")):
+        assert '"/terms"' not in source, f"ios/Meals/Meals/.../{name} links the terms, which 3.1.3(f) does not allow"
