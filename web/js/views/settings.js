@@ -351,6 +351,25 @@ export async function renderSettings(root) {
   // deliberately does not police.
   for (const fill of root.querySelectorAll("[data-fill]")) fill.style.width = `${fill.dataset.fill}%`;
 
+  // Both of these leave the app for the processor's own page, which is the
+  // whole design: the merchant of record holds the card, the invoices and the
+  // refund, and this server never sees any of them. The manage URL is asked for
+  // on the click rather than up front because a portal session is one-time and
+  // expires (#129).
+  const manage = root.querySelector("[data-manage]");
+  if (manage) {
+    manage.onclick = async () => {
+      manage.disabled = true;
+      try {
+        const portal = await api("/billing/portal", { method: "POST" });
+        window.location.assign(portal.url);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+        manage.disabled = false;
+      }
+    };
+  }
+
   const subscribe = root.querySelector("[data-subscribe]");
   if (subscribe) {
     subscribe.onclick = async () => {
@@ -403,17 +422,15 @@ function subscriptionSection(subscription, household, youLead, leadName) {
     <div class="section card">
       <h2>Subscription</h2>
       <p class="sub">${subscriptionState(subscription)}</p>
-      ${subscription.can_checkout && !youLead
+      ${(subscription.can_checkout || subscription.can_manage) && !youLead
         ? html`<p class="sub">${leadName} leads “${household.name}”, so this is theirs to arrange.</p>`
         : ""}
       <div class="dialog-actions">
         ${subscription.can_checkout && youLead
           ? html`<button class="btn" data-subscribe>${subscribeLabel(subscription)}</button>`
           : ""}
-        ${subscription.manage_url
-          ? html`<a class="btn ghost" href="${subscription.manage_url}" target="_blank" rel="noopener">
-              Manage billing
-            </a>`
+        ${subscription.can_manage && youLead
+          ? html`<button class="btn ghost" data-manage>Manage billing</button>`
           : ""}
       </div>
     </div>

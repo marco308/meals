@@ -220,11 +220,14 @@ class TestNothingIsLeftBehind:
     #: model → columns that are deliberately not exported, and why.
     EXCLUDED = {
         # This deployment's bookkeeping about the household, not its data:
-        # which tier it is on, what it agreed to pay, when that runs out, and
-        # what it has already been emailed about. All of it means nothing on
-        # the box the household is moving to.
+        # which tier it is on, what it agreed to pay, when that runs out, who it
+        # is at the payment processor, and what it has already been emailed
+        # about. All of it means nothing on the box the household is moving to —
+        # and `billing_customer_id` is somebody else's identifier for a
+        # relationship with *this* server, which is the clearest case of the lot.
         Household: {
             "tier",
+            "billing_customer_id",
             "price_pence",
             "price_currency",
             "price_set_at",

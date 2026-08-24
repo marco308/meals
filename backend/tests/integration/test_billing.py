@@ -548,3 +548,126 @@ class TestNothingFailsQuietly:
             await client.post("/billing/webhook", content=body, headers=headers)
         record = next(r for r in caplog.records if r.getMessage() == "billing.webhook")
         assert (record.outcome, record.processor) == ("granted", "paddle")
+
+
+class TestItKeepsWhatTheEventCarries:
+    """Issues #128 and #129, both found by putting a real sandbox payment
+    through the deployment and then looking at the row it wrote.
+
+    Everything about the grant was right and two columns were empty, because the
+    parser read the billing period and dropped the rest of the object on the
+    floor. The price is §2's founding-price-for-life, which `grant` defends and
+    nothing was writing; the customer id is what lets "Manage billing" open a
+    portal instead of a login page.
+    """
+
+    async def test_stripe_records_the_price_and_the_customer(self, auth_client, stripe, sessions):
+        household = await household_id(sessions)
+        event = stripe_event(household, kind="customer.subscription.created")
+        event["data"]["object"]["customer"] = "cus_test_1"
+        event["data"]["object"]["currency"] = "gbp"
+        event["data"]["object"]["items"] = {
+            "data": [{"id": "si_1", "current_period_end": 1_818_000_000, "price": {"unit_amount": 2000}}]
+        }
+        body, headers = stripe_post(event)
+
+        response = await auth_client.post("/billing/webhook", content=body, headers=headers)
+        assert response.json()["outcome"] == "granted"
+
+        async with sessions() as db:
+            row = (await db.execute(select(Household))).scalars().one()
+            assert row.price_pence == 2000
+            assert row.price_currency == "GBP"
+            assert row.billing_customer_id == "cus_test_1"
+
+    async def test_stripe_reads_the_older_plan_shape_too(self, auth_client, stripe, sessions):
+        """`plan.amount` is where this lived before prices moved onto items, and
+        an account on an older API version still sends it."""
+        household = await household_id(sessions)
+        event = stripe_event(household)
+        event["data"]["object"]["plan"] = {"amount": 1500, "currency": "gbp"}
+        body, headers = stripe_post(event)
+
+        assert (await auth_client.post("/billing/webhook", content=body, headers=headers)).json()[
+            "outcome"
+        ] == "granted"
+        async with sessions() as db:
+            assert (await db.execute(select(Household))).scalars().one().price_pence == 1500
+
+    async def test_paddle_sends_the_amount_as_a_string(self, auth_client, paddle, sessions):
+        household = await household_id(sessions)
+        event = paddle_event(household)
+        event["data"]["customer_id"] = "ctm_01example"
+        event["data"]["items"] = [{"price": {"unit_price": {"amount": "2000", "currency_code": "GBP"}}}]
+        body, headers = paddle_post(event)
+
+        assert (await auth_client.post("/billing/webhook", content=body, headers=headers)).json()[
+            "outcome"
+        ] == "granted"
+        async with sessions() as db:
+            row = (await db.execute(select(Household))).scalars().one()
+            assert row.price_pence == 2000
+            assert row.price_currency == "GBP"
+            assert row.billing_customer_id == "ctm_01example"
+
+    async def test_lemonsqueezy_records_the_customer_and_no_price(self, auth_client, lemonsqueezy, sessions):
+        """Its subscription payload names the variant, not what the variant
+        costs. A snapshot we cannot take honestly stays null."""
+        household = await household_id(sessions)
+        event = lemon_event(household)
+        event["data"]["attributes"]["customer_id"] = 4242  # an integer, unlike the others
+        body, headers = lemon_post(event, event="subscription_created")
+
+        assert (await auth_client.post("/billing/webhook", content=body, headers=headers)).json()[
+            "outcome"
+        ] == "granted"
+        async with sessions() as db:
+            row = (await db.execute(select(Household))).scalars().one()
+            assert row.billing_customer_id == "4242"
+            assert row.price_pence is None
+
+    async def test_a_grant_with_no_readable_amount_is_still_a_grant(self, auth_client, stripe, sessions):
+        """Unlike a missing billing period end, which is refused because it would
+        never lapse, a missing price costs nobody their subscription."""
+        household = await household_id(sessions)
+        body, headers = stripe_post(stripe_event(household))  # no price anywhere
+
+        assert (await auth_client.post("/billing/webhook", content=body, headers=headers)).json()[
+            "outcome"
+        ] == "granted"
+        async with sessions() as db:
+            row = (await db.execute(select(Household))).scalars().one()
+            assert row.price_pence is None
+            assert row.tier == limits.PAID
+
+    async def test_a_renewal_at_a_higher_price_renews_and_keeps_the_founding_one(self, auth_client, stripe, sessions):
+        """The whole point of the snapshot, and the one case that would have
+        turned a payment into `refused` if the webhook used the operator's
+        stricter rule: the price went up, this household's did not, and the year
+        they just paid for still lands."""
+        household = await household_id(sessions)
+        first = stripe_event(household, event_id="evt_year_1")
+        first["data"]["object"]["items"] = {
+            "data": [{"current_period_end": 1_818_000_000, "price": {"unit_amount": 2000, "currency": "gbp"}}]
+        }
+        body, headers = stripe_post(first)
+        await auth_client.post("/billing/webhook", content=body, headers=headers)
+
+        renewal = stripe_event(household, event_id="evt_year_2")
+        renewal["data"]["object"]["items"] = {
+            "data": [{"current_period_end": 1_849_000_000, "price": {"unit_amount": 3000, "currency": "gbp"}}]
+        }
+        body, headers = stripe_post(renewal)
+        assert (await auth_client.post("/billing/webhook", content=body, headers=headers)).json()[
+            "outcome"
+        ] == "granted"
+
+        async with sessions() as db:
+            row = (await db.execute(select(Household))).scalars().one()
+            assert row.price_pence == 2000, "the founding price is for life"
+            assert row.paid_until is not None
+            # Stored values are UTC and SQLite hands them back naive, so say so
+            # rather than letting .timestamp() read them as local time.
+            assert int(row.paid_until.replace(tzinfo=UTC).timestamp()) == 1_849_000_000, (
+                "and the renewal still happened"
+            )

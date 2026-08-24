@@ -113,6 +113,21 @@ class Incoming:
     action: str  # grant | revoke | ignore
     household_id: uuid.UUID | None
     renews_at: datetime | None
+    # Two things the event already carries and #128/#129 found us throwing away.
+    #
+    # `price_pence` is the *list* price, before any tax the merchant of record
+    # adds on top: §2's "founding price for life" is a promise about what this
+    # project charges, not about what a given country's VAT made the total.
+    #
+    # `customer_id` is who this household is at the processor, which is what
+    # turns "Manage billing" from a login page into their own portal.
+    #
+    # Both are optional in a way `renews_at` is not: a grant with no expiry
+    # would never lapse and is refused, while a grant with no price recorded is
+    # merely a snapshot we could not take.
+    price_pence: int | None = None
+    price_currency: str | None = None
+    customer_id: str | None = None
 
 
 # --------------------------------------------------------------- verification
@@ -230,12 +245,18 @@ _STRIPE_ACTIONS = {
 def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
     processor = get_settings().billing_processor
     lowered = {name.lower(): value for name, value in headers.items()}
+    price_pence = price_currency = customer_id = None
     if processor == PADDLE:
         event_type = str(payload.get("event_type") or "")
         event_id = str(payload.get("event_id") or "")
         data = payload.get("data") or {}
         custom = (data.get("custom_data") or {}) if isinstance(data, dict) else {}
         renews_at = _timestamp((data.get("current_billing_period") or {}).get("ends_at"))
+        # Paddle sends the amount as a string of minor units and the currency
+        # beside it, on the price of each item.
+        unit = ((data.get("items") or [{}])[0].get("price") or {}).get("unit_price") or {}
+        price_pence, price_currency = _money(unit.get("amount"), unit.get("currency_code"))
+        customer_id = _identifier(data.get("customer_id"))
         actions = _PADDLE_ACTIONS
     elif processor == STRIPE:
         event_type = str(payload.get("type") or "")
@@ -243,6 +264,11 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         obj = (payload.get("data") or {}).get("object") or {}
         custom = obj.get("metadata") or {}
         renews_at = _stripe_period_end(obj)
+        price_pence, price_currency = _stripe_amount(obj)
+        # `customer` is an id, or the expanded object when somebody has asked
+        # for it. Read both rather than assume which.
+        customer = obj.get("customer")
+        customer_id = _identifier(customer.get("id") if isinstance(customer, dict) else customer)
         actions = _STRIPE_ACTIONS
     else:
         meta = payload.get("meta") or {}
@@ -253,6 +279,11 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         custom = meta.get("custom_data") or {}
         attributes = (payload.get("data") or {}).get("attributes") or {}
         renews_at = _timestamp(attributes.get("renews_at") or attributes.get("ends_at"))
+        customer_id = _identifier(attributes.get("customer_id"))
+        # No price: a Lemon Squeezy subscription payload names the variant it is
+        # for, not what it costs, and inferring an amount from a variant id would
+        # be a guess written into a column that promises not to change. The
+        # snapshot stays null, which #128 is explicit is better than a guess.
         actions = _LEMONSQUEEZY_ACTIONS
 
     if not event_type:
@@ -267,7 +298,49 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         action=actions.get(event_type, "ignore"),
         household_id=_household_id(custom),
         renews_at=renews_at,
+        price_pence=price_pence,
+        price_currency=price_currency,
+        customer_id=customer_id,
     )
+
+
+def _stripe_amount(obj: dict) -> tuple[int | None, str | None]:
+    """What one billing period of this subscription lists at.
+
+    Read off the subscription's items rather than the invoice: the invoice total
+    includes whatever tax the merchant of record added for that customer's
+    country, and two households on the same founding price would snapshot
+    different numbers. `plan.amount` is the older shape and says the same thing.
+    """
+    items = (obj.get("items") or {}).get("data") or []
+    first = items[0] if items and isinstance(items[0], dict) else {}
+    price = first.get("price") or first.get("plan") or obj.get("plan") or {}
+    amount = price.get("unit_amount", price.get("amount"))
+    return _money(amount, price.get("currency") or obj.get("currency"))
+
+
+def _money(amount: object, currency: object) -> tuple[int | None, str | None]:
+    """Minor units and a currency, or nothing. Paddle sends the amount as a
+    string, Stripe as an int, and either may be absent."""
+    try:
+        pence = int(str(amount))
+    except (TypeError, ValueError):
+        return None, None
+    if pence <= 0:
+        # A zero or negative line is a discount, a trial or a shape we have not
+        # understood. None of them is a founding price.
+        return None, None
+    code = str(currency).upper() if currency else None
+    return pence, code if code and len(code) == 3 else None
+
+
+def _identifier(value: object) -> str | None:
+    """A processor's own id for something, as text. Lemon Squeezy sends integers
+    where the others send strings, and the column stores what it is given."""
+    if value is None or isinstance(value, bool | dict | list):
+        return None
+    text = str(value).strip()
+    return text[:255] or None
 
 
 def _stripe_period_end(obj: dict) -> datetime | None:
@@ -371,6 +444,15 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
                 until=event.renews_at,
                 source=event.processor,
                 note=f"{event.event_type} via {event.processor}",
+                price_pence=event.price_pence,
+                price_currency=event.price_currency,
+                customer_id=event.customer_id,
+                # A processor reporting this year's list price is not an
+                # operator making a typo: honour the renewal and leave the
+                # founding snapshot alone. Refusing here would turn a payment
+                # into `refused`, which is somebody paying and not being
+                # credited for the sake of a column.
+                price_conflict=entitlements.KEEP_EXISTING_PRICE,
             )
             return await _record(db, event, GRANTED, detail=None)
         await entitlements.revoke(db, household, note=f"{event.event_type} via {event.processor}")
@@ -640,4 +722,76 @@ async def _lemonsqueezy_checkout(
     url = (((response.json() or {}).get("data") or {}).get("attributes") or {}).get("url")
     if not url:
         raise _fail(household, response)
+    return str(url)
+
+
+# ------------------------------------------------------- managing one, after
+#
+# Issue #129. `BILLING_MANAGE_URL` alone was the wrong answer: Stripe's no-code
+# portal link lands on "Log in to manage your account", which asks a household
+# that is *already signed in* for an email address and then emails them a link.
+# Found by clicking it.
+#
+# So: mint a session where we can, fall back to the configured URL where we
+# cannot, and say there is nothing to manage where neither is true.
+#
+# Only Stripe can be minted here, and that is a fact about the other two rather
+# than a gap: Paddle and Lemon Squeezy both hand out *per-subscription*
+# management URLs in the webhook payload (`management_urls`, `urls`) rather than
+# offering a customer-portal endpoint, and this server does not keep them. For
+# those, the configured URL is the honest answer.
+
+
+def can_manage(household: Household) -> bool:
+    """Whether there is anywhere to send this household to manage its billing.
+
+    False for a household that never paid, even on a server with a portal URL
+    configured: a link to somebody else's login page is not a feature.
+    """
+    settings = get_settings()
+    if _mintable(household, settings):
+        return True
+    return bool(settings.billing_manage_url and household.entitlement_source not in (None, entitlements.COMP))
+
+
+def _mintable(household: Household, settings) -> bool:
+    return bool(settings.billing_processor == STRIPE and household.billing_customer_id and settings.billing_api_key)
+
+
+async def portal_url(household: Household, *, return_url: str) -> str:
+    """Where this household manages its subscription: a one-time session if we
+    know who they are at the processor, the configured page otherwise."""
+    settings = get_settings()
+    if not _mintable(household, settings):
+        if can_manage(household):
+            return str(settings.billing_manage_url)
+        raise CheckoutError(
+            "this household has no subscription to manage. GET /billing/subscription says where it stands.",
+            status_code=409,
+        )
+
+    base = (settings.billing_api_base or _API_BASES[STRIPE]).rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=settings.billing_api_timeout_seconds) as client:
+            response = await client.post(
+                f"{base}/v1/billing_portal/sessions",
+                data={"customer": household.billing_customer_id, "return_url": return_url},
+                auth=(settings.billing_api_key, ""),
+                headers={"Stripe-Version": STRIPE_API_VERSION},
+            )
+    except httpx.HTTPError as exc:
+        log_event("billing.portal_failed", household_id=household.id, outcome="unreachable")
+        raise CheckoutError("the payment processor did not answer. Try again in a minute.") from exc
+
+    if response.status_code >= 400:
+        log_event("billing.portal_failed", household_id=household.id, outcome="refused", status=response.status_code)
+        # Falling back rather than failing: a stale customer id is the likely
+        # cause, and a login page they can get into beats an error they cannot.
+        if settings.billing_manage_url:
+            return str(settings.billing_manage_url)
+        raise CheckoutError("the payment processor would not open a billing portal just now.")
+
+    url = (response.json() or {}).get("url")
+    if not url:
+        raise CheckoutError("the payment processor would not open a billing portal just now.")
     return str(url)

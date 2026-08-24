@@ -22,6 +22,45 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-08-24 — what the webhook was throwing away
+
+Released as **1.4.0**. **One migration** (`b9d33848e592`), additive: one nullable
+column on `households`.
+
+Both fixes came out of putting a real Stripe sandbox payment through the
+deployment. The grant itself was right — signature verified, one ledger row,
+tier and expiry correct, caps flipped — and then two columns were empty, because
+the parser read the billing period and dropped the rest of the object.
+
+### Fixed
+
+- **A paid household now gets its founding price snapshot**
+  ([#128](https://github.com/marco308/meals/issues/128)). `grant` has always
+  defended it and nothing was writing it, so §2's "founding price for life" was
+  a promise about an empty column. Read from the event rather than from
+  `BILLING_PRICE_PENCE`, because the whole point is that the offer and the
+  agreement diverge the day the price changes — and it is the *list* price, not
+  the invoice total, so tax added by the merchant of record for one country does
+  not make two founding prices differ.
+- **A renewal at a higher price renews.** Handing `grant` a differing price used
+  to be an error, which is right for an operator typing one and wrong for a
+  processor reporting this year's list price: it would have answered
+  `outcome=refused`, which means somebody paid and was not credited. The two
+  callers now say which they are.
+- **"Manage billing" opens the household's own portal**
+  ([#129](https://github.com/marco308/meals/issues/129)) via a minted session,
+  rather than linking Stripe's no-code login page — which asks somebody who is
+  already signed in for their email address and then emails them a link. The
+  webhook now keeps the processor's customer id, which it had all along.
+  `BILLING_MANAGE_URL` stays as the fallback for comps, older rows and the two
+  processors that hand out per-subscription URLs instead.
+- **The manage link no longer renders for households that never paid.** A link
+  to a login page they have no account on is not a feature.
+
+### Added
+
+- `POST /billing/portal` and `can_manage` on `GET /billing/subscription`.
+
 ## 2026-08-23 — pin the version that decides who is selling
 
 Released as **1.3.1**. No migrations.

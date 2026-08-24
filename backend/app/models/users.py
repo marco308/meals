@@ -87,6 +87,13 @@ class Household(Base):
     # rather than an enum for the same reason `tier` is: a value this build has
     # not heard of must never be an error.
     entitlement_source: Mapped[str | None] = mapped_column(String(40), default=None)
+    # Who this household is *at the processor* (issue #129). The webhook has it
+    # on every subscription it verifies, and keeping it is what lets
+    # `POST /billing/portal` mint a session that opens straight into their own
+    # portal, rather than sending somebody who is already signed in to a login
+    # page that emails them a link. Null for every household that never paid,
+    # which is all of them on a self-hosted instance, and for a comp.
+    billing_customer_id: Mapped[str | None] = mapped_column(String(255), default=None)
     # Why, in one line, for whoever is reading the list a year later: "early
     # supporter", "PikaPods", "found the backup bug".
     entitlement_note: Mapped[str | None] = mapped_column(String(200), default=None)
