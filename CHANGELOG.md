@@ -20,6 +20,12 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-08-24 — record the price, absorb the races
+
+Released as **1.4.1**. No migrations.
+
 ### Fixed
 
 - **A payment now records what was agreed.** `households.price_pence` was
