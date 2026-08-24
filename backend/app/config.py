@@ -1,8 +1,84 @@
+import json
 from functools import lru_cache
-from typing import Self
+from typing import Annotated, Any, Self
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BeforeValidator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+def _blank_is_unset(value: object) -> object:
+    """An empty or whitespace-only string means "not set".
+
+    `- MAX_HOUSEHOLDS=${MAX_HOUSEHOLDS:-}` is the ordinary way to wire an
+    optional value through a compose or stack file, and "unset" is what a
+    deployer means by it. The string-valued settings already behave that way
+    without anybody arranging it (`METRICS_TOKEN=` arrives as `""`, which every
+    reader here treats as falsy), so without this the two kinds of setting
+    disagree for no reason that is visible from the outside, and they disagree
+    by refusing to boot on the node rather than by failing anything the deploy
+    could have caught. Wiring a number the way a token is wired is not a
+    mistake worth a crash.
+    """
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+# An int a deployment may leave unset, including by wiring it to an empty
+# `${VAR:-}` expansion. `None` is the only spelling of "unset" any reader sees.
+OptionalInt = Annotated[int | None, BeforeValidator(_blank_is_unset)]
+
+
+def _json_object_or_unset(value: object) -> object:
+    """The same rule for a setting whose value is JSON: blank overrides nothing.
+
+    This one needs `NoDecode` beside it, because a dict field is "complex" and
+    pydantic-settings JSON-decodes it in the environment source, before any
+    validator of ours can be reached. Blank therefore failed with a
+    `SettingsError` naming no line of JSON and offering no fix, which is a
+    worse boot crash than the ints got. Taking the decoding over costs one
+    `json.loads` and buys a refusal that says which setting and what was wrong
+    with it.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"not valid JSON ({exc}); leave it empty to override nothing") from exc
+    return value
+
+
+# A JSON object a deployment may leave unset the same way, e.g.
+# `- LIMITS_OVERRIDES=${LIMITS_OVERRIDES:-}`. Empty means "override nothing",
+# which is the profile as published.
+JsonOverrides = Annotated[
+    dict[str, dict[str, int | None]],
+    NoDecode,
+    BeforeValidator(_json_object_or_unset),
+]
+
+
+class BlankIsDefault:
+    """Annotation marker: blank means "use the default written on the field".
+
+    `OptionalInt` and `JsonOverrides` can say that with a validator, because
+    "unset" has a spelling in their type. A setting with a real default has
+    none, so this is a marker instead: `_blank_means_default` below drops the
+    value before pydantic sees it, and the default is then taken from the one
+    place it is written down. That is the point rather than a detail of the
+    mechanism. The stack file repeats six of these defaults today
+    (`- SMTP_PORT=${SMTP_PORT:-587}`) for no reason except that an empty string
+    would fail validation at boot, and a default written in two places is one
+    that will eventually disagree with itself.
+
+    It is opt-in per setting on purpose. `DATABASE_URL=${DATABSE_URL:-}` with
+    the variable name fat-fingered is a typo, and a server that quietly booted
+    onto the default SQLite path instead of failing would hide it until
+    somebody went looking for their data.
+    """
 
 
 class Settings(BaseSettings):
@@ -21,7 +97,7 @@ class Settings(BaseSettings):
     # docker-compose overrides this with the Postgres URL.
     database_url: str = "sqlite+aiosqlite:///./data/meals.db"
 
-    registration_enabled: bool = True
+    registration_enabled: Annotated[bool, BlankIsDefault] = True
     session_token_ttl_days: int = 30
 
     # Where a *browser* hitting the API root lands. Unset, it falls back to
@@ -85,9 +161,9 @@ class Settings(BaseSettings):
     #                           on. Existing households keep whatever their row
     #                           says, which for every household that predates
     #                           this is "unlimited".
-    limits_profile: str = "unlimited"
-    limits_overrides: dict[str, dict[str, int | None]] = {}
-    default_household_tier: str = "unlimited"
+    limits_profile: Annotated[str, BlankIsDefault] = "unlimited"
+    limits_overrides: JsonOverrides = {}
+    default_household_tier: Annotated[str, BlankIsDefault] = "unlimited"
 
     # Instance ceilings (planning/08-freemium.md §3, "Per instance"). The
     # limits above bound what one household costs; these bound how many
@@ -100,8 +176,8 @@ class Settings(BaseSettings):
     #                   onto a box with no room for them.
     #   MAX_USERS       the same for accounts, because an invited member grows
     #                   the user count without growing the household count.
-    max_households: int | None = None
-    max_users: int | None = None
+    max_households: OptionalInt = None
+    max_users: OptionalInt = None
 
     # Entitlements (app/services/entitlements.py, planning/08-freemium.md §5).
     # Only ever read for a household that has a `paid_until`, which on a
@@ -169,8 +245,8 @@ class Settings(BaseSettings):
     billing_store_id: str | None = None
     billing_api_base: str | None = None
     billing_manage_url: str | None = None
-    billing_price_pence: int | None = None
-    billing_price_currency: str = "GBP"
+    billing_price_pence: OptionalInt = None
+    billing_price_currency: Annotated[str, BlankIsDefault] = "GBP"
     billing_api_timeout_seconds: float = 20.0
 
     @property
@@ -203,11 +279,11 @@ class Settings(BaseSettings):
     # broken feature. Plain SMTP rather than a provider SDK, so any relay works
     # and nobody is pushed towards a paid account.
     smtp_host: str | None = None
-    smtp_port: int = 587
+    smtp_port: Annotated[int, BlankIsDefault] = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from: str | None = None  # falls back to smtp_username
-    smtp_start_tls: bool = True
+    smtp_start_tls: Annotated[bool, BlankIsDefault] = True
     # Reset codes are short-lived on purpose: emailed in plaintext, and holding
     # one is enough to change a password.
     password_reset_ttl_minutes: int = 30
@@ -219,6 +295,22 @@ class Settings(BaseSettings):
     @property
     def email_sender(self) -> str:
         return self.smtp_from or self.smtp_username or "meals@localhost"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_means_default(cls, values: Any) -> Any:
+        # Dropping the key is what makes pydantic fall back to the default, so
+        # this has to run before field validation rather than after it. Only
+        # fields carrying the marker are dropped; see BlankIsDefault for why
+        # that is not every field.
+        if not isinstance(values, dict):
+            return values
+        marked = {name for name, field in cls.model_fields.items() if BlankIsDefault in field.metadata}
+        return {
+            key: value
+            for key, value in values.items()
+            if not (key in marked and isinstance(value, str) and not value.strip())
+        }
 
     @model_validator(mode="after")
     def _a_server_that_sells_needs_somebody_to_sell_to(self) -> Self:
