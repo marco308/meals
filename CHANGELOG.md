@@ -20,6 +20,12 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-08-24 — say what this is built on
+
+Released as **1.4.0**. No migrations.
+
 ### Added
 
 - **`/credits`**, served by every deployment from
