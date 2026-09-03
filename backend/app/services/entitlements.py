@@ -41,6 +41,21 @@ from app.observability import log_event
 #: name goes in the same column when there is one to name.
 COMP = "comp"
 
+#: What `grant` does when it is handed a price and the household already has a
+#: different one. The two callers want opposite things, and the difference is
+#: who is talking.
+#:
+#: An **operator** typing a new price is probably making a mistake, and §2's
+#: founding-price-for-life is worth stopping them over: REFUSE.
+#:
+#: A **processor** reporting a renewal at this year's list price is not making a
+#: mistake and cannot be argued with, and refusing it would turn a payment into
+#: `outcome=refused` — somebody who paid and was not credited, for the sake of a
+#: column. KEEP: honour the renewal, leave the snapshot as it was, which *is* the
+#: promise rather than a compromise of it.
+REFUSE_PRICE_CHANGE = "refuse"
+KEEP_EXISTING_PRICE = "keep"
+
 #: What a household's entitlement is doing right now. Not stored: derived from
 #: `paid_until` and the clock, so it can never disagree with what the limits
 #: are actually doing.
@@ -124,6 +139,8 @@ async def grant(
     note: str | None = None,
     price_pence: int | None = None,
     price_currency: str | None = None,
+    customer_id: str | None = None,
+    price_conflict: str = REFUSE_PRICE_CHANGE,
 ) -> Entitlement:
     """Put a household on a tier until a date, or forever with `until=None`.
 
@@ -132,6 +149,13 @@ async def grant(
     that sentence untrue while looking like bookkeeping. Repricing on purpose
     means clearing it first, which is a deliberate act with its own line in the
     log.
+
+    `price_conflict` decides what a *differing* price does — see the constants
+    above. The default refuses, because the default caller is a person.
+
+    `customer_id` is who the household is at the processor (#129). It is only
+    ever set, never cleared: a household that stops paying keeps the customer it
+    was, which is exactly who a portal session has to be minted for.
     """
     if tier not in limits.TIERS:
         raise EntitlementError(f"{tier!r} is not a tier; choose one of {', '.join(limits.TIERS)}")
@@ -140,7 +164,8 @@ async def grant(
             f"{until.date()} is not in the future, so this would grant an entitlement that has already "
             "lapsed. Use a later date, or 'revoke' if that is what you meant."
         )
-    if price_pence is not None and household.price_pence is not None and household.price_pence != price_pence:
+    conflicting = price_pence is not None and household.price_pence is not None and household.price_pence != price_pence
+    if conflicting and price_conflict == REFUSE_PRICE_CHANGE:
         raise EntitlementError(
             f"this household already has a price of {household.price_pence}p and that is theirs for life "
             "(planning/08-freemium.md §6). Extending keeps it; if you really mean to change it, clear "
@@ -156,6 +181,18 @@ async def grant(
         household.price_pence = price_pence
         household.price_currency = price_currency or "GBP"
         household.price_set_at = datetime.now(UTC)
+    elif conflicting:
+        # Reached only with KEEP, and worth a line of its own: this is the
+        # moment the founding price actually earns its keep, and the difference
+        # between the two numbers is the discount somebody is quietly holding.
+        log_event(
+            "entitlement.price_held",
+            household_id=household.id,
+            source=source,
+            outcome="kept",
+        )
+    if customer_id is not None:
+        household.billing_customer_id = customer_id
     _reset_dunning(household)
 
     await db.commit()

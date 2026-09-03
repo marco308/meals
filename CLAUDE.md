@@ -230,11 +230,30 @@ instrumentation a new feature usually needs.
   a payment that names no household is an orphan and somebody has paid for
   nothing. **`managed_payments[enabled]=true` is what makes Stripe the merchant
   of record** — omit it and the payment still succeeds, with the EU VAT silently
-  back on us, which is the whole reason §7 chose an MoR. Managing or cancelling
-  belongs to the processor (`BILLING_MANAGE_URL`), because they are the seller.
+  back on us, which is the whole reason §7 chose an MoR. Pin
+  `Stripe-Version`: that parameter exists only from `2025-03-31.basil`, and the
+  account default is a dashboard setting this server cannot read.
   `GET /client-config` publishes `billing_enabled`, the single answer to "does
   this server sell anything", which is a different question from whether it
   limits anything.
+- **What the webhook *keeps* is as load-bearing as what it grants** (#128, #129,
+  both found by putting a real sandbox payment through the deployment). The event
+  carries the list price and the processor's customer id, and dropping either cost
+  a real promise. §2's founding price is defended by `entitlements.grant` and was
+  defending an empty column, so take the price **from the event** before
+  `BILLING_PRICE_PENCE` (the setting is what this server *offers*; the
+  snapshot is what this household *agreed*, and they diverge the day the price
+  changes; the setting is only the fallback for an event that names no price),
+  take the **list** price rather than the invoice total (or the VAT a
+  merchant of record adds for one country makes two founding prices differ), and
+  on a renewal let a differing price **keep** the snapshot rather than refuse the
+  grant — refusing is somebody paying and not being credited, for the sake of a
+  column. Managing or cancelling belongs to the processor, because they are the
+  seller, but **link a portal *session*, never a login page**: the no-code link
+  asks somebody who is already signed in for their email and then emails them a
+  link, so `POST /billing/portal` mints one against the stored customer id and
+  `BILLING_MANAGE_URL` is only the fallback for comps, older rows, and the two
+  processors that hand out per-subscription URLs instead.
 - **The billing webhook is off unless configured, and its failures are loud**
   (`services/billing.py`, `POST /billing/webhook`). Unset `BILLING_PROCESSOR`
   and the route **404s** rather than existing and refusing — a self-hosted

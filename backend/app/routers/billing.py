@@ -82,6 +82,7 @@ async def subscription(user: CurrentUser) -> SubscriptionOut:
         offer_price_pence=settings.billing_price_pence,
         offer_price_currency=settings.billing_price_currency if settings.billing_price_pence else None,
         manage_url=settings.billing_manage_url,
+        can_manage=billing.can_manage(household),
         # Already entitled means there is nothing to buy: a second subscription
         # would be a second charge for the same year.
         can_checkout=settings.billing_sells and limits.effective_tier(household) == limits.FREE,
@@ -121,6 +122,27 @@ async def checkout(user: CurrentUser, db: DbSession, request: Request) -> Checko
     return_url = f"{base_url(request)}/app/#/settings"
     try:
         url = await billing.start_checkout(household, email=user.email, return_url=return_url)
+    except billing.CheckoutError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return CheckoutOut(url=url)
+
+
+@router.post("/portal", response_model=CheckoutOut)
+async def portal(user: CurrentUser, db: DbSession, request: Request) -> CheckoutOut:
+    """Where to send this household to change a card, read an invoice or cancel.
+
+    A one-time session into their own portal where the processor offers one, and
+    this server's configured page otherwise. Either way it belongs to the
+    merchant of record: they took the money, so they hold the card details and
+    they are who a refund is asked of.
+
+    The lead's alone, like the checkout, and 409 when there is nothing to manage.
+    """
+    _require_billing()
+    household = user.household
+    await _require_lead(db, user, household)
+    try:
+        url = await billing.portal_url(household, return_url=f"{base_url(request)}/app/#/settings")
     except billing.CheckoutError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return CheckoutOut(url=url)

@@ -28,8 +28,14 @@ class SubscriptionOut(BaseModel):
     offer_price_currency: str | None = Field(description="Currency of offer_price_pence.")
     manage_url: str | None = Field(
         description=(
-            "Where to change a card, read an invoice or cancel. It belongs to the merchant of record rather "
-            "than to this server, which is also who a refund is asked of."
+            "This server's configured fallback page, if it has one. Prefer POST /billing/portal, which mints "
+            "a one-time session straight into this household's own portal where the processor supports it."
+        )
+    )
+    can_manage: bool = Field(
+        description=(
+            "Whether POST /billing/portal has anywhere to send this household. False for one that never "
+            "paid: a link to a login page they have no account on is not a feature."
         )
     )
     can_checkout: bool = Field(

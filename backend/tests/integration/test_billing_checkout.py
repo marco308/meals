@@ -349,3 +349,105 @@ def test_lemonsqueezy_without_its_store_refuses_to_boot(monkeypatch):
 
     with pytest.raises(ValueError, match="BILLING_STORE_ID"):
         Settings()
+
+
+# ------------------------------------------------------------ managing one
+
+
+async def paid_by_stripe(sessions, *, customer: str | None = "cus_test_1") -> Household:
+    """A household that bought something, the way the webhook leaves one."""
+    async with sessions() as db:
+        household = (await db.execute(select(Household))).scalars().one()
+        await entitlements.grant(
+            db,
+            household,
+            tier=limits.PAID,
+            until=datetime.now(UTC) + timedelta(days=365),
+            source="stripe",
+            price_pence=2000,
+            customer_id=customer,
+        )
+        await db.commit()
+        return household
+
+
+@respx.mock
+async def test_portal_mints_a_session_for_this_household(stripe, auth_client, sessions):
+    """Issue #129: the point of storing the customer id. One click into their own
+    portal, rather than a login page that emails them a link."""
+    route = respx.post("https://api.stripe.com/v1/billing_portal/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/session/live_1"})
+    )
+    await paid_by_stripe(sessions)
+
+    response = await auth_client.post("/billing/portal")
+    assert response.status_code == 200, response.text
+    assert response.json()["url"] == "https://billing.stripe.com/session/live_1"
+
+    sent = dict(part.split("=", 1) for part in route.calls.last.request.content.decode().split("&"))
+    assert sent["customer"] == "cus_test_1"
+    assert route.calls.last.request.headers["stripe-version"] == "2025-03-31.basil"
+
+
+async def test_a_household_that_never_paid_has_nothing_to_manage(stripe, auth_client):
+    """Even with a portal URL configured. A link to a login page they have no
+    account on is not a feature — it is the bug that started #129."""
+    assert (await auth_client.get("/billing/subscription")).json()["can_manage"] is False
+    response = await auth_client.post("/billing/portal")
+    assert response.status_code == 409
+    assert "no subscription to manage" in response.json()["detail"]
+
+
+async def test_a_comp_is_not_something_the_processor_can_manage(stripe, auth_client, sessions):
+    async with sessions() as db:
+        household = (await db.execute(select(Household))).scalars().one()
+        await entitlements.grant(
+            db,
+            household,
+            tier=limits.PAID,
+            until=datetime.now(UTC) + timedelta(days=365),
+            source=entitlements.COMP,
+        )
+        await db.commit()
+    assert (await auth_client.get("/billing/subscription")).json()["can_manage"] is False
+
+
+async def test_a_paid_household_with_no_stored_customer_gets_the_configured_page(stripe, auth_client, sessions):
+    """Old rows, and the two processors that hand out per-subscription URLs this
+    server does not keep. The fallback is the honest answer there."""
+    await paid_by_stripe(sessions, customer=None)
+    assert (await auth_client.get("/billing/subscription")).json()["can_manage"] is True
+
+    response = await auth_client.post("/billing/portal")
+    assert response.status_code == 200
+    assert response.json()["url"] == "https://billing.example.com/p/login/test"
+
+
+@respx.mock
+async def test_a_refused_portal_falls_back_rather_than_failing(stripe, auth_client, sessions):
+    """A stale customer id is the likely cause, and a login page they can get
+    into beats an error they cannot."""
+    respx.post("https://api.stripe.com/v1/billing_portal/sessions").mock(
+        return_value=httpx.Response(400, json={"error": {"message": "No such customer"}})
+    )
+    await paid_by_stripe(sessions)
+
+    response = await auth_client.post("/billing/portal")
+    assert response.status_code == 200
+    assert response.json()["url"] == "https://billing.example.com/p/login/test"
+
+
+async def test_portal_is_the_leads_alone(stripe, client, sessions):
+    lead = await register(client, email="lead2@example.com", name="Marcus")
+    client.headers["Authorization"] = f"Bearer {lead['token']}"
+    invite = (await client.post("/auth/invites", json={"expires_in_days": 7})).json()
+    joiner = await register(client, email="other2@example.com", name="Sam", invite_code=invite["code"])
+    client.headers["Authorization"] = f"Bearer {joiner['token']}"
+
+    response = await client.post("/billing/portal")
+    assert response.status_code == 403
+    assert "Marcus" in response.json()["detail"]
+
+
+async def test_neither_portal_nor_subscription_exists_without_billing(auth_client):
+    assert (await auth_client.post("/billing/portal")).status_code == 404
