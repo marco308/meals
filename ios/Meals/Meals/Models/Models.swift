@@ -420,6 +420,47 @@ struct Supermarket: Codable, Identifiable, Equatable, Sendable {
     let isActive: Bool
 }
 
+/// One batch in the freezer (`GET /freezer`, decision Q24): what it is, how
+/// many portions are left, and when it went in. `mealId` / `recipeId` say
+/// where it came from while that meal or recipe still exists; both nil is free
+/// text — food that never went through the plan.
+struct FreezerItem: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let label: String
+    let mealId: UUID?
+    let recipeId: UUID?
+    let portions: Int
+    let note: String?
+    /// A bare date, `YYYY-MM-DD`.
+    let frozenOn: String
+
+    var portionsText: String { "\(portions) portion\(portions == 1 ? "" : "s")" }
+
+    var frozenOnDate: Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: frozenOn)
+    }
+
+    /// "frozen 3 weeks ago" — the age is the point of the row.
+    var frozenText: String {
+        guard let date = frozenOnDate else { return "frozen \(frozenOn)" }
+        if Calendar.current.isDateInToday(date) { return "frozen today" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "frozen \(formatter.localizedString(for: date, relativeTo: .now))"
+    }
+}
+
+/// The whole freezer, oldest batch first — that is the one to eat next.
+struct FreezerPayload: Codable, Equatable, Sendable {
+    let items: [FreezerItem]
+    let totalPortions: Int
+}
+
 /// A finished shop (`GET /shopping-list/archived`) — what a list looked like
 /// when it was archived, for the record.
 struct ArchivedListSummary: Codable, Identifiable, Equatable, Sendable {
