@@ -829,7 +829,7 @@ wheels = [
 
 [[package]]
 name = "meals-backend"
-version = "1.4.1"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosmtplib" },
@@ -890,7 +890,7 @@ dev = [
 
 [[package]]
 name = "meals-mcp"
-version = "1.4.1"
+version = "1.5.0"
 source = { directory = "../mcp" }
 dependencies = [
     { name = "httpx" },

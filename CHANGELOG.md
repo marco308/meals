@@ -22,6 +22,43 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-03 — the freezer
+
+Released as **1.5.0**. One additive migration, `a6c2e9f14b37` (a new
+`freezer_items` table; nothing existing changes).
+
+### Added
+
+- **Freezer stock** (decision Q24, PR [#139](https://github.com/marco308/meals/pull/139)).
+  A running tab of cooked portions waiting to be eaten, kept as one row per
+  **batch** — a label, the portions left, the date it went in, a note — rather
+  than a merged count per dish, because two batches of chilli a month apart are
+  two things to eat oldest-first. A batch is named one way: a meal (it takes
+  the meal's name), a recipe (the title), or free text for food that never came
+  through the plan. The meal and recipe links are `SET NULL`, so tidying the
+  library never empties a freezer. `GET /freezer` lists oldest first with a
+  portion total; `POST /freezer` adds a batch, never merges; `POST
+  /freezer/{id}/take` eats from one and deletes it at zero; `PATCH` recounts or
+  renames; `DELETE` bins it. It touches neither the plan nor the shopping list.
+- **The web app has a Freezer page** — the list oldest-first with a "been in a
+  while" flag past 90 days, minus-one and plus-one, remove with confirmation,
+  and an add dialog with meal, recipe and free-text tabs.
+- **Three MCP tools** — `get_freezer`, `add_to_freezer` (resolves a name
+  against meals, then recipes, and falls back to free text; `as_text` forces
+  it) and `take_from_freezer` (oldest batch first, spilling into the next). The
+  skill and prompt pack gain a freezer section, so this is **playbook v17**.
+- **`freezer_items` joins the limits vocabulary**, counted in batches (hosted
+  100 / 1,000 / 2,000; unlimited by default like everything else), and the
+  household export gains a `freezer` section.
+- **iOS 1.2 build 27** carries the freezer screen off the Plan tab and is on
+  TestFlight; `current_ios_build` moves to 27 so installs are told.
+
+### Fixed
+
+- **Web: the `hidden` attribute now actually hides a form field.** `label.field
+  { display: block }` was beating the browser's `[hidden]` rule, so anything
+  toggled with `el.hidden` stayed on screen.
+
 ## 2026-08-24 — record the price, absorb the races
 
 Released as **1.4.1**. No migrations.

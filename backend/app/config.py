@@ -141,7 +141,7 @@ class Settings(BaseSettings):
     # What TestFlight/the App Store currently has, so an older-but-still-allowed
     # app can nudge the user without being locked out. Track `CFBundleVersion`
     # in ios/project.yml when that is bumped for an upload.
-    current_ios_build: int = 26
+    current_ios_build: int = 27
     ios_upgrade_url: str | None = None
 
     # Per-household limits (app/limits.py, planning/08-freemium.md). Every
