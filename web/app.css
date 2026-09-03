@@ -483,6 +483,13 @@ select { cursor: pointer; }
 .shop-item .i-actions { display: flex; gap: .35rem; opacity: 0; transition: opacity .15s; }
 .shop-item:hover .i-actions, .shop-item:focus-within .i-actions { opacity: 1; }
 
+/* "Hide ticked" walks the list down to what is still to get. The rows stay in
+   the DOM so the tallies and the untick are one toggle away, and an aisle whose
+   every line is done goes with them (JS sets .all-ticked). The "already have
+   it" pile is left alone — it answers a different question. */
+.hide-ticked .aisle-columns .shop-item.done,
+.hide-ticked .aisle-group.all-ticked { display: none; }
+
 .icon-btn {
   border: 1px solid var(--line);
   background: var(--card);
