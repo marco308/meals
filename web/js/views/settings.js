@@ -500,6 +500,7 @@ const RESOURCE_LABELS = {
   plans: "Plans on the go",
   plan_meals: "Meals in one plan",
   supermarkets: "Supermarkets",
+  freezer_items: "Batches in the freezer",
   api_tokens: "API tokens",
   ingests_per_month: "Recipes read from a URL",
 };

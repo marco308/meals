@@ -319,3 +319,29 @@ and that nobody inside a household outranked anybody. That is still true of the
   a recipe library, a plan and a shopping list.
 - **No MCP tools.** All 29 are about food. Household admin is a settings screen,
   not something an assistant should be reaching for on someone's behalf.
+
+**Q24 — Freezer stock: a tab of batches, not a merged tally** (2026-09-03).
+Batch cooking (Q18) ends with portions in the freezer, and nothing remembered
+them. `freezer_items` is one row per **batch** — a label, the portions left,
+the date it went in, a note — scoped to the household like everything else.
+Decisions:
+
+- **A batch, not a count per dish.** Two batches of chilli frozen a month apart
+  are two things to eat oldest-first; merging them into one number would lose
+  the date that says which is which. Clients total by label when they want to.
+- **The label is the record; the links are a courtesy.** `meal_id` /
+  `recipe_id` say where a batch came from when it came from the app and are
+  `SET NULL` on delete, so tidying the library never empties a freezer. Free
+  text (both null) is for what never passed through a plan — half a lasagne
+  from a friend, the stock.
+- **Portions is what is left.** Taking one decrements; the row goes at zero, so
+  the table *is* the freezer. No history of what was eaten from it: the cooked
+  record already says what was made, and eating from the freezer is not a
+  cooking, so it touches neither the plan nor the list.
+- **Every add is a new batch, never a merge**, and the API says so — the
+  shopping list merges because a line is one thing to buy; a freezer batch is
+  one thing to eat.
+- It is a limited resource (`freezer_items`, counted in batches) so the hosted
+  ceiling story stays whole; unlimited by default like everything else.
+- iOS has no freezer screen yet: the API is additive, so the web app and the
+  MCP tools carry it until a build does.

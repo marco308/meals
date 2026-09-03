@@ -247,6 +247,9 @@ button { font: inherit; color: inherit; }
 /* ── forms ──────────────────────────────────────────────────────────── */
 
 label.field { display: block; margin-bottom: .9rem; }
+/* The `hidden` attribute has to win over display rules like the one above,
+   or a form field toggled with el.hidden stays on screen. */
+[hidden] { display: none !important; }
 label.field > span, .field-label {
   display: block;
   font-size: .72rem;

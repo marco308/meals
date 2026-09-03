@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     AuthToken,
     CookedEvent,
+    FreezerItem,
     Household,
     HouseholdInvite,
     Ingredient,
@@ -67,7 +68,7 @@ async def household_has_content(db: AsyncSession, household_id: uuid.UUID) -> bo
     confirmation flag to accept an invite would be ceremony about deleting
     nothing at all.
     """
-    for model in (Recipe, Meal, Plan, ShoppingList, Ingredient, Supermarket, CookedEvent):
+    for model in (Recipe, Meal, Plan, ShoppingList, Ingredient, Supermarket, CookedEvent, FreezerItem):
         # One row is the whole question, so stop at one rather than counting a
         # library that could be thousands of rows deep.
         result = await db.execute(select(model.id).where(model.household_id == household_id).limit(1))
@@ -139,6 +140,8 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     # Cooked history first: its meal/recipe/plan_meal columns are SET NULL, so
     # leaving it until later would blank them out row by row for no reason.
     await db.execute(delete(CookedEvent).where(CookedEvent.household_id == household_id))
+    # Same shape: its meal/recipe links are SET NULL, so it goes before them too.
+    await db.execute(delete(FreezerItem).where(FreezerItem.household_id == household_id))
     # Lists before plans: list_item_sources point at plan_meals.
     await db.execute(delete(ShoppingList).where(ShoppingList.household_id == household_id))
     await db.execute(delete(Plan).where(Plan.household_id == household_id))

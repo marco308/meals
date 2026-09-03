@@ -3,6 +3,7 @@
 
 import { api, session } from "./api.js";
 import { html, render, toast } from "./dom.js";
+import { renderFreezer } from "./views/freezer.js";
 import { renderIngredients } from "./views/ingredients.js";
 import { renderLogin } from "./views/login.js";
 import { renderMealDetail, renderMealEditor, renderMeals } from "./views/meals.js";
@@ -14,6 +15,7 @@ import { renderShopping, renderShoppingArchive } from "./views/shopping.js";
 const NAV = [
   { hash: "#/plan", emoji: "🍲", label: "Plan", match: /^#\/plans?/ },
   { hash: "#/list", emoji: "🛒", label: "Shopping list", match: /^#\/list/ },
+  { hash: "#/freezer", emoji: "❄️", label: "Freezer", match: /^#\/freezer/ },
   { hash: "#/recipes", emoji: "📖", label: "Recipes", match: /^#\/recipes/ },
   { hash: "#/meals", emoji: "🍽️", label: "Meals", match: /^#\/meals/ },
   { hash: "#/ingredients", emoji: "🥕", label: "Ingredients", match: /^#\/ingredients/ },
@@ -25,6 +27,7 @@ const ROUTES = [
   [/^#\/plans\/([0-9a-f-]+)$/, (root, m) => renderPlan(root, m[1]), "Plan"],
   [/^#\/list$/, (root) => renderShopping(root), "Shopping list"],
   [/^#\/list\/archived$/, (root) => renderShoppingArchive(root), "Previous shops"],
+  [/^#\/freezer$/, (root) => renderFreezer(root), "Freezer"],
   [/^#\/recipes$/, (root) => renderRecipes(root), "Recipes"],
   [/^#\/recipes\/new$/, (root) => renderRecipeEditor(root, null), "New recipe"],
   [/^#\/recipes\/([0-9a-f-]+)$/, (root, m) => renderRecipeDetail(root, m[1]), "Recipe"],
