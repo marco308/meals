@@ -7,6 +7,7 @@ import { confirmDialog, emptyState, fmtDate, html, render, skeleton, toast } fro
 
 let staplesMode = false;
 let showExcluded = false;
+let hideTicked = false;
 
 export async function renderShopping(root) {
   render(root, skeleton());
@@ -29,7 +30,7 @@ export async function renderShopping(root) {
   const excluded = list.items.filter((i) => i.excluded);
 
   render(root, html`
-    <div class="page">
+    <div class="page ${hideTicked ? "hide-ticked" : ""}">
       <div class="page-head">
         <div>
           <h1>Shopping list</h1>
@@ -46,6 +47,9 @@ export async function renderShopping(root) {
           </p>
         </div>
         <div class="page-actions">
+          <button class="btn ghost" data-hide-ticked aria-pressed="${hideTicked ? "true" : "false"}">
+            ${hideTicked ? "👀 Show ticked" : "🙈 Hide ticked"}
+          </button>
           <button class="btn ghost" data-staples>🧂 Staples check</button>
           <a class="btn ghost" href="#/list/archived">Previous shops</a>
           <button class="btn" data-finish>Finish the shop</button>
@@ -60,6 +64,7 @@ export async function renderShopping(root) {
       ${list.items.length === 0
         ? emptyState("🛒", "The list writes itself", "Add meals to the plan and their ingredients appear here, merged and sorted by aisle. Or add one-offs above.")
         : html`<div class="aisle-columns">${aisleGroups(list)}</div>`}
+      <p class="menu-foot" data-all-ticked hidden>Everything on the list is in the trolley.</p>
 
       ${excluded.length > 0 &&
       html`
@@ -77,6 +82,7 @@ export async function renderShopping(root) {
   `);
 
   bind(root, list, markets);
+  syncHidden(root);
 }
 
 function groupByAisle(items) {
@@ -166,6 +172,10 @@ function bind(root, list, markets) {
       }
     };
   }
+  root.querySelector("[data-hide-ticked]").onclick = () => {
+    hideTicked = !hideTicked;
+    renderShopping(root);
+  };
   root.querySelector("[data-show-excluded]").onclick = () => {
     showExcluded = !showExcluded;
     renderShopping(root);
@@ -320,6 +330,22 @@ function stapleRow(item) {
   `;
 }
 
+// An aisle whose every line is in the trolley would leave its header floating
+// over nothing once the rows are hidden, so the group goes with them — and when
+// the whole list is done the page says so rather than looking empty. Only the
+// aisles are touched: the “already have it” pile is a different question.
+function syncHidden(root) {
+  for (const group of root.querySelectorAll(".aisle-group")) {
+    group.classList.toggle("all-ticked", group.querySelectorAll(".shop-item:not(.done)").length === 0);
+  }
+  const note = root.querySelector("[data-all-ticked]");
+  if (note) {
+    const rows = root.querySelectorAll(".aisle-columns .shop-item").length;
+    const left = root.querySelectorAll(".aisle-columns .shop-item:not(.done)").length;
+    note.hidden = !hideTicked || rows === 0 || left > 0;
+  }
+}
+
 // Keep the header and per-aisle tallies honest during optimistic ticking,
 // without a full re-render that would cut the strike animation short.
 function updateCounts(root) {
@@ -333,6 +359,7 @@ function updateCounts(root) {
   const done = root.querySelectorAll(".aisle-columns .shop-item.done").length;
   const label = root.querySelector("[data-count]");
   if (label) label.textContent = rows.length === 0 ? "nothing to get" : `${done} of ${rows.length} in the trolley`;
+  syncHidden(root);
 }
 
 // "2 l milk" / "500g flour" / "2 tins of chopped tomatoes" / plain "milk".
