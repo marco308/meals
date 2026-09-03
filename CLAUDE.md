@@ -146,6 +146,14 @@ instrumentation a new feature usually needs.
   order drives the list sort and `GET /aisles`, which is how iOS learns it
   without an app change. Orders saved before a new aisle existed gain it at
   the end — adding an aisle must never invalidate a saved supermarket.
+- **The freezer is a tab of batches** (`services/freezer.py`, Q24). One
+  `freezer_items` row per batch — a denormalised `label`, the portions *left*,
+  `frozen_on` — with `meal_id`/`recipe_id` as `SET NULL` courtesies, so deleting
+  a meal never empties a freezer. Every `POST /freezer` is a new batch, never a
+  merge (two batches a month apart are two things to eat oldest-first); taking
+  the last portion deletes the row, so the table is what is in the freezer and
+  nothing else. It touches neither the plan nor the shopping list: eating from
+  the freezer is not a cooking.
 - **Premium vs budget** (`services/values.py`, Q17). An ingredient's
   `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
   household's own verdict — unlike an aisle it is **never guessed**, so no

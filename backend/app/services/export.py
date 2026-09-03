@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import Base
 from app.models import (
     CookedEvent,
+    FreezerItem,
     Household,
     Ingredient,
     ListItem,
@@ -213,6 +214,24 @@ def _cooked_event(event: CookedEvent) -> dict:
     }
 
 
+def _freezer_item(item: FreezerItem) -> dict:
+    """The label is the record and the links are a courtesy (Q24), so both are
+    written: a reader sees what is in the freezer even when the meal it came
+    from is long gone."""
+    return {
+        "id": item.id,
+        "label": item.label,
+        "meal_id": item.meal_id,
+        "recipe_id": item.recipe_id,
+        "portions": item.portions,
+        "note": item.note,
+        "frozen_on": item.frozen_on,
+        "created_by": item.created_by,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
 def _supermarket(market: Supermarket) -> dict:
     return {
         "id": market.id,
@@ -284,6 +303,11 @@ def _sections() -> tuple[Section, ...]:
             "cooked_events",
             lambda hid: select(CookedEvent).where(CookedEvent.household_id == hid).order_by(*_order(CookedEvent)),
             _cooked_event,
+        ),
+        (
+            "freezer",
+            lambda hid: select(FreezerItem).where(FreezerItem.household_id == hid).order_by(*_order(FreezerItem)),
+            _freezer_item,
         ),
         (
             "supermarkets",

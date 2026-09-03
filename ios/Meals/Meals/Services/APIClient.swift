@@ -606,6 +606,55 @@ extension APIClient {
         )
     }
 
+    // MARK: Freezer
+
+    /// What is in the freezer, oldest batch first (Q24).
+    func freezer() async throws -> FreezerPayload {
+        try await send("GET", "/freezer", as: FreezerPayload.self)
+    }
+
+    /// Put a batch in. Exactly one of `mealId`, `recipeId`, `label` names it —
+    /// the server refuses anything else with a sentence. Every call is a new
+    /// batch, never a merge. `frozenOn` is `YYYY-MM-DD`; nil means today.
+    func addToFreezer(
+        mealId: UUID? = nil, recipeId: UUID? = nil, label: String? = nil,
+        portions: Int, note: String? = nil, frozenOn: String? = nil
+    ) async throws -> FreezerItem {
+        try await send(
+            "POST", "/freezer",
+            json: [
+                "meal_id": mealId?.uuidString.lowercased(),
+                "recipe_id": recipeId?.uuidString.lowercased(),
+                "label": label,
+                "portions": portions,
+                "note": note,
+                "frozen_on": frozenOn,
+            ],
+            as: FreezerItem.self
+        )
+    }
+
+    /// A recount or a rename — a true PATCH, only what is passed is sent.
+    func updateFreezerItem(id: UUID, portions: Int? = nil, label: String? = nil) async throws -> FreezerItem {
+        var payload: [String: Any?] = [:]
+        if let portions { payload["portions"] = portions }
+        if let label { payload["label"] = label }
+        return try await send("PATCH", "/freezer/\(id.uuidString.lowercased())", json: payload, as: FreezerItem.self)
+    }
+
+    /// Eat from a batch. The reply's `portions` is what is left; 0 means the
+    /// batch is gone from the freezer.
+    func takeFromFreezer(id: UUID, portions: Int = 1) async throws -> FreezerItem {
+        try await send(
+            "POST", "/freezer/\(id.uuidString.lowercased())/take", json: ["portions": portions], as: FreezerItem.self
+        )
+    }
+
+    /// A whole batch out, whatever was left of it.
+    func removeFromFreezer(id: UUID) async throws {
+        try await raw("DELETE", "/freezer/\(id.uuidString.lowercased())")
+    }
+
     // MARK: Supermarkets
 
     /// The household's saved stores. The active one's aisle order drives the

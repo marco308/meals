@@ -86,7 +86,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import AuthToken, Household, Ingredient, Meal, Plan, PlanMeal, Recipe, Supermarket, User
+from app.models import (
+    AuthToken,
+    FreezerItem,
+    Household,
+    Ingredient,
+    Meal,
+    Plan,
+    PlanMeal,
+    Recipe,
+    Supermarket,
+    User,
+)
 from app.observability import log_event
 
 # ---------------------------------------------------------------------- tiers
@@ -122,6 +133,7 @@ class Limits:
     plans: int | None = None
     plan_meals: int | None = None
     supermarkets: int | None = None
+    freezer_items: int | None = None
     api_tokens: int | None = None
     ingests_per_month: int | None = None
 
@@ -149,6 +161,7 @@ PROFILES: dict[str, dict[str, Limits]] = {
             plans=20,
             plan_meals=30,
             supermarkets=2,
+            freezer_items=100,
             api_tokens=3,
             ingests_per_month=20,
         ),
@@ -161,6 +174,7 @@ PROFILES: dict[str, dict[str, Limits]] = {
             plans=1_000,
             plan_meals=30,
             supermarkets=20,
+            freezer_items=1_000,
             api_tokens=10,
             ingests_per_month=500,
         ),
@@ -173,6 +187,7 @@ PROFILES: dict[str, dict[str, Limits]] = {
             plans=2_000,
             plan_meals=30,
             supermarkets=20,
+            freezer_items=2_000,
             api_tokens=10,
             ingests_per_month=1_000,
         ),
@@ -231,6 +246,12 @@ async def _count_plan_meals(db: AsyncSession, _household_id: uuid.UUID, within: 
 
 async def _count_supermarkets(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
     return await _count(db, Supermarket, Supermarket.household_id == household_id)
+
+
+async def _count_freezer_items(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
+    """Batches, not portions: a row is what costs the box something, and a
+    batch of eight portions is one row exactly as a batch of one is."""
+    return await _count(db, FreezerItem, FreezerItem.household_id == household_id)
 
 
 async def _count_api_tokens(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
@@ -367,6 +388,17 @@ RESOURCES: dict[str, _Spec] = {
         holder="this household has",
         count=_count_supermarkets,
         hint="Delete one you no longer shop at (DELETE /supermarkets/{supermarket_id}).",
+    ),
+    "freezer_items": _Spec(
+        singular="batch",
+        plural="batches",
+        scope="in the freezer",
+        holder="this household has",
+        count=_count_freezer_items,
+        hint=(
+            "A batch leaves the freezer when its last portion is taken (POST /freezer/{item_id}/take) or "
+            "when it is removed outright (DELETE /freezer/{item_id}) — eat something, or bin what is past it."
+        ),
     ),
     "api_tokens": _Spec(
         singular="API token",

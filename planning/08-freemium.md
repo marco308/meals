@@ -72,6 +72,7 @@ Two kinds, and they are not the same error:
 | Archived shops | last 3 readable | all | 2,000 | the only thing that grows forever |
 | Items per list | 300 | 300 | 300 | same in both tiers |
 | Supermarkets | 2 | 20 | 20 | real households shop at two to four |
+| Batches in the freezer | 100 | 1,000 | 2,000 | a chest freezer holds maybe forty; rows leave as portions are eaten |
 | API tokens | 3 | 10 | 10 | credential hygiene, not a paywall |
 | URL ingests | 20 / month | 500 / month | 1,000 / month | the only limit that costs real bandwidth |
 | API requests per token | 60/min, 5,000/day | 120/min, 20,000/day | same | covers MCP, which is just a client |

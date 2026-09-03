@@ -1017,3 +1017,170 @@ class TestUndoCooked:
         result = await server.undo_meal_cooked("lasagne")
         assert "No meal called 'lasagne'" in result
         assert "Spag bol" in result
+
+
+def _batch(label, portions, frozen_on, item_id, **extra):
+    return {
+        "id": item_id,
+        "label": label,
+        "portions": portions,
+        "frozen_on": frozen_on,
+        "note": None,
+        "meal_id": None,
+        "recipe_id": None,
+        **extra,
+    }
+
+
+CHILLI_OLD = "aaaaaaaa-0000-0000-0000-000000000001"
+CHILLI_NEW = "aaaaaaaa-0000-0000-0000-000000000002"
+STOCK = "aaaaaaaa-0000-0000-0000-000000000003"
+
+
+def _freezer(*items):
+    return {"items": list(items), "total_portions": sum(item["portions"] for item in items)}
+
+
+class TestFreezer:
+    @respx.mock
+    async def test_reads_back_oldest_first_with_the_total(self):
+        respx.get(f"{API}/freezer").mock(
+            return_value=httpx.Response(
+                200,
+                json=_freezer(
+                    _batch("Chilli", 4, "2026-08-01", CHILLI_OLD, meal_id="m1", note="the spicy batch"),
+                    _batch("chicken stock", 1, "2026-08-20", STOCK),
+                ),
+            )
+        )
+        result = await server.get_freezer()
+        assert result.index("Chilli: 4 portions, frozen 2026-08-01 — the spicy batch") < result.index("chicken stock")
+        assert "chicken stock: 1 portion, frozen 2026-08-20 (free text)" in result
+        assert "5 portions in 2 batches" in result
+
+    @respx.mock
+    async def test_an_empty_freezer_says_how_to_fill_it(self):
+        respx.get(f"{API}/freezer").mock(return_value=httpx.Response(200, json=_freezer()))
+        assert "add_to_freezer" in await server.get_freezer()
+
+    @respx.mock
+    async def test_adding_links_an_exact_meal_name(self):
+        respx.get(f"{API}/meals").mock(return_value=httpx.Response(200, json=[{"id": "m1", "name": "Chilli"}]))
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[{"id": "r1", "title": "Chilli con carne"}])
+        )
+        posted = respx.post(f"{API}/freezer").mock(
+            return_value=httpx.Response(
+                201, json=_batch("Chilli", 4, "2026-09-03", CHILLI_OLD, meal_id="m1", note="the spicy batch")
+            )
+        )
+        result = await server.add_to_freezer("chilli", 4, note="the spicy batch")
+        body = json.loads(posted.calls.last.request.content)
+        assert body == {"portions": 4, "note": "the spicy batch", "meal_id": "m1"}
+        assert "linked to the meal 'Chilli'" in result
+        assert "4 portions" in result
+
+    @respx.mock
+    async def test_a_unique_partial_match_links_a_recipe(self):
+        respx.get(f"{API}/meals").mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[{"id": "r1", "title": "Tarka dhal"}]))
+        posted = respx.post(f"{API}/freezer").mock(
+            return_value=httpx.Response(201, json=_batch("Tarka dhal", 2, "2026-09-03", STOCK, recipe_id="r1"))
+        )
+        result = await server.add_to_freezer("dhal", 2, frozen_on="2026-09-03")
+        assert json.loads(posted.calls.last.request.content) == {
+            "portions": 2,
+            "frozen_on": "2026-09-03",
+            "recipe_id": "r1",
+        }
+        assert "linked to the recipe 'Tarka dhal'" in result
+
+    @respx.mock
+    async def test_no_match_is_free_text_not_an_error(self):
+        respx.get(f"{API}/meals").mock(return_value=httpx.Response(200, json=[{"id": "m1", "name": "Chilli"}]))
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[]))
+        posted = respx.post(f"{API}/freezer").mock(
+            return_value=httpx.Response(201, json=_batch("Mum's lasagne", 1, "2026-09-03", STOCK))
+        )
+        result = await server.add_to_freezer("Mum's lasagne")
+        assert json.loads(posted.calls.last.request.content) == {"portions": 1, "label": "Mum's lasagne"}
+        assert "free text" in result
+
+    @respx.mock
+    async def test_as_text_skips_the_lookup(self):
+        meals = respx.get(f"{API}/meals")
+        posted = respx.post(f"{API}/freezer").mock(
+            return_value=httpx.Response(201, json=_batch("chilli", 1, "2026-09-03", STOCK))
+        )
+        await server.add_to_freezer("chilli", as_text=True)
+        assert not meals.called
+        assert json.loads(posted.calls.last.request.content) == {"portions": 1, "label": "chilli"}
+
+    @respx.mock
+    async def test_taking_spills_from_the_oldest_batch_into_the_next(self):
+        respx.get(f"{API}/freezer").mock(
+            return_value=httpx.Response(
+                200,
+                json=_freezer(
+                    _batch("Chilli", 1, "2026-08-01", CHILLI_OLD),
+                    _batch("Chilli", 4, "2026-08-20", CHILLI_NEW),
+                    _batch("chicken stock", 1, "2026-08-20", STOCK),
+                ),
+            )
+        )
+        old = respx.post(f"{API}/freezer/{CHILLI_OLD}/take").mock(
+            return_value=httpx.Response(200, json=_batch("Chilli", 0, "2026-08-01", CHILLI_OLD))
+        )
+        new = respx.post(f"{API}/freezer/{CHILLI_NEW}/take").mock(
+            return_value=httpx.Response(200, json=_batch("Chilli", 3, "2026-08-20", CHILLI_NEW))
+        )
+        result = await server.take_from_freezer("chilli", 2)
+        assert json.loads(old.calls.last.request.content) == {"portions": 1}
+        assert json.loads(new.calls.last.request.content) == {"portions": 1}
+        assert result == "Took 2 portions of Chilli; 3 left in the freezer."
+
+    @respx.mock
+    async def test_the_last_portion_says_so(self):
+        respx.get(f"{API}/freezer").mock(
+            return_value=httpx.Response(200, json=_freezer(_batch("chicken stock", 1, "2026-08-20", STOCK)))
+        )
+        respx.post(f"{API}/freezer/{STOCK}/take").mock(
+            return_value=httpx.Response(200, json=_batch("chicken stock", 0, "2026-08-20", STOCK))
+        )
+        result = await server.take_from_freezer("stock")
+        assert result.startswith("That was the last of the chicken stock")
+
+    @respx.mock
+    async def test_all_of_it_removes_every_batch(self):
+        respx.get(f"{API}/freezer").mock(
+            return_value=httpx.Response(
+                200,
+                json=_freezer(
+                    _batch("Chilli", 1, "2026-08-01", CHILLI_OLD), _batch("Chilli", 4, "2026-08-20", CHILLI_NEW)
+                ),
+            )
+        )
+        gone_old = respx.delete(f"{API}/freezer/{CHILLI_OLD}").mock(return_value=httpx.Response(204))
+        gone_new = respx.delete(f"{API}/freezer/{CHILLI_NEW}").mock(return_value=httpx.Response(204))
+        result = await server.take_from_freezer("Chilli", all_of_it=True)
+        assert gone_old.called and gone_new.called
+        assert "5 portions gone" in result
+
+    @respx.mock
+    async def test_an_unknown_name_lists_what_is_there(self):
+        respx.get(f"{API}/freezer").mock(
+            return_value=httpx.Response(200, json=_freezer(_batch("Chilli", 1, "2026-08-01", CHILLI_OLD)))
+        )
+        result = await server.take_from_freezer("lasagne")
+        assert "Nothing called 'lasagne'" in result and "Chilli" in result
+
+    @respx.mock
+    async def test_nothing_or_a_blank_name_is_refused_before_any_call(self):
+        freezer = respx.get(f"{API}/freezer")
+        meals = respx.get(f"{API}/meals")
+        assert "at least 1" in await server.take_from_freezer("chilli", portions=0)
+        assert "at least 1" in await server.take_from_freezer("chilli", portions=-2)
+        assert "which batch" in await server.take_from_freezer("   ")
+        assert "at least 1" in await server.add_to_freezer("chilli", portions=0)
+        assert "what went in" in await server.add_to_freezer("  ")
+        assert not freezer.called and not meals.called

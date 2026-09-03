@@ -88,6 +88,7 @@ const ALLOWANCES = [
   ["plans", (n) => `${n} plans on the go`],
   ["ingredients", (n) => `${n} ingredients`],
   ["supermarkets", (n) => `${n} ${n === 1 ? "supermarket" : "supermarkets"}`],
+  ["freezer_items", (n) => `${n} ${n === 1 ? "batch" : "batches"} in the freezer`],
   ["api_tokens", (n) => `${n} API ${n === 1 ? "token" : "tokens"}`],
   ["ingests_per_month", (n) => `${n} recipes read from a URL each month`],
 ];

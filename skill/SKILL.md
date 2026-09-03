@@ -1,9 +1,9 @@
 ---
 name: meal-planner
-description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, or says they're out of something. Covers recipe ingestion (including parsing pages the backend can't), building meal options, and shopping-mode check-offs.
+description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 16 -->
+<!-- playbook-version: 17 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v16, and this file is a snapshot** — once installed it never
+**This is playbook v17, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -167,12 +167,36 @@ goes — the same meal cooked another week keeps its count. It is for a mistake,
 not for un-eating something, so still confirm before marking cooked anything
 the user only mentioned in passing.
 
+## The freezer (what's already cooked)
+
+Batch cooking ends with portions in the freezer, and the freezer is the answer
+to "what's for tea?" that nobody remembers. `get_freezer()` reads it back
+oldest batch first; `add_to_freezer(name, portions)` when a batch goes in;
+`take_from_freezer(name, portions)` when some comes out.
+
+- **Name it by the meal or recipe when you can.** `add_to_freezer("chilli", 4)`
+  links the batch to the meal called chilli — or the recipe, if only a recipe
+  matches — so the entry stays a click from the recipe. Anything that matches
+  nothing is recorded as free text, which is right for food that never went
+  through the plan ("mum's lasagne", "chicken stock"); `as_text=True` keeps a
+  name as text when it would otherwise match something it isn't.
+- **Every add is a new batch.** Two batches of chilli frozen a month apart are
+  two lines with two dates, and the tab totals them. When asked what to eat,
+  suggest the oldest.
+- **Taking is not cooking.** Eating from the freezer touches nothing else —
+  the cooking was recorded when the batch was made — and a batch disappears
+  when its last portion goes. `all_of_it=True` bins a batch outright.
+- **Offer it at the right moments; don't nag.** When a meal is marked cooked
+  at ×2 or more, ask whether portions went in the freezer. When the user asks
+  what to cook, mention what's in the freezer before proposing a shop.
+
 ## When to ask vs act
 
 - Act without asking: ingesting shared links, adding requested meals,
-  check-offs, ad-hoc adds the user stated.
+  check-offs, ad-hoc adds the user stated, freezer adds and takes the user
+  stated ("four portions of chilli went in", "we had the dhal").
 - Ask first: removing meals you weren't told to remove, archiving anything,
-  deleting recipes, meals or ingredients, marking cooked (undoable now, but
+  removing a freezer batch you weren't told about, deleting recipes, meals or ingredients, marking cooked (undoable now, but
   it's still their record of what they ate), changing servings/scaling,
   replacing a whole plan.
 - Premium/budget tags are the household's taste and budget, not yours. Record
@@ -197,6 +221,12 @@ the user only mentioned in passing.
 - *"In our Tesco you hit frozen first, then drinks, then fruit & veg"* →
   `save_supermarket("Tesco", ["🧊", "🥤", "🥬", …])` with the aisles in the
   order they said — unmentioned aisles slot in at the end by themselves.
+- *"Made a double batch of the chilli, four went in the freezer"* →
+  `mark_meal_cooked("chilli")` if it isn't already, then
+  `add_to_freezer("chilli", 4)`; it links to the meal by itself.
+- *"What's for tea? Can't be bothered to cook"* → `get_freezer()` first: "There's
+  a chilli from 3 weeks ago and two portions of dhal." Then
+  `take_from_freezer("chilli")` once they've picked.
 - *"Scratch the burgers, we're out Friday"* → `remove_meal_from_plan("burgers")`
   — the list decrements itself; ad-hoc items survive.
 - *"Add garlic bread to the cottage pie"* → `update_meal("cottage pie",
