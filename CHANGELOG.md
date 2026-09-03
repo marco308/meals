@@ -20,8 +20,12 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**One migration** (`b9d33848e592`), additive: one nullable column on
-`households`.
+Nothing merged since the release below.
+
+## 2026-09-03 — what the webhook was throwing away
+
+Released as **1.6.0**. **One migration** (`b9d33848e592`), additive: one
+nullable column on `households`.
 
 Both fixes came out of putting a real Stripe sandbox payment through the
 deployment. The grant itself was right — signature verified, one ledger row,
