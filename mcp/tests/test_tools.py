@@ -1173,3 +1173,14 @@ class TestFreezer:
         )
         result = await server.take_from_freezer("lasagne")
         assert "Nothing called 'lasagne'" in result and "Chilli" in result
+
+    @respx.mock
+    async def test_nothing_or_a_blank_name_is_refused_before_any_call(self):
+        freezer = respx.get(f"{API}/freezer")
+        meals = respx.get(f"{API}/meals")
+        assert "at least 1" in await server.take_from_freezer("chilli", portions=0)
+        assert "at least 1" in await server.take_from_freezer("chilli", portions=-2)
+        assert "which batch" in await server.take_from_freezer("   ")
+        assert "at least 1" in await server.add_to_freezer("chilli", portions=0)
+        assert "what went in" in await server.add_to_freezer("  ")
+        assert not freezer.called and not meals.called

@@ -638,6 +638,10 @@ async def add_to_freezer(
     new batch, never a merge — two batches frozen apart are two things to eat
     oldest-first, and get_freezer totals them. Nothing else changes: the
     cooking was already recorded when the meal was marked cooked."""
+    if not name.strip():
+        return "Say what went in — a meal, a recipe, or a name for it."
+    if portions < 1:
+        return "Portions has to be at least 1 — a batch of nothing is not in the freezer."
     payload: dict[str, Any] = {"portions": portions}
     if note:
         payload["note"] = note
@@ -669,6 +673,10 @@ async def take_from_freezer(name: str, portions: int = 1, all_of_it: bool = Fals
     there. This is not a cooking and records none: the meal was marked cooked
     when the batch was made."""
     wanted = name.lower().strip()
+    if not wanted:
+        return "Say which batch — get_freezer() lists what is in there."
+    if portions < 1 and not all_of_it:
+        return "Portions has to be at least 1; all_of_it=True takes a whole batch out."
     try:
         stock = await _call("GET", "/freezer")
         matches = [item for item in stock["items"] if item["label"].lower() == wanted]
