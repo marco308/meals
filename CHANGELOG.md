@@ -22,6 +22,25 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-03 — hide what's in the trolley
+
+Released as **1.6.1**. No migrations, nothing in the API contract changed;
+the web app alone.
+
+### Added
+
+- **The shopping list can hide what is already ticked**
+  ([#142](https://github.com/marco308/meals/pull/142)). By the end of a shop
+  most of the list is struck through and the rows still worth walking to are
+  buried among them; a "Hide ticked" toggle in the page head walks the list
+  down to what is left. The rows stay in the DOM and only CSS hides them, so
+  the tallies stay honest, the optimistic tick still hides a row before the
+  server answers, and one click brings everything back for a mis-tick. An aisle
+  whose every line is done goes with its rows, a fully ticked list says so
+  rather than looking empty, and the toggle flips in place — no refetch, no
+  lost scroll position halfway down an aisle. The "already have it" pile is
+  left alone.
+
 ## 2026-09-03 — what the webhook was throwing away
 
 Released as **1.6.0**. **One migration** (`b9d33848e592`), additive: one
