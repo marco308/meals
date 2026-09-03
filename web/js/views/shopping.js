@@ -8,6 +8,7 @@ import { confirmDialog, emptyState, fmtDate, html, render, skeleton, toast } fro
 let staplesMode = false;
 let showExcluded = false;
 let hideTicked = false;
+const hideLabel = () => (hideTicked ? "👀 Show ticked" : "🙈 Hide ticked");
 
 export async function renderShopping(root) {
   render(root, skeleton());
@@ -47,9 +48,7 @@ export async function renderShopping(root) {
           </p>
         </div>
         <div class="page-actions">
-          <button class="btn ghost" data-hide-ticked aria-pressed="${hideTicked ? "true" : "false"}">
-            ${hideTicked ? "👀 Show ticked" : "🙈 Hide ticked"}
-          </button>
+          <button class="btn ghost" data-hide-ticked aria-pressed="${hideTicked ? "true" : "false"}">${hideLabel()}</button>
           <button class="btn ghost" data-staples>🧂 Staples check</button>
           <a class="btn ghost" href="#/list/archived">Previous shops</a>
           <button class="btn" data-finish>Finish the shop</button>
@@ -172,9 +171,16 @@ function bind(root, list, markets) {
       }
     };
   }
-  root.querySelector("[data-hide-ticked]").onclick = () => {
+  // Hiding is a view of what is already on screen, so it flips in place: a
+  // re-render would refetch the list and throw away the scroll position
+  // halfway down an aisle. The other two toggles change the query, and do.
+  const hideButton = root.querySelector("[data-hide-ticked]");
+  hideButton.onclick = () => {
     hideTicked = !hideTicked;
-    renderShopping(root);
+    root.querySelector(".page").classList.toggle("hide-ticked", hideTicked);
+    hideButton.textContent = hideLabel();
+    hideButton.setAttribute("aria-pressed", String(hideTicked));
+    syncHidden(root);
   };
   root.querySelector("[data-show-excluded]").onclick = () => {
     showExcluded = !showExcluded;
