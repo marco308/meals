@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 16
+PLAYBOOK_VERSION = 17
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -563,6 +563,148 @@ async def undo_meal_cooked(meal_name: str) -> str:
     except ApiError as exc:
         return str(exc)
     return f"'{matches[0]['meal']['name']}' is no longer marked cooked, and its count is back down."
+
+
+# ---------------------------------------------------------------- freezer
+
+
+def _fmt_batch(item: dict) -> str:
+    count = item["portions"]
+    portions = f"{count} portion" + ("" if count == 1 else "s")
+    note = f" — {item['note']}" if item.get("note") else ""
+    origin = "" if item.get("meal_id") or item.get("recipe_id") else " (free text)"
+    return f"{item['label']}: {portions}, frozen {item['frozen_on']}{note}{origin} [id: {item['id']}]"
+
+
+async def _resolve_freezer_subject(name: str) -> tuple[dict[str, str], str]:
+    """Meals first, then recipes; an exact name beats a partial one, and a
+    partial match only counts when it is the only one. Anything else is free
+    text — which is the right answer for food that never came through the plan,
+    so no error here, just the payload and a word for the reply."""
+    wanted = name.lower().strip()
+    meals = await _call("GET", "/meals")
+    recipes = await _call("GET", "/recipes")
+    exact_meal = [m for m in meals if m["name"].lower() == wanted]
+    if exact_meal:
+        return {"meal_id": exact_meal[0]["id"]}, f"linked to the meal '{exact_meal[0]['name']}'"
+    exact_recipe = [r for r in recipes if r["title"].lower() == wanted]
+    if exact_recipe:
+        return {"recipe_id": exact_recipe[0]["id"]}, f"linked to the recipe '{exact_recipe[0]['title']}'"
+    partial_meals = [m for m in meals if wanted in m["name"].lower()]
+    partial_recipes = [r for r in recipes if wanted in r["title"].lower()]
+    if len(partial_meals) + len(partial_recipes) == 1:
+        if partial_meals:
+            return {"meal_id": partial_meals[0]["id"]}, f"linked to the meal '{partial_meals[0]['name']}'"
+        return {"recipe_id": partial_recipes[0]["id"]}, f"linked to the recipe '{partial_recipes[0]['title']}'"
+    return {"label": name.strip()}, "as free text — no meal or recipe by that name"
+
+
+@mcp.tool()
+async def get_freezer() -> str:
+    """What is in the freezer: the running tab of cooked portions waiting to be
+    eaten, oldest batch first. Read this when the user asks what to eat or
+    what to cook — a portion already made beats a shopping trip — and when
+    they ask what's in the freezer."""
+    try:
+        stock = await _call("GET", "/freezer")
+    except ApiError as exc:
+        return str(exc)
+    if not stock["items"]:
+        return "The freezer is empty — nothing recorded, anyway. add_to_freezer(name, portions) when a batch goes in."
+    lines = [_fmt_batch(item) for item in stock["items"]]
+    batches = len(stock["items"])
+    lines.append(
+        f"{stock['total_portions']} portions in {batches} batch{'' if batches == 1 else 'es'}. "
+        "Oldest first — eat from the top."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def add_to_freezer(
+    name: str,
+    portions: int = 1,
+    note: str | None = None,
+    frozen_on: str | None = None,
+    as_text: bool = False,
+) -> str:
+    """Put a batch in the freezer — "four portions of chilli went in the freezer".
+    `name` is matched against the household's meals, then its recipes (an exact
+    name first, then a single partial match) so the batch stays linked to what
+    it is; anything that matches nothing is recorded as free text, which is
+    right for food that never came through the plan ("mum's lasagne", "chicken
+    stock"). `as_text=True` keeps a name as free text even when it would match
+    something. `frozen_on` is YYYY-MM-DD and defaults to today. Every call is a
+    new batch, never a merge — two batches frozen apart are two things to eat
+    oldest-first, and get_freezer totals them. Nothing else changes: the
+    cooking was already recorded when the meal was marked cooked."""
+    if not name.strip():
+        return "Say what went in — a meal, a recipe, or a name for it."
+    if portions < 1:
+        return "Portions has to be at least 1 — a batch of nothing is not in the freezer."
+    payload: dict[str, Any] = {"portions": portions}
+    if note:
+        payload["note"] = note
+    if frozen_on:
+        payload["frozen_on"] = frozen_on
+    try:
+        if as_text:
+            subject, origin = {"label": name.strip()}, "as free text"
+        else:
+            subject, origin = await _resolve_freezer_subject(name)
+        payload.update(subject)
+        item = await _call("POST", "/freezer", json=payload)
+    except ApiError as exc:
+        return str(exc)
+    count = item["portions"]
+    return (
+        f"In it goes: {item['label']}, {count} portion{'' if count == 1 else 's'}, "
+        f"frozen {item['frozen_on']} ({origin})."
+    )
+
+
+@mcp.tool()
+async def take_from_freezer(name: str, portions: int = 1, all_of_it: bool = False) -> str:
+    """Take portions out of the freezer to eat — "we had the chilli from the
+    freezer". Matches the batch by name and takes from the oldest batch first,
+    spilling into the next when one runs out; a batch disappears when its last
+    portion goes. Taking more than there is takes what there is. `all_of_it`
+    removes every batch of that name outright — binned, given away, or never
+    there. This is not a cooking and records none: the meal was marked cooked
+    when the batch was made."""
+    wanted = name.lower().strip()
+    if not wanted:
+        return "Say which batch — get_freezer() lists what is in there."
+    if portions < 1 and not all_of_it:
+        return "Portions has to be at least 1; all_of_it=True takes a whole batch out."
+    try:
+        stock = await _call("GET", "/freezer")
+        matches = [item for item in stock["items"] if item["label"].lower() == wanted]
+        matches = matches or [item for item in stock["items"] if wanted in item["label"].lower()]
+        if not matches:
+            labels = sorted({item["label"] for item in stock["items"]})
+            known = ", ".join(labels) or "(the freezer is empty)"
+            return f"Nothing called '{name}' in the freezer. In there: {known}"
+        label = matches[0]["label"]
+        held = sum(item["portions"] for item in matches)
+        if all_of_it:
+            for item in matches:
+                await _call("DELETE", f"/freezer/{item['id']}")
+            return f"{label} is out of the freezer — {held} portion{'' if held == 1 else 's'} gone from the tab."
+        to_take = portions
+        for item in matches:  # oldest first, as the API lists them
+            if to_take <= 0:
+                break
+            take = min(item["portions"], to_take)
+            await _call("POST", f"/freezer/{item['id']}/take", json={"portions": take})
+            to_take -= take
+    except ApiError as exc:
+        return str(exc)
+    taken = portions - max(to_take, 0)
+    left = held - taken
+    if left == 0:
+        return f"That was the last of the {label} — {taken} portion{'' if taken == 1 else 's'} out, none left."
+    return f"Took {taken} portion{'' if taken == 1 else 's'} of {label}; {left} left in the freezer."
 
 
 # ---------------------------------------------------------------- shopping list

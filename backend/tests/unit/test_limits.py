@@ -49,10 +49,13 @@ class TestProfileResolution:
         free = limits.limits_for("free")
         assert (free.members, free.recipes, free.ingredients, free.meals) == (1, 50, 500, 100)
         assert (free.plans, free.supermarkets, free.api_tokens, free.ingests_per_month) == (20, 2, 3, 20)
+        assert free.freezer_items == 100
         paid = limits.limits_for("paid")
         assert (paid.members, paid.recipes, paid.plans, paid.ingests_per_month) == (8, 2_000, 1_000, 500)
+        assert paid.freezer_items == 1_000
         ceiling = limits.ceilings()
         assert (ceiling.members, ceiling.recipes, ceiling.ingredients) == (12, 5_000, 10_000)
+        assert ceiling.freezer_items == 2_000
 
     def test_the_unlimited_tier_is_a_comp_and_keeps_the_ceiling(self, settings_override):
         """Comping somebody lifts their caps. It does not lift the ceilings,

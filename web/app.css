@@ -247,6 +247,9 @@ button { font: inherit; color: inherit; }
 /* ── forms ──────────────────────────────────────────────────────────── */
 
 label.field { display: block; margin-bottom: .9rem; }
+/* The `hidden` attribute has to win over display rules like the one above,
+   or a form field toggled with el.hidden stays on screen. */
+[hidden] { display: none !important; }
 label.field > span, .field-label {
   display: block;
   font-size: .72rem;
@@ -290,6 +293,15 @@ select { cursor: pointer; }
   border-radius: 18px;
   box-shadow: var(--shadow-sm);
   padding: 1.4rem 1.5rem;
+}
+
+/* A row of plain links: the About card's pages, and anywhere else a card
+   ends in "here is where to read more" rather than in a button. */
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1.1rem;
+  margin: .9rem 0 0;
 }
 
 .chip {

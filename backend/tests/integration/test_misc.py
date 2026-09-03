@@ -140,6 +140,32 @@ class TestPublicPages:
         assert "If you self-host, almost none of this applies" in text
         assert "Nothing is on sale yet" in text
 
+    async def test_credits_page_renders_as_html(self, client):
+        """What this server is built on. Not an App Store URL and not required
+        by any licence here, but the page a self-hoster should be able to reach
+        without cloning the repo."""
+        response = await client.get("/credits")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "<h1" in response.text
+        assert "Credits" in response.text
+        assert "## What the server is built on" not in response.text  # rendered, not dumped
+
+    async def test_the_credits_are_a_table_of_licences(self, client):
+        """Its substance is in the tables, same as the privacy policy, so a
+        renderer without them would drop the whole point of the page."""
+        text = (await client.get("/credits")).text
+        assert "<table>" in text
+        assert "BSD-3-Clause" in text
+        assert "sqlalchemy" in text
+
+    async def test_the_credits_are_honest_about_the_clients(self, client):
+        """Neither client ships third-party code, and a credits page that let
+        somebody assume otherwise would be the one lie it could tell."""
+        text = (await client.get("/credits")).text
+        assert "no build step" in text
+        assert "no Swift package" in text
+
     async def test_the_privacy_policy_is_straight_about_money(self, client):
         """`/privacy` is a live App Store URL and it promises this project holds
         no payment details. That promise needs a section, not a silence.
@@ -169,7 +195,7 @@ class TestPublicPages:
 
     async def test_pages_need_no_auth(self, client):
         """`client` is unauthenticated — Apple's reviewer opens these in a browser."""
-        for path in ("/privacy", "/support", "/terms"):
+        for path in ("/privacy", "/support", "/terms", "/credits"):
             assert (await client.get(path)).status_code == 200, path
 
     async def test_missing_documents_404_not_500(self, client, monkeypatch):
@@ -184,6 +210,7 @@ class TestPublicPages:
         assert landing["privacy"] == "http://test/privacy"
         assert landing["support"] == "http://test/support"
         assert landing["terms"] == "http://test/terms"
+        assert landing["credits"] == "http://test/credits"
 
 
 # The playbook's guidance, pinned to the version that announces it. The digest
@@ -193,8 +220,8 @@ class TestPublicPages:
 # Without this, guidance can ship under an unchanged number — which is exactly
 # what happened when the premium/budget tools landed on v1: a stale v1 copy
 # compared v1 to v1, found no drift, and never learned the tools existed.
-PINNED_PLAYBOOK_VERSION = 16
-PINNED_PLAYBOOK_DIGEST = "e0bc6409b012242d2781dfee0d93f676134fd393965a5527a3298a2096320333"
+PINNED_PLAYBOOK_VERSION = 17
+PINNED_PLAYBOOK_DIGEST = "c41c0cf8ad52f8de1e19b18a3f2e948dcb5efd1157029d59ff69d55e2abb7508"
 
 _VERSION_STAMP = re.compile(r"<!--\s*playbook-version:\s*\d+\s*-->\n?")
 _VERSION_PROSE = re.compile(r"playbook v\d+", re.IGNORECASE)

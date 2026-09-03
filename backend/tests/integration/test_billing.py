@@ -29,10 +29,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app import limits
 from app.models import BillingEvent, Household
-from app.services import entitlements
+from app.services import billing, entitlements
 from tests.conftest import register
 
 SECRET = "a-signing-secret"
+
+
+async def _false() -> bool:
+    """An awaitable `False`, for standing in for a lookup that found nothing."""
+    return False
 
 
 @pytest.fixture
@@ -250,6 +255,57 @@ class TestAPaymentBecomesAnEntitlement:
         assert entitlements.describe(household).paid_until.year == 2027
         assert limits.effective_tier(household) == "paid"
 
+    async def test_the_price_agreed_is_written_on_the_household(self, client, paddle, sessions, settings_override):
+        """§6's founding price is "stored as a snapshot on the household, not
+        promised in a document", and `/privacy` says the same. The price the
+        checkout was advertising is the one they agreed to."""
+        settings_override(BILLING_PRICE_PENCE="2000", BILLING_PRICE_CURRENCY="GBP")
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = paddle_post(paddle_event(target))
+
+        await client.post("/billing/webhook", content=body, headers=headers)
+        async with sessions() as db:
+            household = await db.get(Household, target)
+        assert household.price_pence == 2000
+        assert household.price_currency == "GBP"
+        assert household.price_set_at is not None
+
+    async def test_a_renewal_keeps_the_founding_price_and_is_never_refused_over_it(
+        self, client, paddle, sessions, settings_override
+    ):
+        """The expensive way to get this wrong: send today's price on every
+        grant, and the first renewal after a price rise is refused for the
+        people the promise was made to."""
+        settings_override(BILLING_PRICE_PENCE="2000")
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = paddle_post(paddle_event(target))
+        await client.post("/billing/webhook", content=body, headers=headers)
+
+        settings_override(BILLING_PRICE_PENCE="3000")  # a rise, for new customers
+        renewal, renewal_headers = paddle_post(
+            paddle_event(target, event_id="evt_renewal", ends="2028-08-22T00:00:00Z")
+        )
+        response = await client.post("/billing/webhook", content=renewal, headers=renewal_headers)
+        assert response.json()["outcome"] == "granted"
+
+        async with sessions() as db:
+            household = await db.get(Household, target)
+        assert household.price_pence == 2000  # theirs for life
+        assert entitlements.describe(household).paid_until.year == 2028  # and renewed
+
+    async def test_a_server_that_names_no_price_snapshots_none(self, client, paddle, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = paddle_post(paddle_event(target))
+
+        await client.post("/billing/webhook", content=body, headers=headers)
+        async with sessions() as db:
+            household = await db.get(Household, target)
+        assert household.tier == "paid"
+        assert household.price_pence is None
+
     async def test_lemonsqueezy_does_the_same_from_its_own_shape(self, client, lemonsqueezy, sessions):
         await register(client)
         target = await household_id(sessions)
@@ -332,6 +388,27 @@ class TestARetryCannotGrantASecondYear:
         body, headers = lemon_post(lemon_event(target), event="subscription_created")
         assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "granted"
         assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "duplicate"
+
+    async def test_two_deliveries_that_overlap_are_still_one_duplicate(self, client, paddle, sessions, monkeypatch):
+        """Processors send duplicates and retry on any non-2xx, so two copies of
+        one event can be in flight at once and both pass the check at the top of
+        `handle` before either writes. The ledger's uniqueness refuses the
+        second, and that refusal has to read as the duplicate it is: a 500 would
+        ask for a retry that fails identically, and would be counted nowhere."""
+        await register(client)
+        target = await household_id(sessions)
+        body, headers = paddle_post(paddle_event(target))
+        assert (await client.post("/billing/webhook", content=body, headers=headers)).json()["outcome"] == "granted"
+
+        # What the race looks like from inside: the pre-check misses the row.
+        monkeypatch.setattr(billing, "_already_recorded", lambda db, event: _false())
+        again = await client.post("/billing/webhook", content=body, headers=headers)
+        assert again.status_code == 200
+        assert again.json()["outcome"] == "duplicate"
+
+        async with sessions() as db:
+            rows = (await db.execute(select(BillingEvent))).scalars().all()
+        assert len(rows) == 1  # and still no second row
 
     async def test_a_duplicate_does_not_move_the_expiry(self, client, paddle, sessions):
         await register(client)

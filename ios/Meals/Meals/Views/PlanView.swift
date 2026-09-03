@@ -10,6 +10,7 @@ struct PlanView: View {
     @State private var showArchiveConfirm = false
     @State private var showRename = false
     @State private var renameDraft = ""
+    @State private var showFreezer = false
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,7 @@ struct PlanView: View {
                     Menu {
                         Button("New plan…", systemImage: "calendar.badge.plus") { showNewPlan = true }
                         Button("Past plans", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                        Button("Freezer", systemImage: "snowflake") { showFreezer = true }
                         if let plan = store.plan {
                             Button("Rename plan…", systemImage: "pencil") {
                                 renameDraft = plan.label
@@ -63,6 +65,7 @@ struct PlanView: View {
             .sheet(isPresented: $showAddMeal) { AddMealSheet() }
             .sheet(isPresented: $showNewPlan) { NewPlanSheet() }
             .sheet(isPresented: $showHistory) { PastPlansSheet() }
+            .sheet(isPresented: $showFreezer) { NavigationStack { FreezerView(embedded: true) } }
             .alert("Rename plan", isPresented: $showRename) {
                 TextField("Label", text: $renameDraft)
                 Button("Cancel", role: .cancel) {}
@@ -99,6 +102,24 @@ struct PlanView: View {
 
     private func planList(_ plan: Plan) -> some View {
         List {
+            // What's already cooked comes before what's planned: a portion in
+            // the freezer beats a shopping trip (Q24).
+            Section {
+                NavigationLink {
+                    FreezerView(embedded: false)
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Freezer")
+                            Text("what's already cooked and waiting")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "snowflake").foregroundStyle(.tint)
+                    }
+                }
+            }
             ForEach(plan.slots, id: \.slot) { group in
                 Section(group.slot.capitalized) {
                     ForEach(group.meals) { planMeal in
@@ -124,6 +145,7 @@ struct PlanView: View {
         } actions: {
             Button("Start a plan") { showNewPlan = true }
                 .buttonStyle(.borderedProminent)
+            Button("What's in the freezer?") { showFreezer = true }
         }
     }
 }

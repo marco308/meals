@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import (
     CookedEvent,
+    FreezerItem,
     Household,
     Ingredient,
     ListItem,
@@ -65,6 +66,8 @@ async def furnish(client, *, extra: dict | None = None) -> dict:
     assert market.status_code == 201
     added_item = await client.post("/shopping-list/items", json={"name": "bin bags", "quantity": 1, "unit": "item"})
     assert added_item.status_code == 201
+    frozen = await client.post("/freezer", json={"meal_id": meal["id"], "portions": 3, "note": "the spicy batch"})
+    assert frozen.status_code == 201
     return {"recipe": recipe, "meal": meal, "plan": plan, "plan_meal": plan_meal}
 
 
@@ -250,6 +253,7 @@ class TestNothingIsLeftBehind:
         Plan: {"household_id"},
         PlanMeal: {"plan_id"},
         CookedEvent: {"household_id"},
+        FreezerItem: {"household_id"},
         Supermarket: {"household_id"},
         ShoppingList: {"household_id"},
         ListItem: {"list_id"},
@@ -272,6 +276,7 @@ class TestNothingIsLeftBehind:
             Plan: plan,
             PlanMeal: plan["meals"][0],
             CookedEvent: doc["cooked_events"][0],
+            FreezerItem: doc["freezer"][0],
             Supermarket: doc["supermarkets"][0],
             ShoppingList: doc["shopping_lists"][0],
             ListItem: item,

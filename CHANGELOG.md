@@ -20,12 +20,8 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
-
-## 2026-08-24 — what the webhook was throwing away
-
-Released as **1.4.0**. **One migration** (`b9d33848e592`), additive: one nullable
-column on `households`.
+**One migration** (`b9d33848e592`), additive: one nullable column on
+`households`.
 
 Both fixes came out of putting a real Stripe sandbox payment through the
 deployment. The grant itself was right — signature verified, one ledger row,
@@ -34,14 +30,15 @@ the parser read the billing period and dropped the rest of the object.
 
 ### Fixed
 
-- **A paid household now gets its founding price snapshot**
-  ([#128](https://github.com/marco308/meals/issues/128)). `grant` has always
-  defended it and nothing was writing it, so §2's "founding price for life" was
-  a promise about an empty column. Read from the event rather than from
-  `BILLING_PRICE_PENCE`, because the whole point is that the offer and the
-  agreement diverge the day the price changes — and it is the *list* price, not
-  the invoice total, so tax added by the merchant of record for one country does
-  not make two founding prices differ.
+- **The founding price snapshot is what the processor reported**
+  ([#128](https://github.com/marco308/meals/issues/128)). 1.4.1 started writing
+  `BILLING_PRICE_PENCE` on the first grant; the webhook now prefers the price
+  carried by the event itself, because the setting is what this server *offers*
+  and the snapshot is what this household *agreed*, and the two diverge the day
+  the price changes. It is the *list* price, not the invoice total, so tax added
+  by the merchant of record for one country does not make two founding prices
+  differ. The setting remains the fallback for an event that names no price
+  (Lemon Squeezy's does not), and nothing is written once a snapshot exists.
 - **A renewal at a higher price renews.** Handing `grant` a differing price used
   to be an error, which is right for an operator typing one and wrong for a
   processor reporting this year's list price: it would have answered
@@ -60,6 +57,105 @@ the parser read the billing period and dropped the rest of the object.
 ### Added
 
 - `POST /billing/portal` and `can_manage` on `GET /billing/subscription`.
+
+## 2026-09-03 — the freezer
+
+Released as **1.5.0**. One additive migration, `a6c2e9f14b37` (a new
+`freezer_items` table; nothing existing changes).
+
+### Added
+
+- **Freezer stock** (decision Q24, PR [#139](https://github.com/marco308/meals/pull/139)).
+  A running tab of cooked portions waiting to be eaten, kept as one row per
+  **batch** — a label, the portions left, the date it went in, a note — rather
+  than a merged count per dish, because two batches of chilli a month apart are
+  two things to eat oldest-first. A batch is named one way: a meal (it takes
+  the meal's name), a recipe (the title), or free text for food that never came
+  through the plan. The meal and recipe links are `SET NULL`, so tidying the
+  library never empties a freezer. `GET /freezer` lists oldest first with a
+  portion total; `POST /freezer` adds a batch, never merges; `POST
+  /freezer/{id}/take` eats from one and deletes it at zero; `PATCH` recounts or
+  renames; `DELETE` bins it. It touches neither the plan nor the shopping list.
+- **The web app has a Freezer page** — the list oldest-first with a "been in a
+  while" flag past 90 days, minus-one and plus-one, remove with confirmation,
+  and an add dialog with meal, recipe and free-text tabs.
+- **Three MCP tools** — `get_freezer`, `add_to_freezer` (resolves a name
+  against meals, then recipes, and falls back to free text; `as_text` forces
+  it) and `take_from_freezer` (oldest batch first, spilling into the next). The
+  skill and prompt pack gain a freezer section, so this is **playbook v17**.
+- **`freezer_items` joins the limits vocabulary**, counted in batches (hosted
+  100 / 1,000 / 2,000; unlimited by default like everything else), and the
+  household export gains a `freezer` section.
+- **iOS 1.2 build 27** carries the freezer screen off the Plan tab and is on
+  TestFlight; `current_ios_build` moves to 27 so installs are told.
+
+### Fixed
+
+- **Web: the `hidden` attribute now actually hides a form field.** `label.field
+  { display: block }` was beating the browser's `[hidden]` rule, so anything
+  toggled with `el.hidden` stayed on screen.
+
+## 2026-08-24 — record the price, absorb the races
+
+Released as **1.4.1**. No migrations.
+
+### Fixed
+
+- **A payment now records what was agreed.** `households.price_pence` was
+  written by nothing that ships: the webhook granted without it and the
+  operator command has no flag for it, so every household that actually paid
+  had an empty price snapshot. §6's "founding price for life" is a promise
+  stored on the row, `/privacy` says the server records "what it agreed to
+  pay", the ops listing has a column for it and the web app has a sentence for
+  it, and all four were describing a column nothing filled in. A grant now
+  writes `BILLING_PRICE_PENCE` the first time a household pays, and
+  deliberately never again: sending today's price on a renewal would make
+  `entitlements.grant` refuse the renewal of anybody who bought before a rise,
+  which is the promise failing in the most expensive direction.
+- **Two deliveries of one webhook that overlap are a duplicate, not a 500.**
+  Processors send duplicates and retry on any non-2xx, so both copies can pass
+  the ledger check before either writes, and the second was answered with an
+  unhandled `IntegrityError`. No second year was ever granted — the ledger's
+  uniqueness is what refused it — but the response asked for a retry that would
+  fail identically, and the outcome reached no counter, which is exactly the
+  silent billing failure that module exists to not have. It now reads that
+  refusal as the duplicate it is, and re-raises anything that is not the
+  ledger's uniqueness.
+- **A double-tapped "Create household" answers 409 rather than 500.**
+  `POST /auth/register` checks the address and then inserts, so two overlapping
+  registrations for one email raced to the unique index and the loser got an
+  unhandled error instead of the sentence pointing at `POST /auth/login`.
+  Nothing was left behind either way (the rollback takes the half-made
+  household with it, which is why the instance ceilings are checked before any
+  of it), and that is now covered by a test.
+
+## 2026-08-24 — say what this is built on
+
+Released as **1.4.0**. No migrations.
+
+### Added
+
+- **`/credits`**, served by every deployment from
+  [CREDITS.md](CREDITS.md) on the same rails as `/privacy`, `/support` and
+  `/terms`: what the server is built on, under which licences, with a note on
+  each of the fifteen dependencies this project actually chose. Neither client
+  ships third-party code, and the page says so rather than letting anyone
+  assume otherwise. Nothing obliges it (the wheels carry their own licence
+  files into the image, which is what MIT, BSD and Apache-2.0 ask of a
+  distribution) beyond it being the decent thing to do.
+- `backend/tests/unit/test_credits.py` resolves both `uv.lock` files down to
+  what installs on Linux and fails when a shipped package is uncredited, when a
+  credited one no longer ships, or when a row names no licence. A credits page
+  nobody lints is a credits page that quietly stops being true.
+- **An About card in the web app's Settings**, which is the first link anywhere
+  in the web client to `/privacy`, `/support`, `/terms` and `/credits`. Linted
+  against the pages router, so a fifth page fails CI until somebody decides
+  where it belongs.
+- **A Credits link in the iPhone app's Settings**, following the connected
+  server like the privacy and support links do. Still no link to `/terms` from
+  iOS, deliberately: that is the page with the price on it, and 3.1.3(f) is
+  what the listing rests on. A lint in the Python suite keeps it that way,
+  since there is no iOS job in CI.
 
 ## 2026-08-23 — pin the version that decides who is selling
 

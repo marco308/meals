@@ -15,6 +15,7 @@ from app.observability import log_event
 from app.routers import (
     auth,
     billing,
+    freezer,
     household,
     ingredients,
     meals,
@@ -57,7 +58,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     lifespan=lifespan,
     title="Meals API",
-    version="1.4.0",
+    version="1.5.0",
     description=(
         "A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and an "
         "aisle-sorted shopping list. Designed to be driven by any AI assistant: every error "
@@ -159,6 +160,7 @@ app.include_router(meals.router)
 app.include_router(plans.router)
 app.include_router(shopping.router)
 app.include_router(supermarkets.router)
+app.include_router(freezer.router)
 app.include_router(skill.router)
 app.include_router(pages.router)
 app.include_router(limits_router.router)
@@ -221,6 +223,7 @@ async def root(request: Request) -> Response:
         "privacy": f"{base}/privacy",
         "support": f"{base}/support",
         "terms": f"{base}/terms",
+        "credits": f"{base}/credits",
     }
     if _mcp_attached:
         # This deployment serves the MCP endpoint itself, so an assistant can

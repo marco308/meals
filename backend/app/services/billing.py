@@ -60,6 +60,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import limits, metrics
@@ -390,10 +391,7 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
     verify(raw_body, headers)
     event = parse(raw_body, headers, payload)
 
-    existing = await db.execute(
-        select(BillingEvent).where(BillingEvent.processor == event.processor, BillingEvent.event_id == event.event_id)
-    )
-    if existing.scalar_one_or_none() is not None:
+    if await _already_recorded(db, event):
         # Not an error, and deliberately not re-applied: processors retry on any
         # non-2xx, and a blip between granting and answering 200 is exactly the
         # case this exists for. **No second row** — the ledger row that detected
@@ -444,14 +442,20 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
                 until=event.renews_at,
                 source=event.processor,
                 note=f"{event.event_type} via {event.processor}",
-                price_pence=event.price_pence,
-                price_currency=event.price_currency,
+                # What they agreed, written on the row the first time they pay
+                # and never again (§6, "founding price for life"). The event's
+                # own list price where the processor reports one (#128): the
+                # setting is what this server *offers* and the snapshot is what
+                # this household *agreed*, and they diverge the day the price
+                # changes. Where the event names none, the price the checkout
+                # they came through was advertising, from `BILLING_PRICE_PENCE`.
+                **_price_from(event, household),
                 customer_id=event.customer_id,
-                # A processor reporting this year's list price is not an
-                # operator making a typo: honour the renewal and leave the
-                # founding snapshot alone. Refusing here would turn a payment
-                # into `refused`, which is somebody paying and not being
-                # credited for the sake of a column.
+                # A processor reporting this year's list price on a renewal is
+                # not an operator making a typo: honour the renewal and leave
+                # the founding snapshot alone. Refusing here would turn a
+                # payment into `refused`, which is somebody paying and not
+                # being credited for the sake of a column.
                 price_conflict=entitlements.KEEP_EXISTING_PRICE,
             )
             return await _record(db, event, GRANTED, detail=None)
@@ -462,6 +466,42 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
         # 200 to stop the retries and the alert is what gets a human involved.
         # This is the one branch where somebody has paid and not been credited.
         return await _record(db, event, REFUSED, detail=str(exc)[:300])
+
+
+def _price_from(event: Incoming, household: Household) -> dict[str, object]:
+    """The price to write on a grant.
+
+    The event's list price when the processor sent one; otherwise the configured
+    price, and only for a household that has no snapshot yet. Lemon Squeezy's
+    subscription payload names the variant rather than what it costs, so on a
+    server that names no price either the snapshot stays null, which #128 is
+    explicit is better than a guess in a column that promises not to change.
+    """
+    if event.price_pence is not None:
+        return {"price_pence": event.price_pence, "price_currency": event.price_currency}
+    return _price_to_snapshot(household)
+
+
+def _price_to_snapshot(household: Household) -> dict[str, object]:
+    """The price to write on a grant, which is one that has none yet."""
+    if household.price_pence is not None:
+        return {}
+    settings = get_settings()
+    if settings.billing_price_pence is None:
+        return {}
+    return {"price_pence": settings.billing_price_pence, "price_currency": settings.billing_price_currency}
+
+
+async def _find_event(db: AsyncSession, event: Incoming) -> BillingEvent | None:
+    result = await db.execute(
+        select(BillingEvent).where(BillingEvent.processor == event.processor, BillingEvent.event_id == event.event_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _already_recorded(db: AsyncSession, event: Incoming) -> bool:
+    """Whether the ledger has seen this event, checked before any work is done."""
+    return await _find_event(db, event) is not None
 
 
 async def _record(
@@ -484,7 +524,21 @@ async def _record(
             detail=detail,
         )
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two deliveries of one event can overlap — processors send duplicates
+        # and retry on any non-2xx — and then both pass the check at the top of
+        # `handle` before either writes. The ledger's uniqueness is what refuses
+        # the second, and this is where that refusal is read as what it is: the
+        # same duplicate the sequential case answers 200 to, rather than a 500
+        # that asks for a retry the ledger would refuse identically. Left to
+        # raise it would also be counted nowhere, which is the silent failure
+        # this module exists to not have.
+        await db.rollback()
+        if await _find_event(db, event) is None:
+            raise  # not the ledger's uniqueness, so it is not ours to absorb
+        return _observe(event, DUPLICATE, detail=None, household_id=on_household)
     return _observe(event, outcome, detail=detail, household_id=on_household)
 
 

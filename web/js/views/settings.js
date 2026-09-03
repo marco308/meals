@@ -1,7 +1,12 @@
 // Settings: account, the household and who is in it (Q19/Q23), supermarkets &
 // aisle order, AI access tokens, what this server allows, taking your data
-// away, and the danger zone (Q20). Invite codes and API tokens are shown
-// exactly once — the server stores only hashes.
+// away, the pages this server publishes about itself, and the danger zone
+// (Q20). Invite codes and API tokens are shown exactly once — the server
+// stores only hashes.
+//
+// The About card is the web app's only route to /privacy, /support, /terms and
+// /credits, which is why test_web_client.py lints it against the pages router:
+// a page the server serves and nothing links to is a page nobody reads.
 //
 // The lead is the only member who can invite, remove or rename (Q23), so those
 // controls are hidden rather than shown-and-refused for everyone else. Leaving
@@ -200,6 +205,23 @@ export async function renderSettings(root) {
           never be the hard part.
         </p>
         <div class="dialog-actions"><button class="btn ghost" data-export>Download everything</button></div>
+      </div>
+
+      <div class="section card">
+        <h2>About this server</h2>
+        <p class="sub">
+          These describe <em>this</em> server, the one actually holding your data.
+          Every deployment serves its own copy, rendered from the same files the
+          repository shows. The credits name what it is built on, which is a good
+          deal of other people's work under a good many licences.
+        </p>
+        <p class="links">
+          <a href="../privacy" target="_blank" rel="noopener">Privacy policy</a>
+          <a href="../support" target="_blank" rel="noopener">Help &amp; support</a>
+          <a href="../terms" target="_blank" rel="noopener">Terms &amp; refunds</a>
+          <a href="../credits" target="_blank" rel="noopener">Credits</a>
+          <a href="https://github.com/marco308/meals" target="_blank" rel="noopener">Source code</a>
+        </p>
       </div>
 
       <div class="section card danger-zone">
@@ -495,6 +517,7 @@ const RESOURCE_LABELS = {
   plans: "Plans on the go",
   plan_meals: "Meals in one plan",
   supermarkets: "Supermarkets",
+  freezer_items: "Batches in the freezer",
   api_tokens: "API tokens",
   ingests_per_month: "Recipes read from a URL",
 };

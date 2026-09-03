@@ -13,7 +13,7 @@ already exists where it matters, and adding it would rebuild that table under
 SQLite's batch mode for nothing.
 
 Revision ID: b9d33848e592
-Revises: 508d35134cdc
+Revises: a6c2e9f14b37
 Create Date: 2026-08-24 07:38:22.342319
 
 """
@@ -25,7 +25,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b9d33848e592"
-down_revision: str | Sequence[str] | None = "508d35134cdc"
+down_revision: str | Sequence[str] | None = "a6c2e9f14b37"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,7 +1,8 @@
 """Model → response-schema conversion, including display strings and aisle labels."""
 
-from app.models import Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList, Supermarket
+from app.models import FreezerItem, Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList, Supermarket
 from app.schemas.catalog import IngredientOut, RecipeLineOut, RecipeOut, RecipeSummary
+from app.schemas.freezer import FreezerItemOut
 from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
@@ -194,4 +195,18 @@ def shopping_list_out(
         items=[list_item_out(item) for item in visible],
         hidden_staples=hidden_staples,
         supermarket=SupermarketRef(id=supermarket.id, name=supermarket.name) if supermarket else None,
+    )
+
+
+def freezer_item_out(item: FreezerItem) -> FreezerItemOut:
+    return FreezerItemOut(
+        id=item.id,
+        label=item.label,
+        meal_id=item.meal_id,
+        recipe_id=item.recipe_id,
+        portions=item.portions,
+        note=item.note,
+        frozen_on=item.frozen_on,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
     )

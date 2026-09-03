@@ -245,4 +245,26 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertTrue(TestData.item(name: "bin bags", sources: [byHand]).isAdhocOnly)
         XCTAssertFalse(TestData.item(name: "beef", sources: [byHand, fromMeal]).isAdhocOnly)
     }
+
+    func testDecodesTheFreezer() throws {
+        let stock = try APIClient.decoder().decode(FreezerPayload.self, from: fixture("freezer"))
+        XCTAssertEqual(stock.totalPortions, 6)
+        XCTAssertEqual(stock.items.map(\.label), ["Chilli con carne", "Mum's lasagne"])
+
+        let chilli = stock.items[0]
+        XCTAssertNotNil(chilli.mealId)
+        XCTAssertNil(chilli.recipeId)
+        XCTAssertEqual(chilli.portions, 4)
+        XCTAssertEqual(chilli.portionsText, "4 portions")
+        XCTAssertEqual(chilli.note, "the spicy batch")
+        XCTAssertEqual(chilli.frozenOn, "2026-05-10")
+        XCTAssertNotNil(chilli.frozenOnDate)
+
+        // Free text: both links nil, and a bare date still parses.
+        let lasagne = stock.items[1]
+        XCTAssertNil(lasagne.mealId)
+        XCTAssertNil(lasagne.recipeId)
+        XCTAssertEqual(lasagne.portionsText, "2 portions")
+        XCTAssertNil(lasagne.note)
+    }
 }

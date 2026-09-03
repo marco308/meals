@@ -24,6 +24,21 @@ enum AppLinks {
     static func privacy(server: String) -> URL { page("/privacy", server: server) }
     static func support(server: String) -> URL { page("/support", server: server) }
 
+    /// What the connected server is built on, and under which licences. Follows
+    /// the server for the same reason the policy does: the credits describe the
+    /// build that is running, not whatever is on main today.
+    ///
+    /// The app itself has no third-party code at all — no Swift packages, only
+    /// Apple's own frameworks — so this credits the server, and the page says
+    /// so rather than letting anyone assume otherwise.
+    ///
+    /// `/terms` is served by every deployment too and is deliberately *not*
+    /// linked here: it is the page with the prices on it, and the App Store
+    /// listing rests on this app carrying no call to action for a purchase
+    /// outside it (planning/08-freemium.md §6). The credits carry no such
+    /// sentence, which is what makes them safe to link.
+    static func credits(server: String) -> URL { page("/credits", server: server) }
+
     /// The AI-facing pages every deployment serves: the skill is an
     /// assistant's operating manual for this server, the prompt pack a
     /// paste-anywhere version. Linked next to API tokens, which is where

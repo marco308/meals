@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app import limits
 from app.config import get_settings
@@ -51,6 +52,19 @@ from app.services.security import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+#: Said in two places — the check before anything is written, and the unique
+#: index that has the last word if two registrations for one address overlap.
+EMAIL_TAKEN = "an account with this email already exists; use POST /auth/login"
+
+
+async def _find_user(db: DbSession, email: str) -> User | None:
+    return (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+
+async def _email_taken(db: DbSession, email: str) -> bool:
+    """Whether this address is spoken for, asked before anything is written."""
+    return await _find_user(db, email) is not None
 
 
 async def _redeem_invite(db: DbSession, code: str) -> HouseholdInvite:
@@ -113,9 +127,8 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
                 "invite code (POST /auth/invites) and register with it"
             ),
         )
-    existing = await db.execute(select(User).where(User.email == email))
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="an account with this email already exists; use POST /auth/login")
+    if await _email_taken(db, email):
+        raise HTTPException(status_code=409, detail=EMAIL_TAKEN)
 
     # Last, and before anything is written: a refusal here must leave no
     # half-made household behind and, for an invited caller, must leave their
@@ -140,19 +153,32 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
         display_name=payload.display_name.strip(),
     )
     db.add(user)
-    await db.flush()
-    if invite is not None:
-        invite.accepted_at = datetime.now(UTC)
-        invite.accepted_by_user_id = user.id
-    else:
-        # Whoever starts a household leads it (Q23). Joining by invite never
-        # changes the lead — that is the whole point of the invite being theirs
-        # to issue.
-        household.lead_user_id = user.id
+    try:
         await db.flush()
-    token = _session_token(user)
-    db.add(token)
-    await db.commit()
+        if invite is not None:
+            invite.accepted_at = datetime.now(UTC)
+            invite.accepted_by_user_id = user.id
+        else:
+            # Whoever starts a household leads it (Q23). Joining by invite never
+            # changes the lead — that is the whole point of the invite being
+            # theirs to issue.
+            household.lead_user_id = user.id
+            await db.flush()
+        token = _session_token(user)
+        db.add(token)
+        await db.commit()
+    except IntegrityError:
+        # Somebody registered this address between the check above and here,
+        # which is what a double-tapped "Create household" looks like. The
+        # unique index is the thing that actually decides it, so the answer is
+        # the same sentence rather than a 500 that says nothing anyone can act
+        # on. Everything this request wrote goes with the rollback — the
+        # half-made household included, which is why the ceilings are checked
+        # before any of it.
+        await db.rollback()
+        if await _find_user(db, email) is None:
+            raise  # some other constraint, and guessing at it would hide it
+        raise HTTPException(status_code=409, detail=EMAIL_TAKEN) from None
     log_event("user.registered", user_id=user.id, household_id=household.id, joined_existing=invite is not None)
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
