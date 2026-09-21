@@ -22,6 +22,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-21 — staples from the shopping list
+
+Released as **1.6.2**. No migrations, nothing in the API contract changed;
+the web app alone.
+
+### Added
+
+- **Staples can be added from the shopping list**
+  ([#148](https://github.com/marco308/meals/pull/148)). Every line that is not
+  already a staple gets a "staple" button that flags its ingredient, so it
+  moves into the staples check. The staples check gains an "Add staple" box
+  and a "not a staple" undo on each row. Because the check only shows staples
+  with a line on the current list, adding one there also gives it a hidden,
+  quantity-less line unless the list already carries it.
+
 ## 2026-09-03 — hide what's in the trolley
 
 Released as **1.6.1**. No migrations, nothing in the API contract changed;
