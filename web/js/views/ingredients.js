@@ -107,7 +107,9 @@ function ingredientRow(item, aisleList) {
   return html`
     <div class="ing-row" data-ing="${item.id}">
       <span class="name" title="${item.name} — click to rename" tabindex="0" role="button">${item.name}</span>
-      <input type="checkbox" ${item.is_staple ? "checked" : ""} data-k="is_staple" title="Staples hide from the list until a staples check says you're low">
+      <label class="staple" title="Staples hide from the list until a staples check says you're low">
+        <input type="checkbox" ${item.is_staple ? "checked" : ""} data-k="is_staple"><span class="field-label">staple</span>
+      </label>
       <select data-k="aisle" aria-label="Aisle">
         ${aisleList.map((a) => html`<option value="${a.emoji}" ${a.emoji === item.aisle ? "selected" : ""}>${a.emoji} ${a.label}</option>`)}
       </select>
@@ -117,7 +119,7 @@ function ingredientRow(item, aisleList) {
         <option value="premium" ${item.value_tier === "premium" ? "selected" : ""}>⭐ premium</option>
         <option value="budget" ${item.value_tier === "budget" ? "selected" : ""}>💷 budget</option>
       </select>
-      <input type="text" value="${item.value_note ?? ""}" placeholder="why (shows at the shelf)" data-k="value_note">
+      <input type="text" value="${item.value_note ?? ""}" placeholder="why (shows at the shelf)" aria-label="Why (shows at the shelf)" data-k="value_note">
       <span class="row-actions">
         <button class="icon-btn" data-mrg title="Fold this into another ingredient — for duplicates the finder can't see">merge…</button>
         <button class="icon-btn warm" data-del title="Only unreferenced ingredients can go">✕</button>
@@ -193,6 +195,7 @@ function renameInline(row, refresh) {
   };
   const input = document.createElement("input");
   input.type = "text";
+  input.className = "rename";
   input.value = item.name;
   input.maxLength = 200;
   span.replaceWith(input);
