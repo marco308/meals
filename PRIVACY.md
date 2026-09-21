@@ -1,10 +1,12 @@
 # Privacy policy
 
-**Last updated: 22 August 2026**
+**Last updated: 21 September 2026**
 
-YAMP is a meal planner you run on your own server. The iOS app is a client:
-it talks to whichever server you point it at, and to nothing else. There is no
-YAMP account, no YAMP cloud, and no central service that sees your data.
+YAMP is a meal planner that runs on a server: your own, or a hosted one. The
+iOS app is a client: it talks to whichever server you point it at, and to
+nothing else. There is no central YAMP service that every copy reports to; the
+author's hosted server, `meals.marcuslab.uk`, is one more server like any
+other, and it sees only the data of the households that signed up to it.
 
 That shape is the whole privacy story, so it is worth being precise about it.
 
@@ -80,15 +82,13 @@ sees whatever it asks for. That connection is yours to make and yours to revoke
 This section exists because `/privacy` is a published, permanent URL and it
 should be right *before* any money moves, not after.
 
-**Today, nothing here applies to anyone.** No payment is taken for any YAMP
-server, and no card details have ever reached this project. If you self-host,
-that stays true forever: the software takes no payments unless whoever runs it
-configures a processor, and with none configured there is not even an endpoint
-to take one — there is nothing to pay and nobody to pay it to.
+**If you self-host, nothing here applies to you, forever.** The software
+takes no payments unless whoever runs it configures a processor, and with none
+configured there is not even an endpoint to take one. There is nothing to pay
+and nobody to pay it to.
 
-If the hosted service does open, one thing changes and it is worth stating in
-advance. The processor is now chosen and named here, which is what this section
-promised to do before any money moved:
+The author's hosted service at `meals.marcuslab.uk` does take payments, since
+24 August 2026. This is what that involves:
 
 - **Payment goes through a third-party merchant of record**, which for the
   author's hosted service is **Stripe Managed Payments** — Stripe acting as the
@@ -142,10 +142,9 @@ data controller, and this policy describes what the software does rather than
 what any particular operator promises.
 
 If you use `meals.marcuslab.uk`, that server is operated by the author of this
-project, in the United Kingdom, as a private household instance. It is not a
-public service, registration on it is closed, and it is not offered for general
-use. See [Contact](#contact) below for anything about it, including data
-requests.
+project, in the United Kingdom, as the hosted service: anyone may sign up to
+it, and the author is the data controller for what is stored there. See
+[Contact](#contact) below for anything about it, including data requests.
 
 ## Your choices
 

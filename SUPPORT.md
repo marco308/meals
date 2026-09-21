@@ -21,8 +21,8 @@ to do instead.
 
 ### The app asks for a server URL. What do I put in it?
 
-YAMP has no cloud. You run the server, so the app needs to know where it is.
-You have two options:
+Your recipes, plans and shopping list live on a server, and the app needs
+to know which one. You have three options:
 
 1. **Run it yourself.** It is free, open source, and one command:
 
@@ -40,13 +40,13 @@ You have two options:
    on their device). Enter the code when you create your account and you land in
    their household, sharing its recipes, plan and shopping list.
 
-`meals.marcuslab.uk` is the author's own household instance, not a public
-service. Registration on it is closed, so it won't accept an account you create.
+3. **Use the author's hosted server.** Enter `https://meals.marcuslab.uk` and
+   create an account. There is nothing to install or run.
 
 ### Do I need an account?
 
-Yes, on your own server. The account is how the server knows which household's
-shopping list to hand back, and it never leaves that server.
+Yes, on whichever server you use. The account is how the server knows which
+household's shopping list to hand back, and it never leaves that server.
 
 ### How do I delete my account?
 
