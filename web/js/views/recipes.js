@@ -8,6 +8,11 @@ import { confirmDialog, debounce, emptyState, fmtRel, html, openDialog, render, 
 import { linesEditor } from "./lines.js";
 
 let query = { search: "", tag: "", sort: "title", under30: false };
+// Ingested recipes bring every keyword their page carried, so a library of a
+// few dozen soon has a hundred tags. Show the most used by default and keep
+// the rest one click away.
+const TOP_TAGS = 8;
+let showAllTags = false;
 
 export async function renderRecipes(root) {
   render(root, html`
@@ -60,14 +65,31 @@ export async function renderRecipes(root) {
       if (ticket !== seq) return; // a newer filter overtook this fetch
       count.textContent = `${recipes.length} in the library`;
 
-      const tags = [...new Set(recipes.flatMap((r) => r.tags))].sort();
-      render(tagsBox, html`${tags.map((tag) => html`<button class="chip click ${query.tag === tag ? "on" : ""}" data-tag="${tag}">${tag}</button>`)}`);
+      const uses = new Map();
+      for (const tag of recipes.flatMap((r) => r.tags)) uses.set(tag, (uses.get(tag) ?? 0) + 1);
+      const byName = [...uses.keys()].sort((a, b) => a.localeCompare(b));
+      const hidden = Math.max(0, byName.length - TOP_TAGS);
+      let shown = byName;
+      if (hidden && !showAllTags) {
+        // Most used first; the active tag always stays visible so it can be cleared.
+        shown = [...byName].sort((a, b) => uses.get(b) - uses.get(a)).slice(0, TOP_TAGS);
+        if (query.tag && !shown.includes(query.tag)) shown.push(query.tag);
+      }
+      render(tagsBox, html`
+        ${shown.map((tag) => html`<button class="chip click ${query.tag === tag ? "on" : ""}" data-tag="${tag}">${tag}</button>`)}
+        ${hidden > 0 && html`<button class="chip click more" data-more-tags>${showAllTags ? "fewer tags" : `+${hidden} more`}</button>`}
+      `);
       for (const chip of tagsBox.querySelectorAll("[data-tag]")) {
         chip.onclick = () => {
           query.tag = query.tag === chip.dataset.tag ? "" : chip.dataset.tag;
           refresh();
         };
       }
+      const more = tagsBox.querySelector("[data-more-tags]");
+      if (more) more.onclick = () => {
+        showAllTags = !showAllTags;
+        refresh();
+      };
 
       render(results, recipes.length === 0
         ? emptyState("📖", "No recipes yet", "Paste a recipe URL and the library starts itself — or ask your AI to fill it while you put the kettle on.", html`<button class="btn" data-ingest-empty>🔗 Add one from a URL</button>`)

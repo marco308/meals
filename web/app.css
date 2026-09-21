@@ -342,6 +342,7 @@ select { cursor: pointer; }
    while the toolbar around them stays put; the wrapper must not disturb the
    toolbar's own flex flow. */
 .toolbar .facet-chips { display: contents; }
+.chip.click.more { border-style: dashed; color: var(--ink-soft); }
 
 /* ── menu card (the plan) ───────────────────────────────────────────── */
 
