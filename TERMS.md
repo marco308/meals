@@ -2,7 +2,7 @@
 
 **Last updated: 22 August 2026**
 
-Meals is a meal planner you run on your own server. The software is free and
+YAMP is a meal planner you run on your own server. The software is free and
 open source under the AGPL, and it always will be. Separately from that, the
 author offers to run it for you, and these terms cover that offer.
 
@@ -15,7 +15,7 @@ and no way for this project to switch anything off. The only sections below
 that are worth your time are [Acceptable use](#acceptable-use), which is about
 a server you do not own, and [The software itself](#the-software-itself).
 
-Everything else assumes you are paying somebody to run Meals for you.
+Everything else assumes you are paying somebody to run YAMP for you.
 
 ## What is on offer, and what it costs
 

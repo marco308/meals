@@ -1,6 +1,6 @@
 # Support
 
-Meals is a free, open-source, one-person project. There is no support desk and
+YAMP is a free, open-source, one-person project. There is no support desk and
 no service-level anything — but questions do get answered.
 
 **Ask here:** <https://github.com/marco308/meals/issues>
@@ -21,7 +21,7 @@ to do instead.
 
 ### The app asks for a server URL. What do I put in it?
 
-Meals has no cloud. You run the server, so the app needs to know where it is.
+YAMP has no cloud. You run the server, so the app needs to know where it is.
 You have two options:
 
 1. **Run it yourself.** It is free, open source, and one command:

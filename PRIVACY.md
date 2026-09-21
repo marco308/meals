@@ -2,9 +2,9 @@
 
 **Last updated: 22 August 2026**
 
-Meals is a meal planner you run on your own server. The iOS app is a client:
+YAMP is a meal planner you run on your own server. The iOS app is a client:
 it talks to whichever server you point it at, and to nothing else. There is no
-Meals account, no Meals cloud, and no central service that sees your data.
+YAMP account, no YAMP cloud, and no central service that sees your data.
 
 That shape is the whole privacy story, so it is worth being precise about it.
 
@@ -80,7 +80,7 @@ sees whatever it asks for. That connection is yours to make and yours to revoke
 This section exists because `/privacy` is a published, permanent URL and it
 should be right *before* any money moves, not after.
 
-**Today, nothing here applies to anyone.** No payment is taken for any Meals
+**Today, nothing here applies to anyone.** No payment is taken for any YAMP
 server, and no card details have ever reached this project. If you self-host,
 that stays true forever: the software takes no payments unless whoever runs it
 configures a processor, and with none configured there is not even an endpoint
@@ -127,7 +127,7 @@ reports. To be clear about what that is and is not:
   Developers* when setting up your device. You can check or change this any
   time in Settings → Privacy & Security → Analytics & Improvements.
 - **It is aggregated and anonymous.** The developer sees counts and crash
-  traces, never your identity, your Meals account, or any of your content:
+  traces, never your identity, your YAMP account, or any of your content:
   no recipes, no lists, no plans.
 - **It never involves your server.** A self-built or sideloaded install, or an
   opted-out device, shares nothing at all.
@@ -184,7 +184,7 @@ you already control.
 
 ## Children
 
-Meals is not directed at children and asks for no information about age. It is
+YAMP is not directed at children and asks for no information about age. It is
 rated 4+ because it contains nothing unsuitable, not because it is aimed at
 children.
 
