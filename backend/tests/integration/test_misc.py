@@ -198,6 +198,16 @@ class TestPublicPages:
         for path in ("/privacy", "/support", "/terms", "/credits"):
             assert (await client.get(path)).status_code == 200, path
 
+    async def test_pages_wear_the_web_apps_name_and_icon(self, client):
+        """Opened beside the web app, a page should read as the same product in
+        the tab strip: `<Heading> · YAMP` with the same favicon."""
+        index = (Path(pages_router.__file__).resolve().parents[3] / "web" / "index.html").read_text()
+        icon = re.search(r"<link rel=\"icon\" href=\"([^\"]+)\"", index).group(1)
+        for path, heading in (("/privacy", "Privacy policy"), ("/support", "Support")):
+            text = (await client.get(path)).text
+            assert f"<title>{heading} · YAMP</title>" in text, path
+            assert icon in text, path
+
     async def test_missing_documents_404_not_500(self, client, monkeypatch):
         monkeypatch.setattr(pages_router, "_DOC_DIRS", (Path("/nonexistent"),))
         response = await client.get("/privacy")
