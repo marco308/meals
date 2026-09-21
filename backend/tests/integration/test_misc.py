@@ -201,9 +201,14 @@ class TestPublicPages:
     async def test_pages_wear_the_web_apps_name_and_icon(self, client):
         """Opened beside the web app, a page should read as the same product in
         the tab strip: `<Heading> · YAMP` with the same favicon."""
-        index = (Path(pages_router.__file__).resolve().parents[3] / "web" / "index.html").read_text()
+        index = (Path(pages_router.__file__).resolve().parents[3] / "web" / "index.html").read_text(encoding="utf-8")
         icon = re.search(r"<link rel=\"icon\" href=\"([^\"]+)\"", index).group(1)
-        for path, heading in (("/privacy", "Privacy policy"), ("/support", "Support")):
+        for path, heading in (
+            ("/privacy", "Privacy policy"),
+            ("/support", "Support"),
+            ("/terms", "Terms and refunds"),
+            ("/credits", "Credits"),
+        ):
             text = (await client.get(path)).text
             assert f"<title>{heading} · YAMP</title>" in text, path
             assert icon in text, path

@@ -81,8 +81,9 @@ footer { margin-top: 4rem; padding-top: 1.2rem; border-top: 1px solid var(--rule
 
 _SOURCE_URL = "https://github.com/marco308/meals/blob/main"
 
-# The web app's favicon, byte for byte (web/index.html), so these pages sit in
-# a tab strip as part of the same product rather than as a bare globe.
+# The same favicon image as the web app's (web/index.html; the test compares
+# the href), so these pages sit in a tab strip as part of the same product
+# rather than as a bare globe.
 _ICON = (
     "<link rel='icon' href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' "
     "viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>\">"
