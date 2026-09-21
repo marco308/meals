@@ -22,6 +22,33 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-21 — YAMP on the public pages
+
+Released as **1.6.3**. No migrations, nothing in the API contract changed;
+the web app and the served pages alone.
+
+### Changed
+
+- **The public pages say YAMP and describe the hosted service as it is**
+  ([#153](https://github.com/marco308/meals/pull/153)). `/privacy`, `/support`,
+  `/terms` and `/credits` are titled `<Heading> · YAMP` with the web app's
+  favicon, and their text calls the product YAMP. The privacy, support and
+  terms pages no longer say nothing is on sale and registration is closed:
+  they name `meals.marcuslab.uk` as the hosted service, and the terms name
+  Stripe Managed Payments as the merchant of record. The support page, an App
+  Store URL, still names no price.
+
+### Fixed
+
+- **Ingredient rows fit a narrow card**
+  ([#150](https://github.com/marco308/meals/pull/150), #146). With the sidebar
+  open, the seven-column row folds onto two or three lines instead of spilling
+  its buttons past the card.
+- **Recipe tags collapse to the most used**
+  ([#151](https://github.com/marco308/meals/pull/151)). The Recipes page shows
+  the eight most-used tags and a "+N more" chip, rather than every keyword an
+  ingested page ever brought along.
+
 ## 2026-09-21 — staples from the shopping list
 
 Released as **1.6.2**. No migrations, nothing in the API contract changed;
