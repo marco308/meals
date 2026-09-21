@@ -125,6 +125,7 @@ function itemRow(item, inExcludedPile) {
         ${inExcludedPile
           ? html`<button class="icon-btn" data-need="${item.id}">need it after all</button>`
           : html`<button class="icon-btn" data-have="${item.id}" title="Skip this shop without forgetting why it was needed">have it</button>`}
+        ${!item.is_staple && html`<button class="icon-btn" data-make-staple="${item.ingredient_id}" data-name="${item.name}" title="Keep it at home: it waits in the staples check until you're low">staple</button>`}
         ${adhocOnly && html`<button class="icon-btn warm" data-del="${item.id}">delete</button>`}
       </div>
     </div>
@@ -246,6 +247,17 @@ function bind(root, list, markets) {
       renderShopping(root);
     };
   }
+  for (const button of root.querySelectorAll("[data-make-staple]")) {
+    button.onclick = async () => {
+      try {
+        await setStaple(button.dataset.makeStaple, true);
+        toast(`${button.dataset.name} is a staple now: it waits in the staples check until you're low.`, "ok");
+        renderShopping(root);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+    };
+  }
   for (const button of root.querySelectorAll("[data-del]")) {
     button.onclick = async () => {
       try {
@@ -284,8 +296,13 @@ function renderStaplesCheck(root, list) {
         aisle, the rest stay hidden.
       </div>
 
+      <form class="quick-add" data-add-staple>
+        <input type="text" name="q" placeholder="Add a staple: “olive oil”, “salt”, “rice”…" autocomplete="off">
+        <button class="btn" type="submit">Add staple</button>
+      </form>
+
       ${staples.length === 0
-        ? emptyState("🧂", "No staples to check", "Mark things like olive oil and salt as staples on the Ingredients page. Once a recipe or a quick-add has ever put one on a list, it shows up here before each shop.")
+        ? emptyState("🧂", "No staples to check", "Add the things you keep at home above, or tap “staple” on any line of the shopping list.")
         : groupByAisle(staples).map(
             (group) => html`
               <section class="aisle-group">
@@ -305,6 +322,37 @@ function renderStaplesCheck(root, list) {
     staplesMode = false;
     renderShopping(root);
   };
+  // A staple only shows up here while it has a line on the list, so adding
+  // one is two calls: flag the ingredient, then give it a (hidden) line,
+  // unless the list already carries it.
+  const addForm = root.querySelector("[data-add-staple]");
+  addForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const name = addForm.q.value.trim();
+    if (!name) return;
+    try {
+      const ingredient = await api("/ingredients", { method: "POST", body: { name, is_staple: true } });
+      if (!list.items.some((i) => i.ingredient_id === ingredient.id)) {
+        await api("/shopping-list/items", { method: "POST", body: { name, id: crypto.randomUUID() } });
+      }
+      addForm.q.value = "";
+      toast(`${ingredient.name} is a staple.`, "ok");
+      renderShopping(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+  for (const button of root.querySelectorAll("[data-unstaple]")) {
+    button.onclick = async () => {
+      try {
+        await setStaple(button.dataset.unstaple, false);
+        toast(`${button.dataset.name} is back on the list as an ordinary item.`, "ok");
+        renderShopping(root);
+      } catch (error) {
+        toast(error.detail || error.message, "error");
+      }
+    };
+  }
   for (const button of root.querySelectorAll("[data-low]")) {
     button.onclick = async () => {
       const needed = button.dataset.needed === "true";
@@ -332,6 +380,7 @@ function stapleRow(item) {
             <button class="icon-btn" data-low="${item.id}" data-needed="true">stocked after all</button>
           `
         : html`<button class="btn small" data-low="${item.id}" data-needed="false">Low — add it</button>`}
+      <button class="icon-btn" data-unstaple="${item.ingredient_id}" data-name="${item.name}">not a staple</button>
     </div>
   `;
 }
@@ -350,6 +399,12 @@ function syncHidden(root) {
     const left = root.querySelectorAll(".aisle-columns .shop-item:not(.done)").length;
     note.hidden = !hideTicked || rows === 0 || left > 0;
   }
+}
+
+// The staple flag lives on the ingredient, not the list line, so it follows
+// the food into every future list and recipe.
+function setStaple(ingredientId, isStaple) {
+  return api(`/ingredients/${ingredientId}`, { method: "PATCH", body: { is_staple: isStaple } });
 }
 
 // Keep the header and per-aisle tallies honest during optimistic ticking,
