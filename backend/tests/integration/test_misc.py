@@ -138,7 +138,10 @@ class TestPublicPages:
         so it has to open by saying that almost none of it is about them."""
         text = (await client.get("/terms")).text
         assert "If you self-host, almost none of this applies" in text
-        assert "Nothing is on sale yet" in text
+        # The hosted service is on sale, so the page names who it is from and
+        # the merchant of record, rather than promising one later.
+        assert "Nothing is on sale yet" not in text
+        assert "Stripe Managed Payments" in text
 
     async def test_credits_page_renders_as_html(self, client):
         """What this server is built on. Not an App Store URL and not required
@@ -197,6 +200,21 @@ class TestPublicPages:
         """`client` is unauthenticated — Apple's reviewer opens these in a browser."""
         for path in ("/privacy", "/support", "/terms", "/credits"):
             assert (await client.get(path)).status_code == 200, path
+
+    async def test_pages_wear_the_web_apps_name_and_icon(self, client):
+        """Opened beside the web app, a page should read as the same product in
+        the tab strip: `<Heading> · YAMP` with the same favicon."""
+        index = (Path(pages_router.__file__).resolve().parents[3] / "web" / "index.html").read_text(encoding="utf-8")
+        icon = re.search(r"<link rel=\"icon\" href=\"([^\"]+)\"", index).group(1)
+        for path, heading in (
+            ("/privacy", "Privacy policy"),
+            ("/support", "Support"),
+            ("/terms", "Terms and refunds"),
+            ("/credits", "Credits"),
+        ):
+            text = (await client.get(path)).text
+            assert f"<title>{heading} · YAMP</title>" in text, path
+            assert icon in text, path
 
     async def test_missing_documents_404_not_500(self, client, monkeypatch):
         monkeypatch.setattr(pages_router, "_DOC_DIRS", (Path("/nonexistent"),))

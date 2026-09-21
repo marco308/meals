@@ -1,10 +1,10 @@
 # Terms and refunds
 
-**Last updated: 22 August 2026**
+**Last updated: 21 September 2026**
 
-Meals is a meal planner you run on your own server. The software is free and
-open source under the AGPL, and it always will be. Separately from that, the
-author offers to run it for you, and these terms cover that offer.
+YAMP is a meal planner that runs on a server. The software is free and open
+source under the AGPL, and it always will be. Separately from that, the author
+runs it for you at `meals.marcuslab.uk`, and these terms cover that service.
 
 ## If you self-host, almost none of this applies
 
@@ -15,7 +15,7 @@ and no way for this project to switch anything off. The only sections below
 that are worth your time are [Acceptable use](#acceptable-use), which is about
 a server you do not own, and [The software itself](#the-software-itself).
 
-Everything else assumes you are paying somebody to run Meals for you.
+Everything else assumes you are paying somebody to run YAMP for you.
 
 ## What is on offer, and what it costs
 
@@ -30,25 +30,30 @@ author's hardware, with the database backed up nightly and the backups
 | Founding price | Whatever you first paid is what you keep paying, for as long as you keep paying it. It is recorded against your household rather than promised in a document. |
 | Included | Free members of the same household up to the published limit, every endpoint, and unlimited export. |
 
-**Nothing is on sale yet.** The hosted service is waitlist-only, no payment
-mechanism exists, and nobody has been charged. This page is here before the
-money rather than after it, so that what is being agreed to is public first.
-When it does open, the price above is the price.
+**On sale since 24 August 2026.** Anyone can create a household on the web
+app. Until it is paid for, a household lives within the free limits the server
+publishes (the web app's Settings shows them, and where you stand), and paying
+for the year lifts them.
 
 ## Paying
 
-There is no payment processor yet, and this section will name the one that gets
-chosen before a single payment is taken. It will be a merchant of record, which
-means the card details go to them and never to this server or its author: what
-this server would ever hold is the fact that a household is paid up, until when,
-and what it agreed to pay. The privacy policy (`/privacy` on the same server)
-says the same thing from the other direction, and both are updated together.
+Payment is taken on the web, from Settings, by the member the household is
+billed to. It goes through **Stripe Managed Payments**, which means Stripe is
+the merchant of record: the legal seller, holding the card details and issuing
+the receipt. Card details never reach this server or its author. What this
+server holds is the fact that a household is paid up, until when, and what it
+agreed to pay. The privacy policy (`/privacy` on the same server) says the same
+thing from the other direction, and both are updated together.
+
+Managing or cancelling a subscription is done in Stripe's own billing page,
+which Settings links to directly.
 
 VAT, where it applies, is included in the price.
 
 ## Refunds
 
-**Full refund inside 30 days, for any reason or none.** Ask and it is done.
+**Full refund inside 30 days, for any reason or none.** Ask (see
+[Contact](#contact)) and it is done.
 There is nothing to argue about at £20, and arguing would cost more than the
 refund.
 
