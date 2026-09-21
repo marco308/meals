@@ -1,0 +1,42 @@
+name: Pages
+
+# Publishes docs/ (the YAMP marketing site) as it stands on main. It replaces
+# GitHub's built-in "deploy from branch" workflow, which pins
+# actions/upload-artifact@v4 on Node 20 and can't be edited. There is no build
+# step: docs/ is hand-written and carries .nojekyll, so it ships verbatim.
+#
+# Needs Settings → Pages → Source set to "GitHub Actions" (build_type
+# "workflow"); on "Deploy from a branch" the built-in workflow runs instead.
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one halfway through.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v5
