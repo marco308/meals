@@ -138,7 +138,10 @@ class TestPublicPages:
         so it has to open by saying that almost none of it is about them."""
         text = (await client.get("/terms")).text
         assert "If you self-host, almost none of this applies" in text
-        assert "Nothing is on sale yet" in text
+        # The hosted service is on sale, so the page names who it is from and
+        # the merchant of record, rather than promising one later.
+        assert "Nothing is on sale yet" not in text
+        assert "Stripe Managed Payments" in text
 
     async def test_credits_page_renders_as_html(self, client):
         """What this server is built on. Not an App Store URL and not required
