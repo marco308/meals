@@ -64,7 +64,7 @@ export async function renderIngredients(root) {
       render(results, items.length === 0
         ? emptyState("🥕", "Nothing here", "Ingredients appear as recipes and shopping lists use them.")
         : html`
-            <div class="card">
+            <div class="card ing-table">
               <div class="ing-row ing-head">
                 <span class="field-label">name</span><span class="field-label">staple</span>
                 <span class="field-label">aisle</span><span></span>
