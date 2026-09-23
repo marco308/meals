@@ -16,7 +16,7 @@ sources are linked inline.
   self-hosters and MCP tinkerers, without the site having to look like a
   terminal to land it.
 - It sets the voice: honest, dry, technical. The tagline is
-  *"Unfortunately, this one is good."*
+  *"Fortunately, this one is good."*
 
 YAMP is the **marketing name**. Internal identifiers, the `X-Meals-Client`
 header and API vocabulary do not change (additive-only contract, see
