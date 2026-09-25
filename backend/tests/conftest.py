@@ -171,3 +171,32 @@ async def legacy_ingredient(engine, auth_client):
             return ingredient
 
     return insert
+
+
+@pytest.fixture
+async def legacy_infinity(engine):
+    """Set every amount on a list line to infinity, the way the API stored one
+    before non-finite quantities were refused.
+
+    Python's JSON parser reads `Infinity` and an overflowing `1e400` as
+    floats, and nothing stopped one reaching the database. The API refuses
+    them now, so a household that already has one can only be reproduced by
+    writing the row directly.
+    """
+    import math
+    import uuid
+
+    from sqlalchemy import update
+
+    from app.models import ListItemSource
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def store(item_id: str) -> None:
+        async with maker() as session:
+            await session.execute(
+                update(ListItemSource).where(ListItemSource.item_id == uuid.UUID(item_id)).values(quantity=math.inf)
+            )
+            await session.commit()
+
+    return store
