@@ -87,17 +87,28 @@ class RecipeLineOut(BaseModel):
     raw: str | None
 
 
+# What one recipe can hold. Ingestion reads the same numbers, so a page that
+# says more is trimmed to fit rather than refused (services/catalog.py).
+MAX_SERVINGS = 100
+MAX_RECIPE_LINES = 100
+# A year of minutes: past any real recipe, and far inside the int4 the columns
+# are on Postgres. With no ceiling, a bigger number was accepted here and then
+# failed the insert as a 500, which is the one reason to tighten a validation
+# the additive-only contract would otherwise leave alone.
+MAX_RECIPE_MINUTES = 525_600
+
+
 class RecipeCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     source_url: str | None = Field(default=None, max_length=1000)
-    servings: int | None = Field(default=None, ge=1, le=100)
-    prep_minutes: int | None = Field(default=None, ge=0)
-    cook_minutes: int | None = Field(default=None, ge=0)
+    servings: int | None = Field(default=None, ge=1, le=MAX_SERVINGS)
+    prep_minutes: int | None = Field(default=None, ge=0, le=MAX_RECIPE_MINUTES)
+    cook_minutes: int | None = Field(default=None, ge=0, le=MAX_RECIPE_MINUTES)
     image_url: str | None = Field(default=None, max_length=1000)
     instructions: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=20)
     parse_source: Literal["manual", "ai"] = "manual"
-    ingredients: list[IngredientLineIn] = Field(default_factory=list, max_length=100)
+    ingredients: list[IngredientLineIn] = Field(default_factory=list, max_length=MAX_RECIPE_LINES)
 
     @field_validator("source_url")
     @classmethod
@@ -113,13 +124,13 @@ class RecipeCreate(BaseModel):
 
 class RecipeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
-    servings: int | None = Field(default=None, ge=1, le=100)
-    prep_minutes: int | None = Field(default=None, ge=0)
-    cook_minutes: int | None = Field(default=None, ge=0)
+    servings: int | None = Field(default=None, ge=1, le=MAX_SERVINGS)
+    prep_minutes: int | None = Field(default=None, ge=0, le=MAX_RECIPE_MINUTES)
+    cook_minutes: int | None = Field(default=None, ge=0, le=MAX_RECIPE_MINUTES)
     image_url: str | None = Field(default=None, max_length=1000)
     instructions: str | None = None
     tags: list[str] | None = Field(default=None, max_length=20)
-    ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=100)
+    ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=MAX_RECIPE_LINES)
 
 
 class RecipeOut(BaseModel):

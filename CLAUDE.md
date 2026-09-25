@@ -150,6 +150,19 @@ instrumentation a new feature usually needs.
   is free schema.org JSON-LD extraction only; a page without usable JSON-LD
   returns 422 telling the calling AI to parse it and `POST /recipes` with
   `parse_source="ai"`. **The backend never calls an LLM.**
+- **Ingestion is somebody else's page on the only event loop**
+  (`services/recipe_parser.py`). The API runs one uvicorn worker, so anything
+  a page can make slow stalls every household, `/healthz` included. Hence:
+  the fetch has one deadline for the whole thing (httpx's timeout is per
+  phase), asks for `identity` and inflates at most one layer of gzip or
+  deflate itself, counting what zlib produces against the size cap (httpx
+  inflates a chunk whole before anyone can count it); the routers commit
+  before fetching so no pooled connection waits on a remote server, and run
+  `extract_recipe` in a thread. Every regex over page text must stay linear,
+  and whatever a page holds ends as a recipe or the 422:
+  `parsed_recipe_to_payload` fits values to what a recipe can hold, because
+  a validation error there is a 500 on an ingest that has already been
+  charged.
 - **Offline sync contract** (Q11). Clients may supply the `id` on ad-hoc adds;
   `ListItemSource.client_key` makes a replayed POST a no-op (returns 200, not
   201), and item ids are honoured unless already taken. iOS

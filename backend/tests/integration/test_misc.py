@@ -443,3 +443,28 @@ class TestValidation:
         response = await auth_client.post(path, content=body, headers={"Content-Type": "application/json"})
         assert response.status_code == 422
         assert response.json()["detail"][0]["input"] == echoed
+
+    # Text fails the same way when the 422 echoes it: a body that isn't UTF-8,
+    # or half a surrogate pair, raised while rendering and went out as a 500.
+
+    async def test_a_body_that_is_not_utf8_is_a_422(self, auth_client):
+        response = await auth_client.post(
+            "/shopping-list/items", content=b"\xff\xfe", headers={"content-type": "text/plain"}
+        )
+        assert response.status_code == 422
+
+    async def test_half_a_surrogate_pair_is_a_422(self, auth_client):
+        response = await auth_client.post(
+            "/shopping-list/items",
+            content=b'{"name": "\\ud800 milk", "quantity": 1, "unit": "l"}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"] == ["body", "name"]
+
+    async def test_every_other_refusal_keeps_fastapis_shape(self, auth_client):
+        response = await auth_client.post("/recipes", json={"servings": 4})
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": [{"type": "missing", "loc": ["body", "title"], "msg": "Field required", "input": {"servings": 4}}]
+        }

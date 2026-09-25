@@ -20,21 +20,8 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**Three migrations**, run in this order:
-
-- `ef71d71574d8`: four nullable columns on `households`, and a backfill
-  naming the lead as the payer of every household that has paid (until now
-  only the lead could open a checkout).
-- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
-  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
-  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
-  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
-  against the migrated schema, as it does for the few seconds of a
-  start-first rollout. Additive for clients too: no response field was
-  removed or renamed, and the household export gains two.
-- `67a229a2837f`: rebuilds `household_invites` on SQLite, which had kept the
-  `ON DELETE CASCADE` key it was meant to lose, and does nothing on
-  Postgres.
+One migration, `67a229a2837f`, which rebuilds `household_invites` on SQLite
+and does nothing on Postgres. Nothing in the API contract changed.
 
 ### Security
 
@@ -59,15 +46,68 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   500 was invisible to the alert and retried by the processor; the comparisons
   are over bytes now, so it is a counted `bad_signature`.
 
-### Changed
+### Fixed
 
-- **`/privacy` says what the app keeps through a sign-out.** The cached
-  shopping list is cleared on sign-out, on account deletion and on moving
-  household, as the page already claimed and build 27 did not do. Offline
-  changes not yet sent are kept through a sign-out and sent only as the
-  account and household that made them. The sign-in token is stored with the
-  server that issued it and sent nowhere else. This describes the next iOS
-  build, which fixes the offline shopping list: deploy it with that build.
+- **Deleting an account on SQLite no longer deletes the invites it issued.**
+  `f3a7c02e5b91` added the new `SET NULL` key beside the old `CASCADE` one
+  instead of replacing it, so on SQLite both applied. `67a229a2837f` rebuilds
+  the table with only the keys the model declares, and the suite now migrates
+  a SQLite file and compares every foreign key with the models'.
+- **A `%` in `DATABASE_URL` no longer stops the container booting.** Alembic
+  handed the URL to ConfigParser, which read a percent-encoded password as
+  interpolation and printed the whole URL, password included, on the way out.
+- **A paused export no longer locks every write out on SQLite.** The export
+  streams through an open cursor, which held SQLite's read lock for as long as
+  the client took to download, so writes failed with "database is locked"
+  after five seconds. SQLite now runs in WAL mode with a 15 second busy
+  timeout.
+- **The iOS targets stay failing when Xcode does.** `ios-testflight` deletes
+  the last archive before it starts, so no failure has a stale build to
+  upload, and `tests/unit/test_makefile.py` runs `ios-build`, `ios-test` and
+  `ios-testflight` against stand-ins for Xcode's tools with whatever make the
+  machine has (3.81 on a Mac, which ignores `.SHELLFLAGS`), so the fix in
+  [#159](https://github.com/marco308/meals/pull/159) cannot quietly regress.
+- **`.env` is kept out of the image's build context at every depth**, not just
+  the root: `mcp/`, `skill/` and `web/` are copied in whole.
+- **Coverage counts the lines after a database await**
+  (`concurrency = ["greenlet", "thread"]`). `app/deps.py` read 79% covered
+  when it was 96%.
+
+### Notes for whoever deploys this
+
+- A SQLite install switches to WAL on its first connection, after which
+  `/data` holds `meals.db-wal` and `meals.db-shm` beside `meals.db`. Back up
+  the directory rather than the one file, and keep it on a local disk: WAL
+  does not work on a network filesystem.
+- An existing compose stack keeps the password its volume was created with.
+  Setting `POSTGRES_PASSWORD` later changes what the API and the backup
+  sidecar send, not what Postgres expects, so run `ALTER ROLE meals PASSWORD
+  '…'` first.
+
+## 2026-09-25 — grant only what was paid for, bound what a request can cost
+
+Released as **1.6.4**. **Two migrations**, both additive, run in this order:
+
+- `ef71d71574d8`: four nullable columns on `households`, and a backfill
+  naming the lead as the payer of every household that has paid (until now
+  only the lead could open a checkout).
+- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
+  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
+  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
+  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
+  against the migrated schema, as it does for the few seconds of a
+  start-first rollout. Additive for clients too: no response field was
+  removed or renamed, and the household export gains two.
+
+Validation is tighter in a few places, each far past real use: a
+non-finite quantity, `prep_minutes` or `cook_minutes` over 525,600, an
+`aisle_order` longer than the 14 aisles, and an `X-Meals-Client` header whose
+parts run past their bounds (which, like any unparseable one, makes an
+unidentified client rather than a refusal).
+
+The `/privacy` wording for the iOS offline-list fix
+([#156](https://github.com/marco308/meals/pull/156)) is held back for the
+build that ships it.
 
 ### Fixed
 
@@ -152,49 +192,40 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   had wrapped itself up. It now archives the current plan first, then starts
   the new one from it. The plan page lists any other active plan under **Also
   on the go**, and "Wrap up" no longer claims the list keeps the plan's items.
-- **Deleting an account on SQLite no longer deletes the invites it issued.**
-  `f3a7c02e5b91` added the new `SET NULL` key beside the old `CASCADE` one
-  instead of replacing it, so on SQLite both applied. `67a229a2837f` rebuilds
-  the table with only the keys the model declares, and the suite now migrates
-  a SQLite file and compares every foreign key with the models'.
-- **A `%` in `DATABASE_URL` no longer stops the container booting.** Alembic
-  handed the URL to ConfigParser, which read a percent-encoded password as
-  interpolation and printed the whole URL, password included, on the way out.
-- **A paused export no longer locks every write out on SQLite.** The export
-  streams through an open cursor, which held SQLite's read lock for as long as
-  the client took to download, so writes failed with "database is locked"
-  after five seconds. SQLite now runs in WAL mode with a 15 second busy
-  timeout.
-- **`make ios-build`, `ios-test` and `ios-testflight` fail when Xcode does**
-  ([#159](https://github.com/marco308/meals/pull/159)). They piped `xcodebuild`
-  into `grep`, whose status became the recipe's, so a failed build exited 0
-  and a failed archive went on to upload the previous one. `ios-testflight`
-  also deletes the old archive before it starts, and
-  `tests/unit/test_makefile.py` runs all three recipes against stand-ins for
-  Xcode's tools with whatever make the machine has, which on a Mac is 3.81 and
-  ignores `.SHELLFLAGS`.
-- **`.env` is kept out of the image's build context at every depth**, not just
-  the root: `mcp/`, `skill/` and `web/` are copied in whole.
-- **Coverage counts the lines after a database await**
-  (`concurrency = ["greenlet", "thread"]`). `app/deps.py` read 79% covered
-  when it was 96%.
+- **Recipe ingestion is bounded**
+  ([#157](https://github.com/marco308/meals/pull/157)). Pages are requested
+  uncompressed, and a server that compresses anyway has at most one layer of
+  gzip or deflate undone here, under the 5 MB cap while it inflates. The whole
+  fetch has one deadline (`RECIPE_FETCH_TIMEOUT_SECONDS` now covers DNS,
+  redirects and the body together), no database connection waits on it, and
+  the page is parsed in a worker thread with each ingredient line cut to the
+  500 characters a line stores. Whatever a page holds ends as a recipe or the
+  read-it-yourself 422: yields and times out of range are dropped, lines past
+  100 are trimmed, and unreadable JSON-LD, an odd charset or a malformed URL no
+  longer turns an ingest that was already charged into a 500. A URL stored by
+  a concurrent request comes back as cached.
+- **Non-finite quantities are refused**
+  ([#160](https://github.com/marco308/meals/pull/160)). `Infinity`, `NaN` and
+  amounts that overflow once converted are a 422 saying what to send instead.
+  One already stored shows as no amount rather than failing every view of its
+  list, and the export writes it as `null`.
+- **A refusal can always be sent**
+  ([#160](https://github.com/marco308/meals/pull/160),
+  [#157](https://github.com/marco308/meals/pull/157)). A 422 that echoed
+  `NaN`, `Infinity`, a body that isn't UTF-8 or half a surrogate pair went out
+  as a 500.
+- **Smaller** ([#157](https://github.com/marco308/meals/pull/157)): a
+  supermarket's `aisle_order` is capped at the 14 aisles and checked for
+  repeats in one pass; the `client_platform` and `method` labels on
+  `meals_http_requests_total` are folded into fixed sets; an over-long
+  `X-Meals-Client` build is an unidentified client rather than a 500; and
+  `prep_minutes` and `cook_minutes` stop at a year.
 
 ### Added
 
 - `payer_user_id` and `renews` on `GET /billing/subscription`, and an `unpaid`
   outcome on `meals_billing_webhooks_total`. `/privacy` says what else is now
   recorded and sent.
-
-### Notes for whoever deploys this
-
-- A SQLite install switches to WAL on its first connection, after which
-  `/data` holds `meals.db-wal` and `meals.db-shm` beside `meals.db`. Back up
-  the directory rather than the one file, and keep it on a local disk: WAL
-  does not work on a network filesystem.
-- An existing compose stack keeps the password its volume was created with.
-  Setting `POSTGRES_PASSWORD` later changes what the API and the backup
-  sidecar send, not what Postgres expects, so run `ALTER ROLE meals PASSWORD
-  '…'` first.
 
 ## 2026-09-21 — YAMP on the public pages
 

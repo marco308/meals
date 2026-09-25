@@ -1,5 +1,7 @@
 """The /metrics endpoint and the counters behind it (app/metrics.py)."""
 
+import re
+
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app import metrics as metrics_module
@@ -44,6 +46,26 @@ async def test_requests_are_counted_by_route_template(auth_client, settings_over
     assert 'route="/recipes/{recipe_id}"' in body
     assert recipe["id"] not in body  # raw paths never become label values
     assert "meals_http_request_duration_seconds_bucket" in body
+
+
+async def test_caller_chosen_labels_are_folded_into_fixed_sets(client, settings_override):
+    """The platform comes from an unauthenticated header and the method is any
+    token HTTP allows; each distinct value used to be a new timeseries."""
+    settings_override(METRICS_TOKEN="scrape-secret-1")
+    for n in range(3):
+        await client.get("/no-such-page", headers={"X-Meals-Client": f"scanner{n}/1.0 (1)"})
+    await client.get("/no-such-page", headers={"X-Meals-Client": "ios/1.1 (24)"})
+    await client.get("/no-such-page", headers={"X-Meals-Client": "web/1.0 (1)"})
+    await client.get("/no-such-page")
+    await client.request("FROBNICATE", "/no-such-page")
+    body = (await client.get("/metrics", headers=SCRAPE)).text
+    samples = [line for line in body.splitlines() if line.startswith("meals_http_requests_total{")]
+    platforms = {re.search(r'client_platform="([^"]*)"', line)[1] for line in samples}
+    methods = {re.search(r'method="([^"]*)"', line)[1] for line in samples}
+    assert platforms == {"ios", "web", "other", "none"}
+    assert "OTHER" in methods
+    assert methods <= {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "OTHER"}
+    assert "scanner" not in body and "FROBNICATE" not in body
 
 
 async def test_healthy_healthz_is_not_counted(client, settings_override):
