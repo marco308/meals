@@ -124,14 +124,19 @@ class User(Base):
 
 class AuthToken(Base):
     """Opaque bearer tokens, stored hashed. kind='session' for app logins,
-    kind='api' for the per-user PATs that AI clients use (decision Q7/Q15)."""
+    kind='api' for the per-user PATs that AI clients use (decision Q7/Q15), and
+    kind='reset' for password-reset codes, which are not credentials (Q20)."""
 
     __tablename__ = "auth_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    kind: Mapped[str] = mapped_column(String(20), default="session")  # session | api
+    # No default, deliberately: whether a row can stand in for a login is
+    # decided by `deps.AUTHENTICATING_KINDS`, and a default of "session" would
+    # quietly make any row written without a kind a credential. The column is
+    # NOT NULL, so forgetting one fails the insert instead.
+    kind: Mapped[str] = mapped_column(String(20))
     label: Mapped[str | None] = mapped_column(String(200), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

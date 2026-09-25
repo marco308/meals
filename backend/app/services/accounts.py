@@ -91,14 +91,48 @@ async def leads_alongside_others(db: AsyncSession, user: User) -> bool:
     return await household_user_count(db, user.household_id) > 1
 
 
-async def move_user_to_household(db: AsyncSession, user: User, target_household_id: uuid.UUID) -> bool:
+async def withdraw_invites(db: AsyncSession, household_id: uuid.UUID, issued_by: uuid.UUID) -> None:
+    """Delete the invites somebody issued for a household that nobody has used.
+
+    An invite speaks for the lead who issued it (Q23), so it stops speaking once
+    they no longer lead: when they hand over, leave, are removed or delete their
+    account. Otherwise a code still in their pocket would let them (or whoever
+    they give it to) back in without the household's current lead having said
+    yes. Redeemed invites stay, because they are the record of who let whom in.
+    """
+    await db.execute(
+        delete(HouseholdInvite).where(
+            HouseholdInvite.household_id == household_id,
+            HouseholdInvite.created_by_user_id == issued_by,
+            HouseholdInvite.accepted_at.is_(None),
+        )
+    )
+
+
+class WouldEmptyHousehold(Exception):
+    """The move would leave nobody behind, which collects the household, and
+    the caller was not cleared to delete it. Only a race gets here: the caller
+    counted other members, and they left before the move did."""
+
+
+async def move_user_to_household(
+    db: AsyncSession, user: User, target_household_id: uuid.UUID, *, may_collect: bool
+) -> bool:
     """Move one person into another household. Returns True if the household
     they left was collected because they were the last one in it.
 
     Only the `household_id` moves. Recipes, meals, plans, lists and cooked
     history belong to the household rather than to the person (Q20), and their
     tokens hang off `user_id`, so nothing is revoked and nothing is copied — the
-    next request they make simply resolves somewhere else (`deps.py`).
+    next request they make simply resolves somewhere else (`deps.py`). The one
+    thing withdrawn is any unused invite they issued for the household they
+    left (`withdraw_invites`).
+
+    `may_collect` is the caller saying that deleting the household is allowed,
+    which only a redeem whose caller gave their password can say. It is checked
+    here, where the decision takes effect, rather than trusted from the count
+    the caller made first: everybody else can leave in between, and then this
+    move is the one that empties the household. `WouldEmptyHousehold` if so.
 
     Callers check `leads_alongside_others` first and refuse with a 409 naming the
     way out; a lead reaching here with members behind them is a bug rather than
@@ -109,6 +143,8 @@ async def move_user_to_household(db: AsyncSession, user: User, target_household_
         raise ValueError("move_user_to_household called with the household the user is already in")
 
     successor = await next_lead(db, origin_id, excluding=user.id)
+    if successor is None and not may_collect:
+        raise WouldEmptyHousehold
     origin = await db.get(Household, origin_id)
     if successor is not None and origin is not None and origin.lead_user_id == user.id:
         raise ValueError("move_user_to_household called for a lead who has not handed over")
@@ -121,6 +157,7 @@ async def move_user_to_household(db: AsyncSession, user: User, target_household_
         # unreachable forever — the same reasoning as deleting the last account.
         await delete_household_data(db, origin_id)
         return True
+    await withdraw_invites(db, origin_id, user.id)
     return False
 
 
@@ -188,6 +225,9 @@ async def delete_user(db: AsyncSession, user: User) -> bool:
         household.lead_user_id = await next_lead(db, household_id, excluding=user.id)
         await db.flush()
 
+    # Before the row goes: `created_by_user_id` is SET NULL, which would keep
+    # their unused codes redeemable while blanking out who issued them.
+    await withdraw_invites(db, household_id, user.id)
     # Session and API tokens cascade from the user row, but be explicit: this is
     # the one part where leaving a stale credential behind would matter.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))

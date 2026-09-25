@@ -5,6 +5,7 @@ by design, and every relay speaks SMTP while every SDK needs an account with one
 particular company.
 """
 
+import asyncio
 import logging
 from email.message import EmailMessage
 
@@ -35,20 +36,22 @@ async def send_email(to: str, subject: str, body: str) -> None:
     message.set_content(body)
 
     try:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            start_tls=settings.smtp_start_tls,
-        )
+        async with asyncio.timeout(settings.smtp_timeout_seconds):
+            await aiosmtplib.send(
+                message,
+                hostname=settings.smtp_host,
+                port=settings.smtp_port,
+                username=settings.smtp_username,
+                password=settings.smtp_password,
+                start_tls=settings.smtp_start_tls,
+            )
     except Exception as exc:  # noqa: BLE001 — the relay's failure modes are many and all equivalent here
         # Log the reason for the operator; the caller deliberately does not pass
         # it to the user, since the endpoint must not reveal whether an address
         # exists, let alone what the mail server said about it.
-        logger.warning("password reset email to %s failed: %s", to, exc)
-        raise EmailSendFailed(str(exc)) from exc
+        reason = str(exc) or type(exc).__name__  # a timeout has no message of its own
+        logger.warning("password reset email to %s failed: %s", to, reason)
+        raise EmailSendFailed(reason) from exc
 
 
 def password_reset_body(display_name: str, code: str, ttl_minutes: int) -> str:

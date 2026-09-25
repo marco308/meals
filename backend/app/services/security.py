@@ -1,20 +1,72 @@
+import asyncio
 import hashlib
 import secrets
+from functools import cache
 
 import bcrypt
 
 TOKEN_PREFIX = "meals_"
 
+#: bcrypt reads at most this many bytes of a password, and bcrypt 5 raises
+#: rather than quietly ignoring the rest. Bytes, not characters: an accented
+#: letter is two bytes in UTF-8 and an emoji is four, so a password of them
+#: reaches the limit in far fewer characters. `schemas/auth.py` refuses a longer
+#: one before it gets here.
+PASSWORD_MAX_BYTES = 72
 
-def hash_password(password: str) -> str:
+
+# bcrypt costs about a quarter of a second of CPU a check, which is the point
+# of it. Run on the event loop, that quarter-second is taken from every other
+# request the process is serving, `/healthz` included. bcrypt releases the GIL
+# while it hashes, so a worker thread is all it takes for the loop to carry on.
+# These two are the only way into it, and both have to be awaited: an
+# un-awaited `verify_password` is a coroutine, which is truthy, and
+# `tests/unit/test_security.py` checks every call for exactly that.
+
+
+async def hash_password(password: str) -> str:
+    return await asyncio.to_thread(_hash, password)
+
+
+async def verify_password(password: str, password_hash: str | None) -> bool:
+    """Whether `password` matches `password_hash`, checked off the event loop.
+
+    Pass `None` when there is no account to check against: the answer is False,
+    but only after the same bcrypt work a real account costs, so how long a
+    failed login takes says nothing about whether the address has an account.
+    """
+    if password_hash is None:
+        await asyncio.to_thread(_check, password, _stand_in_hash())
+        return False
+    return await asyncio.to_thread(_check, password, password_hash)
+
+
+def _hash(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-def verify_password(password: str, password_hash: str) -> bool:
+def _check(password: str, password_hash: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
-    except ValueError:
+    except ValueError:  # a malformed stored hash, or a password over PASSWORD_MAX_BYTES
         return False
+
+
+async def warm_up() -> None:
+    """Make the stand-in hash before any login needs it; called at startup.
+    Left to the first failed login for an unknown address, making it would
+    double that one answer, and the slowest answer after a restart would say
+    which address has no account."""
+    await asyncio.to_thread(_stand_in_hash)
+
+
+@cache
+def _stand_in_hash() -> str:
+    """A hash of nothing anybody knows, made by the same `gensalt()` as a real
+    one so that checking against it costs exactly what a real check does. Made
+    on first use (`warm_up`, for a server) rather than at import, so a CLI that
+    never answers a login doesn't pay for it."""
+    return _hash(secrets.token_urlsafe(32))
 
 
 def generate_token() -> tuple[str, str]:
