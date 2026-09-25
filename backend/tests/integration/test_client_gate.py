@@ -37,6 +37,19 @@ class TestHeaderParsing:
         failing open is the only safe direction for a lockout switch."""
         assert parse_client_header(value) is None
 
+    @pytest.mark.parametrize(
+        "value",
+        ["ios/0.1 (" + "9" * 5_000 + ")", "ios/0.1 (1234567890)", "i" * 33 + "/0.1 (2)", "ios/1" + "0" * 32 + " (2)"],
+    )
+    def test_oversized_parts_are_no_client_either(self, value):
+        """Any request can send this header. A build of thousands of digits
+        was int() past its 4,300-digit limit: a ValueError, and a 500."""
+        assert parse_client_header(value) is None
+
+    async def test_an_oversized_build_is_answered_not_a_500(self, client):
+        response = await client.get("/healthz", headers={CLIENT_HEADER: "ios/0.1 (" + "9" * 5_000 + ")"})
+        assert response.status_code == 200
+
 
 class TestGate:
     async def test_unidentified_clients_are_never_gated(self, auth_client, min_build):

@@ -2,7 +2,10 @@
 and the two read paths that follow the active order — GET /aisles (how iOS
 learns it) and the GET /shopping-list sort."""
 
+import time
+
 from app.services.aisles import AISLE_EMOJIS
+from app.services.supermarkets import invalid_aisle_order_detail
 from tests.conftest import create_meal, create_plan, create_recipe, get_list, register
 
 # The built-in walk starts 🥬 🍞 🥩; this store meets frozen and drinks first.
@@ -56,6 +59,29 @@ class TestCrud:
         response = await auth_client.post("/supermarkets", json={"name": "Aldi", "aisle_order": ["🧊", "🥬", "🧊"]})
         assert response.status_code == 422
         assert "more than once" in response.json()["detail"]
+
+    async def test_the_whole_vocabulary_in_any_order_still_fits(self, auth_client):
+        market = await create_market(auth_client, aisle_order=list(reversed(AISLE_EMOJIS)))
+        assert market["aisle_order"] == list(reversed(AISLE_EMOJIS))
+
+    async def test_an_order_longer_than_the_vocabulary_is_refused_at_once(self, auth_client):
+        """Each aisle appears at most once, so a longer list can never be
+        valid. 40,000 entries used to hold the event loop for 15 seconds while
+        the duplicate check rescanned the list once per entry."""
+        order = ["🥬"] * 40_000
+        market = await create_market(auth_client)
+        started = time.perf_counter()
+        created = await auth_client.post("/supermarkets", json={"name": "Aldi", "aisle_order": order})
+        updated = await auth_client.patch(f"/supermarkets/{market['id']}", json={"aisle_order": order})
+        assert time.perf_counter() - started < 2.0
+        assert created.status_code == updated.status_code == 422
+
+
+def test_the_duplicate_check_is_linear():
+    started = time.perf_counter()
+    detail = invalid_aisle_order_detail(["🥬"] * 40_000)
+    assert time.perf_counter() - started < 0.5
+    assert detail == "aisle(s) 🥬 listed more than once; each aisle appears at most once"
 
     async def test_rename_and_reorder(self, auth_client):
         market = await create_market(auth_client)

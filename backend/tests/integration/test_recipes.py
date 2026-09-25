@@ -1,9 +1,31 @@
+import json
+import threading
 import uuid
 
 import pytest
 
+from app.database import get_db
+from app.main import app
+from app.routers import recipes as recipes_router
+from app.schemas.catalog import MAX_RECIPE_MINUTES
 from app.services import recipe_parser
 from tests.conftest import create_meal, create_plan, create_recipe, fixture_html, get_list, item_by_name
+
+
+@pytest.fixture
+def request_sessions(client, monkeypatch) -> list:
+    """The database session each request is handed, in order, so a test can
+    look at what a request holds while it is waiting on something else."""
+    sessions: list = []
+    serve = app.dependency_overrides[get_db]  # the client fixture's test database
+
+    async def recording():
+        async for session in serve():
+            sessions.append(session)
+            yield session
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording)
+    return sessions
 
 
 class TestCreateRecipe:
@@ -75,6 +97,44 @@ class TestCreateRecipe:
         assert response.status_code == 200  # not 201 — cached, never duplicated or clobbered
         assert response.json()["id"] == first["id"]
         assert response.json()["title"] == "Spaghetti Bolognese"
+
+    async def test_a_url_stored_while_this_request_was_working_is_returned(self, auth_client, monkeypatch):
+        """Two requests for one URL both see it missing, and the unique
+        constraint refuses the second insert. That was a 500; it is the same
+        cache hit as above, found a moment later."""
+        url = "https://example.com/spag-bol"
+        first = await create_recipe(auth_client, source_url=url)
+        find = recipes_router._find_by_url
+        lookups: list[str] = []
+
+        async def looked_before_the_other_request_committed(db, household_id, source_url):
+            lookups.append(source_url)
+            return None if len(lookups) == 1 else await find(db, household_id, source_url)
+
+        monkeypatch.setattr(recipes_router, "_find_by_url", looked_before_the_other_request_committed)
+        response = await auth_client.post(
+            "/recipes", json={"title": "A retry", "source_url": url, "parse_source": "ai"}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["id"] == first["id"]
+
+    async def test_a_source_url_that_does_not_parse_is_still_stored(self, auth_client):
+        """The ingest event logs the URL's host, and urlparse raises on an
+        unclosed IPv6 bracket: that was a 500 after the recipe was committed."""
+        response = await auth_client.post(
+            "/recipes", json={"title": "Mystery", "source_url": "http://[::1/x", "parse_source": "ai"}
+        )
+        assert response.status_code == 201, response.text
+
+    @pytest.mark.parametrize("field", ["prep_minutes", "cook_minutes"])
+    async def test_times_past_a_year_are_refused(self, auth_client, field):
+        """Both columns are int4 on Postgres, so with no ceiling a big enough
+        number was accepted here and failed the insert as a 500."""
+        response = await auth_client.post("/recipes", json={"title": "Forever stew", field: 99_999_999_999})
+        assert response.status_code == 422
+        recipe = await create_recipe(auth_client, **{field: MAX_RECIPE_MINUTES})  # a year still goes in
+        patched = await auth_client.patch(f"/recipes/{recipe['id']}", json={field: MAX_RECIPE_MINUTES + 1})
+        assert patched.status_code == 422
 
     async def test_an_empty_source_url_is_no_source_url(self, auth_client):
         """`source_url` is the parse-once cache key (Q3), and models often send
@@ -160,6 +220,87 @@ class TestIngest:
     async def test_non_http_url_rejected(self, auth_client):
         response = await auth_client.post("/recipes/ingest", json={"url": "ftp://example.com/x"})
         assert response.status_code == 422
+
+    async def test_a_url_that_does_not_parse_is_a_422_with_the_hint(self, auth_client):
+        """urlparse raises ValueError on an unclosed IPv6 bracket; that was a 500."""
+        response = await auth_client.post("/recipes/ingest", json={"url": "http://[::1/x"})
+        assert response.status_code == 422
+        assert "POST /recipes" in response.json()["detail"]
+
+    async def test_a_page_that_says_more_than_a_recipe_holds_is_trimmed_to_fit(self, auth_client, fetch_stub):
+        """A yield of "500 ml" and 150 lines each failed validation after the
+        ingest had been charged, as a 500."""
+        node = {
+            "@type": "Recipe",
+            "name": "Stock",
+            "recipeYield": "Makes 500 ml",
+            "recipeIngredient": [f"{n} g bones" for n in range(1, 151)],
+        }
+        fetch_stub(f'<script type="application/ld+json">{json.dumps(node)}</script>')
+        response = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/stock"})
+        assert response.status_code == 200, response.text
+        recipe = response.json()["recipe"]
+        assert recipe["servings"] is None
+        assert len(recipe["ingredients"]) == 100
+
+    async def test_json_ld_too_deep_to_read_is_a_422_with_the_hint(self, auth_client, fetch_stub):
+        nested = "[" * 5_000 + '"Soup"' + "]" * 5_000
+        fetch_stub(f'<script type="application/ld+json">{{"@type": "Recipe", "name": {nested}}}</script>')
+        response = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/deep"})
+        assert response.status_code == 422
+        assert "POST /recipes" in response.json()["detail"]
+
+    async def test_the_page_is_parsed_off_the_event_loop(self, auth_client, fetch_stub, monkeypatch):
+        """Parsing is CPU work on markup somebody else chose, and this process
+        has one event loop for every household."""
+        fetch_stub(fixture_html("jsonld_simple.html"))
+        parse = recipe_parser.extract_recipe
+        threads: list[threading.Thread] = []
+
+        def spy(html: str, url: str | None = None):
+            threads.append(threading.current_thread())
+            return parse(html, url)
+
+        monkeypatch.setattr(recipe_parser, "extract_recipe", spy)
+        response = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/chilli"})
+        assert response.status_code == 200
+        assert threads and threads[0] is not threading.main_thread()
+
+    async def test_no_database_transaction_is_held_across_the_fetch(self, auth_client, request_sessions, monkeypatch):
+        """A page may take the whole fetch timeout, and a request holding a
+        pooled connection all the while let a handful of slow ingests starve
+        every other request of one."""
+        held: list[bool] = []
+
+        async def fetch(url: str) -> str:
+            held.append(request_sessions[-1].in_transaction())
+            return fixture_html("jsonld_simple.html")
+
+        monkeypatch.setattr(recipe_parser, "fetch_page", fetch)
+        response = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/chilli"})
+        assert response.status_code == 200
+        assert held == [False]
+
+    async def test_two_ingests_of_one_url_at_once_share_one_recipe(self, auth_client, monkeypatch):
+        """Both see the URL missing and both fetch it; the unique constraint
+        refuses the second insert. That was a 500; it is parse-once working
+        (Q3), so the second caller gets the first one's recipe."""
+        url = "https://example.com/chilli"
+
+        async def fetch_while_another_request_stores_it(fetched: str) -> str:
+            other = await auth_client.post(
+                "/recipes", json={"title": "Chilli (theirs)", "source_url": url, "parse_source": "ai"}
+            )
+            assert other.status_code == 201
+            return fixture_html("jsonld_simple.html")
+
+        monkeypatch.setattr(recipe_parser, "fetch_page", fetch_while_another_request_stores_it)
+        response = await auth_client.post("/recipes/ingest", json={"url": url})
+        assert response.status_code == 200, response.text
+        assert response.json()["cached"] is True
+        assert response.json()["recipe"]["title"] == "Chilli (theirs)"
+        library = await auth_client.get("/recipes")
+        assert [recipe["source_url"] for recipe in library.json()] == [url]
 
 
 class TestBrowseAndEdit:
@@ -397,3 +538,19 @@ class TestReparse:
     async def test_unknown_recipe_is_a_404(self, auth_client):
         response = await auth_client.post(f"/recipes/{uuid.uuid4()}/reparse", json={})
         assert response.status_code == 404
+
+    async def test_no_database_transaction_is_held_across_the_fetch(
+        self, auth_client, request_sessions, fetch_stub, monkeypatch
+    ):
+        recipe = await self._ingested(auth_client, fetch_stub)
+        held: list[bool] = []
+
+        async def fetch(url: str) -> str:
+            held.append(request_sessions[-1].in_transaction())
+            return fixture_html("jsonld_simple_corrected.html")
+
+        monkeypatch.setattr(recipe_parser, "fetch_page", fetch)
+        response = await auth_client.post(f"/recipes/{recipe['id']}/reparse", json={})
+        assert response.status_code == 200, response.text
+        assert response.json()["servings"] == 6
+        assert held == [False]

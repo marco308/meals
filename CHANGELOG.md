@@ -20,7 +20,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**Two migrations**, both additive, run in this order:
+Nothing merged since the release below.
+
+## 2026-09-25 — grant only what was paid for, bound what a request can cost
+
+Released as **1.6.4**. **Two migrations**, both additive, run in this order:
 
 - `ef71d71574d8`: four nullable columns on `households`, and a backfill
   naming the lead as the payer of every household that has paid (until now
@@ -33,15 +37,15 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   start-first rollout. Additive for clients too: no response field was
   removed or renamed, and the household export gains two.
 
-### Changed
+Validation is tighter in a few places, each far past real use: a
+non-finite quantity, `prep_minutes` or `cook_minutes` over 525,600, an
+`aisle_order` longer than the 14 aisles, and an `X-Meals-Client` header whose
+parts run past their bounds (which, like any unparseable one, makes an
+unidentified client rather than a refusal).
 
-- **`/privacy` says what the app keeps through a sign-out.** The cached
-  shopping list is cleared on sign-out, on account deletion and on moving
-  household, as the page already claimed and build 27 did not do. Offline
-  changes not yet sent are kept through a sign-out and sent only as the
-  account and household that made them. The sign-in token is stored with the
-  server that issued it and sent nowhere else. This describes the next iOS
-  build, which fixes the offline shopping list: deploy it with that build.
+The `/privacy` wording for the iOS offline-list fix
+([#156](https://github.com/marco308/meals/pull/156)) is held back for the
+build that ships it.
 
 ### Fixed
 
@@ -126,6 +130,34 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   had wrapped itself up. It now archives the current plan first, then starts
   the new one from it. The plan page lists any other active plan under **Also
   on the go**, and "Wrap up" no longer claims the list keeps the plan's items.
+- **Recipe ingestion is bounded**
+  ([#157](https://github.com/marco308/meals/pull/157)). Pages are requested
+  uncompressed, and a server that compresses anyway has at most one layer of
+  gzip or deflate undone here, under the 5 MB cap while it inflates. The whole
+  fetch has one deadline (`RECIPE_FETCH_TIMEOUT_SECONDS` now covers DNS,
+  redirects and the body together), no database connection waits on it, and
+  the page is parsed in a worker thread with each ingredient line cut to the
+  500 characters a line stores. Whatever a page holds ends as a recipe or the
+  read-it-yourself 422: yields and times out of range are dropped, lines past
+  100 are trimmed, and unreadable JSON-LD, an odd charset or a malformed URL no
+  longer turns an ingest that was already charged into a 500. A URL stored by
+  a concurrent request comes back as cached.
+- **Non-finite quantities are refused**
+  ([#160](https://github.com/marco308/meals/pull/160)). `Infinity`, `NaN` and
+  amounts that overflow once converted are a 422 saying what to send instead.
+  One already stored shows as no amount rather than failing every view of its
+  list, and the export writes it as `null`.
+- **A refusal can always be sent**
+  ([#160](https://github.com/marco308/meals/pull/160),
+  [#157](https://github.com/marco308/meals/pull/157)). A 422 that echoed
+  `NaN`, `Infinity`, a body that isn't UTF-8 or half a surrogate pair went out
+  as a 500.
+- **Smaller** ([#157](https://github.com/marco308/meals/pull/157)): a
+  supermarket's `aisle_order` is capped at the 14 aisles and checked for
+  repeats in one pass; the `client_platform` and `method` labels on
+  `meals_http_requests_total` are folded into fixed sets; an over-long
+  `X-Meals-Client` build is an unidentified client rather than a 500; and
+  `prep_minutes` and `cook_minutes` stop at a year.
 
 ### Added
 

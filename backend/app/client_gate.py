@@ -19,9 +19,11 @@ import re
 from dataclasses import dataclass
 
 # "ios/0.1 (2)" — platform/short-version (build). The build is what the gate
-# compares on: it's the only monotonic integer Apple gives us.
+# compares on: it's the only monotonic integer Apple gives us. Every part is
+# bounded because any request can send this header: an unbounded build meant
+# int() on thousands of digits, which is a ValueError, and so a 500.
 _CLIENT_HEADER_RE = re.compile(
-    r"^(?P<platform>[a-z][a-z0-9_-]*)/(?P<version>[0-9][0-9a-z.\-]*)\s*\((?P<build>\d+)\)$",
+    r"^(?P<platform>[a-z][a-z0-9_-]{0,31})/(?P<version>[0-9][0-9a-z.\-]{0,31})\s*\((?P<build>\d{1,9})\)$",
     re.IGNORECASE,
 )
 
