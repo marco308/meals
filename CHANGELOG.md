@@ -20,13 +20,63 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+**One migration** (`ef71d71574d8`), additive: four nullable columns on
+`households`, and a backfill naming the lead as the payer of every household
+that has paid (until now only the lead could open a checkout).
+
 ### Fixed
 
+- **A declined renewal is no longer a year for free.** Stripe moves
+  `current_period_end` on before it charges, and every subscription snapshot
+  used to grant. A grant now needs `active` or `trialing` (and each processor's
+  equivalent); `past_due`, `unpaid`, `incomplete` and `paused` hold the
+  household to the moment the charge failed, so the grace period runs from
+  there and a recovered card puts it back. An unknown status is refused rather
+  than granted.
+- **An entitlement follows one subscription, in order.** Grants and endings
+  are matched to the subscription the household paid through and to the
+  processor's own event time, so ending a second, accidental subscription no
+  longer ends the first one's year, and a retry from before a cancellation no
+  longer grants it back. A second subscription paying for a household already
+  paid for is refused, which alerts. Processor events never change a comp that
+  is in force.
+- **Cancelling keeps the grace period TERMS promises.** A processor ending
+  used to drop the household to free at once with no expiry, which skipped the
+  14 days' grace and the lapse email. It now brings the expiry forward and keeps
+  the tier, and a household whose subscription ended may pay again during its
+  grace. `python -m app.entitlements revoke` is unchanged and still immediate.
+- **Ignored events naming a household this server does not have** are
+  recorded (the id in the text, not the foreign key) instead of failing the
+  insert and answering an uncounted 500 that the processor retried until it gave
+  up on the endpoint. An ending for a household that is not here is `ignored`
+  rather than `orphan`, so a household deleting itself does not page anyone.
+- **Two mappings that could never grant.** Paddle's `transaction.completed`
+  and Lemon Squeezy's `subscription_payment_success` carry no subscription
+  period, so every successful payment they reported was `refused` and alerted.
+  Both are ignored now; the subscription's own update credits the year.
+- **Lemon Squeezy's event name comes from the signed body.** The unsigned
+  `X-Event-Name` header used to win over `meta.event_name`; now it may only
+  agree with it, and a body without its own name is refused.
+- **Billing belongs to the payer.** The webhook records whose card it is (the
+  checkout now carries the member's id beside the household's), and
+  `POST /billing/portal` opens a session for them alone rather than for whoever
+  leads the household today. While it will renew, the payer may not hand on the
+  lead, leave, be removed, redeem an invite elsewhere or delete their account:
+  each answers 409 saying to cancel under Manage billing first.
+- **The URL-ingest quota counts every ingest.** Two ingests at once could both
+  read the same count and write the same number back; checking and charging is
+  now one conditional `UPDATE`.
 - **`/support` no longer links to a page this server doesn't have.** Its
   pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
   served page, an App Store URL. It now points at the file on GitHub, and a
   test holds all four pages to links that work from either copy. The same
   paragraph no longer says the hosted server holds one household's data.
+
+### Added
+
+- `payer_user_id` and `renews` on `GET /billing/subscription`, and an `unpaid`
+  outcome on `meals_billing_webhooks_total`. `/privacy` says what else is now
+  recorded and sent.
 
 ## 2026-09-21 — YAMP on the public pages
 

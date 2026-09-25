@@ -34,6 +34,18 @@ class TestCreateMeal:
         assert response.status_code == 422
         assert "GET /recipes" in response.json()["detail"]
 
+    async def test_non_finite_loose_quantity_422_and_nothing_saved(self, auth_client):
+        """Stored, it made the meal list, and every plan holding the meal,
+        unreadable."""
+        response = await auth_client.post(
+            "/meals",
+            content='{"name": "Rice", "loose_ingredients": [{"name": "rice", "quantity": Infinity, "unit": "g"}]}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert "ingredient 'rice': quantity must be a finite number" in response.text
+        assert (await auth_client.get("/meals")).json() == []
+
     async def test_slot_normalised_lowercase(self, auth_client):
         meal = await create_meal(auth_client, name="Sunday roast", slot="  Dinner ")
         assert meal["slot"] == "dinner"

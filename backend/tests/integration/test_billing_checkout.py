@@ -166,6 +166,7 @@ async def test_stripe_checkout_carries_the_household_and_the_merchant_of_record(
     response = await auth_client.post("/billing/checkout")
     assert response.status_code == 201, response.text
     assert response.json()["url"] == "https://checkout.stripe.com/c/pay/cs_test_1"
+    me = (await auth_client.get("/auth/me")).json()
 
     sent = dict(part.split("=", 1) for part in route.calls.last.request.content.decode().split("&"))
     from urllib.parse import unquote_plus
@@ -176,6 +177,8 @@ async def test_stripe_checkout_carries_the_household_and_the_merchant_of_record(
     # On the *subscription*, because that is the object the webhook reads;
     # metadata on the session never reaches it.
     assert sent["subscription_data[metadata][household_id]"] == str(household.id)
+    # And whose card it will be: the portal is theirs alone once they have paid.
+    assert sent["subscription_data[metadata][user_id]"] == me["id"]
     # The line that decides who the legal seller is. See the module docstring.
     assert sent["managed_payments[enabled]"] == "true"
     assert sent["success_url"].endswith("/app/#/settings")
@@ -202,6 +205,7 @@ async def test_paddle_checkout_carries_the_household(paddle, auth_client, sessio
     sent = json.loads(route.calls.last.request.content)
     assert sent["items"] == [{"price_id": "pri_01example", "quantity": 1}]
     assert sent["custom_data"]["household_id"] == str(household.id)
+    assert sent["custom_data"]["user_id"] == (await auth_client.get("/auth/me")).json()["id"]
     assert route.calls.last.request.headers["paddle-version"] == "1"
 
 
@@ -220,6 +224,7 @@ async def test_lemonsqueezy_checkout_carries_the_household(lemonsqueezy, auth_cl
 
     sent = json.loads(route.calls.last.request.content)["data"]
     assert sent["attributes"]["checkout_data"]["custom"]["household_id"] == str(household.id)
+    assert sent["attributes"]["checkout_data"]["custom"]["user_id"] == (await auth_client.get("/auth/me")).json()["id"]
     assert sent["relationships"]["store"]["data"]["id"] == "12345"
     assert sent["relationships"]["variant"]["data"]["id"] == "998877"
 
@@ -355,7 +360,8 @@ def test_lemonsqueezy_without_its_store_refuses_to_boot(monkeypatch):
 
 
 async def paid_by_stripe(sessions, *, customer: str | None = "cus_test_1") -> Household:
-    """A household that bought something, the way the webhook leaves one."""
+    """A household that bought something, the way the webhook leaves one: its
+    lead is the payer, since only the lead can open a checkout."""
     async with sessions() as db:
         household = (await db.execute(select(Household))).scalars().one()
         await entitlements.grant(
@@ -366,6 +372,9 @@ async def paid_by_stripe(sessions, *, customer: str | None = "cus_test_1") -> Ho
             source="stripe",
             price_pence=2000,
             customer_id=customer,
+            tracking=entitlements.Tracking(
+                subscription_id="sub_1", state=entitlements.RENEWING, at=None, payer_id=household.lead_user_id
+            ),
         )
         await db.commit()
         return household
@@ -451,3 +460,49 @@ async def test_portal_is_the_leads_alone(stripe, client, sessions):
 
 async def test_neither_portal_nor_subscription_exists_without_billing(auth_client):
     assert (await auth_client.post("/billing/portal")).status_code == 404
+
+
+# ------------------------------------------------------- paying again, after
+
+
+async def ran_out(sessions, *, state: str) -> None:
+    """A household two days past its paid year, its subscription `state`."""
+    async with sessions() as db:
+        household = (await db.execute(select(Household))).scalars().one()
+        household.tier, household.entitlement_source = limits.PAID, "stripe"
+        household.paid_until = datetime.now(UTC) - timedelta(days=2)
+        household.billing_subscription_id, household.billing_subscription_state = "sub_1", state
+        await db.commit()
+
+
+@respx.mock
+async def test_a_household_whose_subscription_ended_may_pay_again_in_its_grace_period(stripe, auth_client, sessions):
+    """An ending now keeps the tier and runs the grace period rather than
+    dropping the household to free at once. Nothing is running, so making them
+    wait out the grace period before they may pay again would be a strange
+    reward for coming back."""
+    respx.post("https://api.stripe.com/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/c/pay/cs_again"})
+    )
+    await ran_out(sessions, state=entitlements.ENDED)
+    assert (await auth_client.get("/billing/subscription")).json()["can_checkout"] is True
+    assert (await auth_client.post("/billing/checkout")).status_code == 201
+
+
+@respx.mock
+async def test_one_whose_card_is_being_retried_is_pointed_at_the_card_instead(stripe, auth_client, sessions):
+    """Its subscription is still open at the processor, so a second one would be
+    a second charge; fixing the card renews the first."""
+    route = respx.post("https://api.stripe.com/v1/checkout/sessions")
+    await ran_out(sessions, state=entitlements.RENEWING)
+    assert (await auth_client.get("/billing/subscription")).json()["can_checkout"] is False
+    response = await auth_client.post("/billing/checkout")
+    assert response.status_code == 409
+    assert "still open" in response.json()["detail"]
+    assert not route.called
+
+
+async def test_a_household_that_never_paid_names_no_payer(stripe, auth_client):
+    body = (await auth_client.get("/billing/subscription")).json()
+    assert body["payer_user_id"] is None
+    assert body["renews"] is None
