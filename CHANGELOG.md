@@ -20,8 +20,12 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-One migration, `67a229a2837f`, which rebuilds `household_invites` on SQLite
-and does nothing on Postgres.
+Nothing merged since the release below.
+
+## 2026-09-25 — codes spent once, addresses kept out of the logs
+
+Released as **1.6.5**. One migration, `67a229a2837f`, which rebuilds
+`household_invites` on SQLite and does nothing on Postgres.
 
 Authentication hardening too, and one request changes shape for some
 callers: `POST /auth/invites/redeem` needs the caller's password whenever it
