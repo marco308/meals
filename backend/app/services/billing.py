@@ -707,6 +707,11 @@ def _out_of_scope(event: Incoming, household: Household) -> tuple[str, str] | No
     says, in the order the processor said it, can move it. Without this, the
     end of a second, accidental subscription ended the year the first had paid
     for, and a retried `updated` from before a cancellation granted it back.
+
+    The sentences name only what the event itself carries. `detail` is logged
+    as well as kept, and CodeQL reads anything named `billing_*` as personal
+    data (see `_fail`), so the household's own subscription and time stay on
+    its row, where an operator can read them beside the ledger's household id.
     """
     last = household.billing_event_at
     if last is not None and event.occurred_at is not None:
@@ -716,7 +721,9 @@ def _out_of_scope(event: Incoming, household: Household) -> tuple[str, str] | No
         # arrive after the `active` one stamped the same second, and it must not
         # pull back a year that has just been paid for.
         if event.occurred_at < last or (event.occurred_at == last and event.action == HOLD):
-            return IGNORED, f"older than the newest event applied here ({last:%Y-%m-%d %H:%M:%S} UTC)"
+            return IGNORED, (
+                f"stamped {event.occurred_at:%Y-%m-%d %H:%M:%S} UTC, older than the newest event already applied here"
+            )
 
     tracked = household.billing_subscription_id
     ended = household.billing_subscription_state == entitlements.ENDED
@@ -728,16 +735,17 @@ def _out_of_scope(event: Incoming, household: Household) -> tuple[str, str] | No
         )
     if event.subscription_id == tracked:
         if ended:
-            return IGNORED, f"subscription {tracked} has already ended, and an ended subscription does not come back"
+            return IGNORED, (
+                f"subscription {event.subscription_id} has already ended, and an ended subscription does not come back"
+            )
         return None
 
     if event.action == GRANT:
         if tracked is not None and not ended and entitlements.state(household) == entitlements.PAID:
             until = entitlements.describe(household).paid_until
             return REFUSED, (
-                f"a second subscription ({event.subscription_id}) for a household already paid through "
-                f"{tracked} until {until:%Y-%m-%d}: somebody is paying twice. Refund and cancel one of them "
-                "at the processor"
+                f"a second subscription ({event.subscription_id}) for a household already paid for until "
+                f"{until:%Y-%m-%d}: somebody is paying twice. Refund and cancel one of them at the processor"
             )
         # Nothing live to follow, so this one is adopted: a first payment, a
         # return after the last one ended, or a household that paid before
@@ -756,8 +764,8 @@ def _out_of_scope(event: Incoming, household: Household) -> tuple[str, str] | No
         # it belongs to the customer the household is.
         return None
     return IGNORED, (
-        f"about subscription {event.subscription_id}, and this household's entitlement follows "
-        f"{tracked or 'none'}, so it is not this one's to change"
+        f"about subscription {event.subscription_id}, which is not the one this household's entitlement follows, "
+        "so it is not this one's to change"
     )
 
 
