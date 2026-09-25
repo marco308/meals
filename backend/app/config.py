@@ -265,7 +265,9 @@ class Settings(BaseSettings):
         """
         return bool(self.billing_configured and self.billing_api_key and self.billing_price_id)
 
-    # Timeout for fetching external recipe pages during ingestion.
+    # How long fetching one recipe page may take in total: DNS, redirects and
+    # every byte of the body. It used to bound each network phase separately,
+    # which a server sending a byte at a time never tripped.
     recipe_fetch_timeout_seconds: float = 15.0
     # And a ceiling on how much of one we'll read (issue #55). The URL is the
     # caller's, and api runs one replica next to its own Postgres, so an

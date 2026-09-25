@@ -2,16 +2,17 @@
 
 import uuid
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import limits
 from app.models import Ingredient, Recipe, RecipeIngredient
-from app.schemas.catalog import RecipeCreate
+from app.schemas.catalog import MAX_RECIPE_LINES, MAX_RECIPE_MINUTES, MAX_SERVINGS, RecipeCreate
 from app.schemas.common import IngredientLineIn
 from app.services.aisles import guess_aisle
 from app.services.ingredient_names import canonical_ingredient_name
-from app.services.recipe_parser import ParsedRecipe
+from app.services.recipe_parser import SUBMIT_IT_YOURSELF, NoRecipeFound, ParsedRecipe
 
 
 async def get_or_create_ingredient(
@@ -114,29 +115,61 @@ async def set_recipe_ingredients(db: AsyncSession, recipe: Recipe, lines: list[I
 
 def parsed_recipe_to_payload(parsed: ParsedRecipe) -> RecipeCreate:
     """Convert our JSON-LD parser's output into the same payload shape AI
-    clients submit, so both ingestion paths share one code path."""
+    clients submit, so both ingestion paths share one code path.
+
+    Everything in `parsed` is the page's say-so, so it is fitted to what a
+    recipe can hold rather than validated and refused: a yield of "500 ml" is
+    no serving count, and the 101st line is one too many. Whatever is refused
+    even so becomes NoRecipeFound, the 422 that tells the caller to read the
+    page itself, rather than a 500 on an ingest that has already been charged.
+    """
     lines = []
-    for item in parsed.ingredients:
-        name = (item.name.strip() or item.raw.strip())[:200]
+    for item in parsed.ingredients[:MAX_RECIPE_LINES]:
+        name = _storable(item.name.strip() or item.raw.strip())[:200]
+        raw = _storable(item.raw)[:500]
         try:
-            line = IngredientLineIn(name=name, quantity=item.quantity, unit=item.unit, raw=item.raw[:500])
+            line = IngredientLineIn(name=name, quantity=item.quantity, unit=item.unit, raw=raw)
         except ValueError:
             # Parser output that fails the convention degrades to an
             # unquantified line rather than failing the whole ingest.
-            line = IngredientLineIn(name=name, raw=item.raw[:500])
+            try:
+                line = IngredientLineIn(name=name, raw=raw)
+            except ValueError:
+                continue  # nothing left to call it by: a line that names nothing is no ingredient
         lines.append(line)
-    return RecipeCreate(
-        title=parsed.title[:300],
-        source_url=parsed.source_url,
-        servings=parsed.servings,
-        prep_minutes=parsed.prep_minutes,
-        cook_minutes=parsed.cook_minutes,
-        image_url=parsed.image_url[:1000] if parsed.image_url else None,
-        instructions=parsed.instructions,
-        tags=[tag[:50] for tag in parsed.tags],
-        parse_source="manual",  # overwritten to 'jsonld' by the ingest router
-        ingredients=lines,
-    )
+    try:
+        return RecipeCreate(
+            title=_storable(parsed.title).strip()[:300] or "Untitled recipe",
+            source_url=parsed.source_url,
+            servings=_within(parsed.servings, 1, MAX_SERVINGS),
+            prep_minutes=_within(parsed.prep_minutes, 0, MAX_RECIPE_MINUTES),
+            cook_minutes=_within(parsed.cook_minutes, 0, MAX_RECIPE_MINUTES),
+            image_url=_storable(parsed.image_url)[:1000] if parsed.image_url else None,
+            instructions=_storable(parsed.instructions) if parsed.instructions else None,
+            tags=[tag for tag in (_storable(tag)[:50] for tag in parsed.tags) if tag],
+            parse_source="manual",  # overwritten to 'jsonld' by the ingest router
+            ingredients=lines,
+        )
+    except ValidationError as exc:
+        problem = exc.errors()[0]
+        where = ".".join(str(part) for part in problem["loc"])
+        raise NoRecipeFound(
+            f"this page's recipe could not be stored as it stands ({where}: {problem['msg']}); {SUBMIT_IT_YOURSELF}"
+        ) from exc
+
+
+def _within(value: int | None, low: int, high: int) -> int | None:
+    """`value` when a recipe could hold it, else nothing: out of range is not
+    something to round to the nearest allowed number."""
+    return value if value is not None and low <= value <= high else None
+
+
+def _storable(text: str) -> str:
+    """Text a database will store and JSON can carry. A page's JSON-LD can
+    escape a NUL, which Postgres refuses in a text column, or half a
+    surrogate pair, which UTF-8 can't encode at all; neither is ever part of a
+    recipe, and either one used to fail the ingest at the insert."""
+    return text.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
 
 
 async def get_recipe(db: AsyncSession, household_id: uuid.UUID, recipe_id: uuid.UUID) -> Recipe | None:

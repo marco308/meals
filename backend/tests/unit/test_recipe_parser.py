@@ -1,7 +1,9 @@
+import json
 import time
 
 import pytest
 
+from app.schemas.catalog import MAX_RECIPE_LINES
 from app.services.recipe_parser import (
     NoRecipeFound,
     extract_recipe,
@@ -9,6 +11,17 @@ from app.services.recipe_parser import (
     parse_iso8601_duration,
 )
 from tests.conftest import fixture_html
+
+
+def _page(node: dict | str) -> str:
+    script = node if isinstance(node, str) else json.dumps(node)
+    return f'<script type="application/ld+json">{script}</script>'
+
+
+def _nested(depth: int) -> str:
+    """A JSON list `depth` levels deep, written out rather than json.dumps'd:
+    the encoder has a recursion limit of its own."""
+    return "[" * depth + '"x"' + "]" * depth
 
 
 class TestExtractRecipe:
@@ -71,6 +84,51 @@ class TestExtractRecipe:
         milk = next(i for i in recipe.ingredients if i.name == "milk")
         assert (milk.quantity, milk.unit) == (300, "ml")
 
+    # The markup is somebody else's, and by the time it is parsed the ingest
+    # has been charged: whatever a page holds is a recipe or NoRecipeFound
+    # (the 422 that says to read the page yourself), never a 500.
+
+    def test_json_nested_past_any_depth_is_an_unreadable_script(self):
+        """json.loads raises RecursionError on nesting like this. It is one
+        broken script like any other, and the next one still counts."""
+        page = _page(_nested(100_000)) + fixture_html("jsonld_simple.html")
+        assert extract_recipe(page).title == "Best Ever Chilli Con Carne"
+
+    @pytest.mark.parametrize("field", ["name", "image", "recipeInstructions", "@graph"])
+    def test_a_recipe_nested_too_deep_to_read_is_no_recipe_found(self, field):
+        node = f'{{"@type": "{"Thing" if field == "@graph" else "Recipe"}", "{field}": {_nested(5_000)}}}'
+        with pytest.raises(NoRecipeFound, match="POST /recipes"):
+            extract_recipe(_page(node))
+
+    def test_numbers_past_the_int_digit_limit_are_no_numbers(self):
+        """int() refuses more than 4,300 digits with a ValueError."""
+        huge = "9" * 5_000
+        recipe = extract_recipe(
+            _page({"@type": "Recipe", "name": "Soup", "recipeYield": huge, "prepTime": f"PT{huge}M"})
+        )
+        assert recipe.servings is None
+        assert recipe.prep_minutes is None
+
+    def test_a_json_number_past_the_digit_limit_is_an_unreadable_script(self):
+        with pytest.raises(NoRecipeFound, match="no schema.org/Recipe"):
+            extract_recipe(_page('{"@type": "Recipe", "name": "Soup", "recipeYield": ' + "9" * 5_000 + "}"))
+
+    def test_a_blank_name_is_untitled(self):
+        """A title of only whitespace stripped to nothing, which POST /recipes refuses."""
+        assert extract_recipe(_page({"@type": "Recipe", "name": "   "})).title == "Untitled recipe"
+
+    @pytest.mark.parametrize("value", [5, True])
+    def test_ingredients_that_are_not_a_list_are_none(self, value):
+        """Iterating a number was a TypeError."""
+        recipe = extract_recipe(_page({"@type": "Recipe", "name": "Soup", "recipeIngredient": value}))
+        assert recipe.ingredients == []
+
+    def test_only_as_many_lines_as_a_recipe_holds_are_parsed(self):
+        lines = [f"{n} g flour" for n in range(1, 151)]
+        recipe = extract_recipe(_page({"@type": "Recipe", "name": "Big bake", "recipeIngredient": lines}))
+        assert len(recipe.ingredients) == MAX_RECIPE_LINES
+        assert recipe.ingredients[-1].raw == "100 g flour"
+
 
 class TestParseDuration:
     @pytest.mark.parametrize(
@@ -87,7 +145,7 @@ class TestParseDuration:
     def test_valid(self, value, minutes):
         assert parse_iso8601_duration(value) == minutes
 
-    @pytest.mark.parametrize("value", [None, "", "soon", "P", "PT"])
+    @pytest.mark.parametrize("value", [None, "", "soon", "P", "PT", "PT" + "9" * 5_000 + "M"])
     def test_invalid(self, value):
         assert parse_iso8601_duration(value) is None
 
@@ -145,6 +203,25 @@ class TestParseIngredientLine:
         started = time.perf_counter()
         parse_ingredient_line(line)
         assert time.perf_counter() - started < 1.0
+
+    def test_digit_heavy_line_is_not_quadratic(self):
+        """A run of digits was tried from every digit, each try backtracking
+        through every shorter run: 27 seconds at 16,000 digits, on the only
+        thread the API has (CWE-1333)."""
+        started = time.perf_counter()
+        parsed = parse_ingredient_line("1" * 50_000)
+        assert time.perf_counter() - started < 0.5
+        assert len(parsed.raw) == 500  # only what a recipe line can store is kept, or parsed
+
+    def test_a_page_of_long_digit_lines_is_not_quadratic_either(self):
+        """The 500-character cut alone still left each line quadratic: a
+        hundred of them took seconds. The number pattern itself has to be
+        linear."""
+        page = _page({"@type": "Recipe", "name": "Digits", "recipeIngredient": ["9" * 500] * 100})
+        started = time.perf_counter()
+        recipe = extract_recipe(page)
+        assert time.perf_counter() - started < 1.0
+        assert len(recipe.ingredients) == 100
 
 
 class TestDualMeasureLines:

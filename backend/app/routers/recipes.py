@@ -1,9 +1,11 @@
+import asyncio
 import uuid
 from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import nullsfirst, select
+from sqlalchemy.exc import IntegrityError
 
 from app import limits
 from app.deps import CurrentUser, DbSession
@@ -15,6 +17,7 @@ from app.services import recipe_parser
 from app.services.catalog import (
     create_recipe_from_payload,
     get_recipe,
+    parsed_recipe_to_payload,
     set_recipe_ingredients,
     update_recipe_from_payload,
 )
@@ -27,6 +30,27 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 async def _find_by_url(db: DbSession, household_id: uuid.UUID, url: str) -> Recipe | None:
     result = await db.execute(select(Recipe).where(Recipe.household_id == household_id, Recipe.source_url == url))
     return result.scalar_one_or_none()
+
+
+async def _stored_meanwhile(db: DbSession, household_id: uuid.UUID, url: str | None) -> Recipe | None:
+    """After an IntegrityError on insert: the recipe another request stored
+    under this URL while this one was working, if that is what happened.
+
+    Two requests for one URL both see it missing, and the unique constraint
+    (uq_recipe_household_url) refuses the second insert. That is Q3 working,
+    so the second caller gets the first one's recipe rather than a 500."""
+    await db.rollback()
+    return await _find_by_url(db, household_id, url) if url is not None else None
+
+
+def _host_of(url: str) -> str | None:
+    """The host an ingest event logs, and None for a URL that doesn't parse:
+    urlparse raises ValueError on an unclosed IPv6 bracket, and a log field
+    must never be what turns a 422 into a 500."""
+    try:
+        return urlparse(url).hostname
+    except ValueError:
+        return None
 
 
 async def _resync_meals_using(db: DbSession, household_id: uuid.UUID, recipe: Recipe) -> None:
@@ -65,11 +89,13 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     not public) — and the detail tells the calling AI to read the page itself
     and submit the structured recipe via POST /recipes."""
     url = payload.url.strip()
+    # Read once, up front: the rollback after a lost insert race expires `user`.
+    household_id = user.household_id
     # The event logs the host, never the full URL: which *sites* parse, block,
     # or lack JSON-LD is the operational question, and full URLs are what the
     # household is having for dinner.
-    host = urlparse(url).hostname
-    cached = await _find_by_url(db, user.household_id, url)
+    host = _host_of(url)
+    cached = await _find_by_url(db, household_id, url)
     if cached is not None:
         log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
         return IngestOut(recipe=recipe_out(cached), cached=True)
@@ -84,6 +110,10 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     # (see limits.reserve_ingest). A cached URL never reaches here, which is why
     # the allowance can be as small as it is.
     await limits.reserve_ingest(db, user.household)
+    # Nothing is staged, so this only hands the pooled connection back: a page
+    # is allowed its whole fetch timeout, and a handful of slow ones must not
+    # hold the pool for everybody else meanwhile.
+    await db.commit()
 
     try:
         html = await recipe_parser.fetch_page(url)
@@ -94,19 +124,26 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
         log_event("recipe.ingested", outcome="fetch_failed", host=host)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        parsed = recipe_parser.extract_recipe(html, url)
+        # Off the event loop: parsing is CPU work on markup somebody else
+        # chose, and this process has one loop for every household.
+        parsed = await asyncio.to_thread(recipe_parser.extract_recipe, html, url)
+        recipe_payload = parsed_recipe_to_payload(parsed)
     except NoRecipeFound as exc:
         log_event("recipe.ingested", outcome="no_jsonld", host=host)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    from app.services.catalog import parsed_recipe_to_payload
-
-    recipe_payload = parsed_recipe_to_payload(parsed)
-    recipe = await create_recipe_from_payload(db, user.household_id, user.id, recipe_payload)
-    recipe.parse_source = "jsonld"
-    await db.commit()
+    try:
+        recipe = await create_recipe_from_payload(db, household_id, user.id, recipe_payload)
+        recipe.parse_source = "jsonld"
+        await db.commit()
+    except IntegrityError:
+        cached = await _stored_meanwhile(db, household_id, url)
+        if cached is None:
+            raise
+        log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
+        return IngestOut(recipe=recipe_out(cached), cached=True)
     log_event("recipe.ingested", outcome="parsed", host=host, recipe_id=recipe.id)
-    fresh = await get_recipe(db, user.household_id, recipe.id)
+    fresh = await get_recipe(db, household_id, recipe.id)
     assert fresh is not None
     return IngestOut(recipe=recipe_out(fresh), cached=False)
 
@@ -118,20 +155,26 @@ async def create_recipe(payload: RecipeCreate, user: CurrentUser, db: DbSession,
     Submitting a source_url that already exists returns the stored recipe
     unchanged with 200 — retries never duplicate, and human edits are never
     clobbered."""
+    household_id = user.household_id  # read before a rollback can expire `user`
     if payload.source_url is not None:
-        existing = await _find_by_url(db, user.household_id, payload.source_url)
+        existing = await _find_by_url(db, household_id, payload.source_url)
         if existing is not None:
             response.status_code = status.HTTP_200_OK
             return recipe_out(existing)
-    recipe = await create_recipe_from_payload(db, user.household_id, user.id, payload)
-    await db.commit()
+    try:
+        recipe = await create_recipe_from_payload(db, household_id, user.id, payload)
+        await db.commit()
+    except IntegrityError:
+        existing = await _stored_meanwhile(db, household_id, payload.source_url)
+        if existing is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        return recipe_out(existing)
     if payload.parse_source == "ai" and payload.source_url is not None:
         # The other half of the ingest funnel: /recipes/ingest 422'd on this
         # page and an AI read it itself, as the error told it to.
-        log_event(
-            "recipe.ingested", outcome="ai_parsed", host=urlparse(payload.source_url).hostname, recipe_id=recipe.id
-        )
-    fresh = await get_recipe(db, user.household_id, recipe.id)
+        log_event("recipe.ingested", outcome="ai_parsed", host=_host_of(payload.source_url), recipe_id=recipe.id)
+    fresh = await get_recipe(db, household_id, recipe.id)
     assert fresh is not None
     return recipe_out(fresh)
 
@@ -240,11 +283,14 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
             ),
         )
 
-    host = urlparse(recipe.source_url).hostname
+    host = _host_of(recipe.source_url)
     # A re-parse is the same outbound fetch as an ingest, so it costs the same
     # allowance. Metering only /recipes/ingest would leave the limit one POST
     # away from being bypassed: store any URL as a recipe, then re-parse it.
     await limits.reserve_ingest(db, user.household)
+    # As for an ingest: nothing is staged, so this only gives the pooled
+    # connection back for as long as the page takes.
+    await db.commit()
 
     # Nothing is written until the parse succeeds, so a page that has gone
     # away or lost its JSON-LD leaves the stored recipe exactly as it was.
@@ -254,14 +300,13 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
         log_event("recipe.reparsed", outcome="fetch_failed", host=host, recipe_id=recipe.id)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        parsed = recipe_parser.extract_recipe(html, recipe.source_url)
+        parsed = await asyncio.to_thread(recipe_parser.extract_recipe, html, recipe.source_url)
+        recipe_payload = parsed_recipe_to_payload(parsed)
     except NoRecipeFound as exc:
         log_event("recipe.reparsed", outcome="no_jsonld", host=host, recipe_id=recipe.id)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    from app.services.catalog import parsed_recipe_to_payload
-
-    await update_recipe_from_payload(db, recipe, parsed_recipe_to_payload(parsed))
+    await update_recipe_from_payload(db, recipe, recipe_payload)
     recipe.parse_source = "jsonld"
     # The stored recipe is the page again, so it is no longer "edited here" —
     # whatever edits there were are what force: true just discarded.
