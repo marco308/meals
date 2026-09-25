@@ -8,11 +8,33 @@ struct MealsApp: App {
     @State private var listStore: ShoppingListStore
 
     init() {
+        // Session first: it checks whether the app's data was already on the
+        // device, before the stores below create the folder.
         let session = Session()
+        let planStore = PlanStore(api: { session.api })
+        let recipeStore = RecipeStore(api: { session.api })
+        // A token the server no longer accepts signs the app out from the
+        // queue's side too; the queue itself is kept for that account.
+        let listStore = ShoppingListStore(api: { session.api }, onUnauthorized: { session.logOut() })
+
+        // Everything cached belongs to the account and household that fetched
+        // it. The list's cache and queue carry an owner and sort themselves
+        // out; the plan and recipe caches don't, so they go whenever the
+        // account or household they were read under does.
+        session.onAccountChange = { old, new in
+            listStore.accountChanged(from: old, to: new)
+            if !new.signedIn || (old.owner != nil && new.owner != old.owner) {
+                planStore.clearCache()
+                recipeStore.clearCache()
+            }
+        }
+        session.onAccountDeleted = { owner in listStore.accountDeleted(owner) }
+        session.announceAccountState()
+
         _session = State(initialValue: session)
-        _planStore = State(initialValue: PlanStore(api: { session.api }))
-        _recipeStore = State(initialValue: RecipeStore(api: { session.api }))
-        _listStore = State(initialValue: ShoppingListStore(api: { session.api }))
+        _planStore = State(initialValue: planStore)
+        _recipeStore = State(initialValue: recipeStore)
+        _listStore = State(initialValue: listStore)
     }
 
     var body: some Scene {
@@ -50,17 +72,31 @@ struct RootView: View {
             }
         }
         .task { await session.checkClientCompatibility() }
+        .task {
+            // Signal back (walking out of the dead spot by the freezers):
+            // send what was queued now, not on the next tap.
+            for await _ in Connectivity.restored() {
+                await refreshAndSync()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Coming back to the foreground is the natural sync point for
             // anything queued while offline — and the natural moment to notice
             // that the server has moved on without us.
             if phase == .active {
                 Task { await session.checkClientCompatibility() }
-                if session.isAuthenticated {
-                    Task { await listStore.sync() }
-                }
+                Task { await refreshAndSync() }
             }
         }
+    }
+
+    /// Ask the server who we are, then send the queue as that. A household
+    /// change made on another device (the lead removing us) has to reach the
+    /// queue before the queue reaches the server.
+    private func refreshAndSync() async {
+        guard session.isAuthenticated else { return }
+        await session.restore()
+        await listStore.sync()
     }
 }
 

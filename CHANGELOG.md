@@ -49,6 +49,16 @@ on Postgres.
   500 was invisible to the alert and retried by the processor; the comparisons
   are over bytes now, so it is a counted `bad_signature`.
 
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
+
 ### Fixed
 
 - **A declined renewal is no longer a year for free.** Stripe moves
@@ -91,6 +101,11 @@ on Postgres.
 - **The URL-ingest quota counts every ingest.** Two ingests at once could both
   read the same count and write the same number back; checking and charging is
   now one conditional `UPDATE`.
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
 - **Deleting an account on SQLite no longer deletes the invites it issued.**
   `f3a7c02e5b91` added the new `SET NULL` key beside the old `CASCADE` one
   instead of replacing it, so on SQLite both applied. `67a229a2837f` rebuilds

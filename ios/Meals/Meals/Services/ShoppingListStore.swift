@@ -17,11 +17,53 @@ enum PendingOp: Codable, Equatable, Identifiable {
              .addAdhoc(let id, _, _, _), .deleteItem(let id, _): id
         }
     }
+
+    /// The line this op changes. nil for an add, which makes one: its own id
+    /// stands in for that line until the server says which it is.
+    var itemID: UUID? {
+        switch self {
+        case .setChecked(_, let itemID, _), .setExcluded(_, let itemID, _), .setStapleNeeded(_, let itemID, _),
+             .deleteItem(_, let itemID): itemID
+        case .addAdhoc: nil
+        }
+    }
+
+    /// The same op, aimed at `new` if it was aimed at `old`.
+    func retargeted(from old: UUID, to new: UUID) -> PendingOp {
+        switch self {
+        case .setChecked(let id, old, let value): .setChecked(id: id, itemID: new, value: value)
+        case .setExcluded(let id, old, let value): .setExcluded(id: id, itemID: new, value: value)
+        case .setStapleNeeded(let id, old, let value): .setStapleNeeded(id: id, itemID: new, value: value)
+        case .deleteItem(let id, old): .deleteItem(id: id, itemID: new)
+        default: self
+        }
+    }
 }
 
 struct ShoppingCache: Codable, Equatable {
     var payload: ShoppingListPayload
     var aisles: [Aisle]
+    /// Whose list this is. nil in a cache written before owners were recorded.
+    var owner: DataOwner? = nil
+}
+
+/// Ops queued by somebody other than whoever is signed in now, set aside until
+/// they are back (see `ShoppingListStore.accountChanged`).
+struct HeldQueue: Codable, Equatable {
+    let owner: DataOwner
+    var ops: [PendingOp]
+}
+
+/// A shop can't be finished while changes are still queued: ticks would land
+/// on the archived list and adds on the fresh one.
+struct StillSyncing: LocalizedError, Equatable {
+    let count: Int
+
+    var errorDescription: String? {
+        count == 1
+            ? "1 change still syncing. Finish the shop once it has reached the server, or it will end up on the wrong list."
+            : "\(count) changes still syncing. Finish the shop once they have reached the server, or they will end up on the wrong list."
+    }
 }
 
 @MainActor
@@ -29,21 +71,54 @@ struct ShoppingCache: Codable, Equatable {
 final class ShoppingListStore {
     private(set) var cache: ShoppingCache?
     private(set) var pending: [PendingOp] = []
+    /// Whose `cache` and `pending` are. nil until an owner is known: a queue
+    /// from before owners were recorded, or nothing on disk at all.
+    private(set) var owner: DataOwner?
     private(set) var isOffline = false
+    /// The phone has signal, but the server isn't answering properly: a 5xx
+    /// while it restarts, a 429, a page that isn't the API's. The queue waits
+    /// exactly as it does offline; only the words differ.
+    private(set) var isServerUnavailable = false
     private(set) var isSyncing = false
+    /// What the server turned down, in its own words, for the list to show.
     var errorMessage: String?
 
     var includeStaples = false
     var includeExcluded = false
 
+    @ObservationIgnored private var held: [HeldQueue] = []
+    /// Only a signed-in store talks to the server. True until told otherwise,
+    /// so a store with no session behind it (tests) behaves as it always has.
+    @ObservationIgnored private var isSignedIn = true
+    /// Bumped whenever the cache and queue change hands. A sync notes it
+    /// before every await and drops whatever it was doing if it moved: a reply
+    /// fetched for one owner must never land in another's cache.
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var syncAgain = false
+    @ObservationIgnored private(set) var retryTask: Task<Void, Never>?
+    @ObservationIgnored private var failureStreak = 0
+
     private let api: () -> any ShoppingAPI
     private let directory: URL
+    private let onUnauthorized: () -> Void
+    private let sleep: @Sendable (Duration) async throws -> Void
 
-    init(api: @escaping () -> any ShoppingAPI, directory: URL? = nil) {
+    /// `onUnauthorized` is how a token the server no longer accepts signs the
+    /// app out; the queue survives it. `sleep` is how the store waits before
+    /// retrying, injectable so tests can hold or release a retry.
+    init(
+        api: @escaping () -> any ShoppingAPI,
+        directory: URL? = nil,
+        onUnauthorized: @escaping () -> Void = {},
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.api = api
         let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "Meals")
         self.directory = base
+        self.onUnauthorized = onUnauthorized
+        self.sleep = sleep
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         load()
     }
@@ -170,9 +245,7 @@ final class ShoppingListStore {
 
     nonisolated static func displayQuantity(_ quantity: Double?, _ unit: String?) -> String {
         guard let quantity, let unit else { return "" }
-        func trim(_ value: Double) -> String {
-            value == value.rounded() ? String(Int(value)) : String(value)
-        }
+        let trim = MealsUnits.amountText
         switch unit {
         case "g" where quantity >= 1000: return "\(trim(quantity / 1000)) kg"
         case "ml" where quantity >= 1000: return "\(trim(quantity / 1000)) l"
@@ -213,10 +286,42 @@ final class ShoppingListStore {
         projectedItems.filter(\.excluded).count
     }
 
-    func addAdhoc(name: String, quantity: Double?, unit: String?) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        enqueue(.addAdhoc(id: UUID(), name: trimmed, quantity: quantity, unit: unit))
+    /// Queue an ad-hoc add, unless the server would refuse it. Then nothing is
+    /// queued and the reason comes back for the caller to show beside what was
+    /// typed: a refused op is dropped on replay, which would lose it silently.
+    @discardableResult
+    func addAdhoc(name: String, quantity: Double?, unit: String?) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = unit?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUnit = unit?.isEmpty == false ? unit : nil
+        if let problem = Self.adhocRejection(name: trimmed, quantity: quantity, unit: cleanUnit) {
+            return problem
+        }
+        enqueue(.addAdhoc(id: UUID(), name: trimmed, quantity: quantity, unit: cleanUnit))
+        return nil
+    }
+
+    /// Why `POST /shopping-list/items` would turn this down, or nil if it
+    /// wouldn't: the checks in the backend's `IngredientLineIn` that a quick
+    /// add can trip. Anything this misses is still caught on replay and shown.
+    nonisolated static func adhocRejection(name: String, quantity: Double?, unit: String?) -> String? {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Type something to add."
+        }
+        // Counted the way the server counts, in code points, not characters.
+        if name.unicodeScalars.count > 200 {
+            return "That's too long for one line of a shopping list. Keep it under 200 characters."
+        }
+        if let problem = MealsUnits.rejection(forAmount: quantity) {
+            return "\(problem)."
+        }
+        if let problem = MealsUnits.rejection(for: unit) {
+            return "\(problem). The list only takes metric or a count."
+        }
+        if (quantity == nil) != (unit == nil) {
+            return "An amount needs a unit and a unit needs an amount, like 2 tins or 500 g."
+        }
+        return nil
     }
 
     /// Delete a line added by hand (Q22) — a typo'd quick-add, mostly. Only
@@ -228,89 +333,390 @@ final class ShoppingListStore {
 
     private func enqueue(_ op: PendingOp) {
         pending.append(op)
-        persistPending()
+        persistQueue()
         Task { await sync() }
+    }
+
+    // MARK: - Whose list this is
+
+    /// Who is signed in changed (`Session.onAccountChange`). The cache and the
+    /// queue belong to exactly one owner (server, account, household) and
+    /// follow the session here: kept while it is only resuming, adopted by the
+    /// first owner it learns, and set aside for anyone else. Nothing one
+    /// account cached is shown to another, and nothing one queued is ever
+    /// sent as another.
+    func accountChanged(from old: AccountState, to new: AccountState) {
+        guard new.signedIn else {
+            isSignedIn = false
+            setAside(for: owner ?? old.owner)
+            return
+        }
+        isSignedIn = true
+        guard let newOwner = new.owner else {
+            // Signed in but not identified. Straight after being identified,
+            // that means the household this list belongs to is no longer ours
+            // (we left it) and the server hasn't said which one we're in now.
+            // At launch it's just the same session resuming, and it keeps
+            // what's here.
+            if old.signedIn, let previous = old.owner {
+                setAside(for: owner ?? previous)
+            }
+            return
+        }
+        guard owner != newOwner else { return }
+        if owner != nil {
+            // Somebody else's, or another household's: held back, not thrown away.
+            setAside(for: owner)
+        }
+        adopt(newOwner)
+    }
+
+    /// The account was deleted: everything it left on this phone goes with it,
+    /// including anything held for it from another household.
+    func accountDeleted(_ deleted: DataOwner?) {
+        if let gone = deleted ?? owner {
+            held.removeAll { $0.owner.server == gone.server && $0.owner.userId == gone.userId }
+        }
+        pending = []
+        cache = nil
+        owner = nil
+        resetSync()
+        persistQueue()
+        persistCache()
+    }
+
+    /// Put the cache and the queue out of reach. The queue is held for
+    /// `holder`, and goes back on the moment they're signed in again; the
+    /// cache is thrown away (the privacy policy promises as much, and the
+    /// server will send it again).
+    private func setAside(for holder: DataOwner?) {
+        if !pending.isEmpty, let holder {
+            if let index = held.firstIndex(where: { $0.owner == holder }) {
+                held[index].ops += pending
+            } else {
+                held.append(HeldQueue(owner: holder, ops: pending))
+            }
+        }
+        // With no holder, the ops were queued before owners were recorded and
+        // nobody has claimed them since. There's no account they can safely
+        // be sent as, so they go rather than be sent as the wrong one.
+        pending = []
+        cache = nil
+        owner = nil
+        resetSync()
+        persistQueue()
+        persistCache()
+    }
+
+    /// This owner's from now on: whatever is here (a session resuming, or
+    /// nothing at all), plus anything held for them, oldest first.
+    private func adopt(_ newOwner: DataOwner) {
+        owner = newOwner
+        cache?.owner = newOwner
+        if let index = held.firstIndex(where: { $0.owner == newOwner }) {
+            pending = held.remove(at: index).ops + pending
+            // Their older ops now go first; an in-flight replay mustn't
+            // settle out of that order.
+            generation += 1
+            Task { await sync() }
+        }
+        persistQueue()
+        persistCache()
+    }
+
+    /// Nothing in flight may land after the cache and queue change hands.
+    private func resetSync() {
+        generation += 1
+        retryTask?.cancel()
+        retryTask = nil
+        failureStreak = 0
+        isOffline = false
+        isServerUnavailable = false
+        errorMessage = nil
     }
 
     // MARK: - Sync
 
-    /// Replay queued ops in order, then refetch server truth. Any network
-    /// failure stops quietly: ops stay queued, cache keeps serving the UI.
+    /// Replay queued ops in order, then refetch server truth. A failure worth
+    /// retrying stops quietly: ops stay queued, the cache keeps serving the
+    /// UI, and another try is scheduled. Called while a sync is already
+    /// running, it has that one go round again and waits for it, so whatever
+    /// the caller just queued has been tried by the time this returns.
     func sync() async {
-        guard !isSyncing else { return }
+        guard isSignedIn else { return }
+        if let running = syncTask {
+            syncAgain = true
+            await running.value
+            return
+        }
+        let task = Task { await syncUntilSettled() }
+        syncTask = task
+        await task.value
+    }
+
+    private func syncUntilSettled() async {
         isSyncing = true
-        defer { isSyncing = false }
+        var outcome: SyncOutcome
+        repeat {
+            syncAgain = false
+            outcome = await syncOnce()
+        } while syncAgain && isSignedIn
+        isSyncing = false
+        syncTask = nil
+        switch outcome {
+        case .settled:
+            failureStreak = 0
+            retryTask?.cancel()
+            retryTask = nil
+        case .held:
+            scheduleRetry()
+        case .stopped:
+            break
+        }
+    }
+
+    private enum SyncOutcome {
+        /// Queue drained, list refetched.
+        case settled
+        /// Stopped on something worth trying again: no signal, or a server
+        /// that isn't answering properly.
+        case held
+        /// Signed out, or the list changed hands underneath: nothing to retry.
+        case stopped
+    }
+
+    private func syncOnce() async -> SyncOutcome {
+        guard isSignedIn else { return .stopped }
+        let generation = self.generation
         let client = api()
 
-        var remap: [UUID: UUID] = [:]
         while let op = pending.first {
             do {
-                try await replay(op, client: client, remap: &remap)
-                pending.removeFirst()
-                persistPending()
-            } catch let error as APIError where error == .offline {
-                isOffline = true
-                return
-            } catch APIError.unauthorized {
-                return
+                let replayed = try await replay(op, client: client)
+                guard generation == self.generation else { return .stopped }
+                settle(op, as: replayed)
             } catch {
-                // Server rejected the op (e.g. item deleted) — drop it rather
-                // than wedge the queue; the refetch below restores truth.
-                pending.removeFirst()
-                persistPending()
+                guard generation == self.generation else { return .stopped }
+                switch Self.verdict(for: error) {
+                case .refused(let detail):
+                    // The server read it and said no; it will say no again.
+                    // Drop it rather than wedge the queue, and say why: the
+                    // refetch below restores truth.
+                    report(refusalMessage(for: op, detail: detail))
+                    pending.removeAll { $0.id == op.id }
+                    persistQueue()
+                case .retryLater(let offline):
+                    noteUnreachable(offline: offline)
+                    return .held
+                case .signedOut:
+                    // The op stays queued for when this account is back.
+                    onUnauthorized()
+                    return .stopped
+                }
             }
         }
 
         do {
             let payload = try await client.fetchList()
+            guard generation == self.generation else { return .stopped }
             let aisles = (try? await client.fetchAisles()) ?? cache?.aisles ?? []
-            cache = ShoppingCache(payload: payload, aisles: aisles)
+            guard generation == self.generation else { return .stopped }
+            cache = ShoppingCache(payload: payload, aisles: aisles, owner: owner)
             persistCache()
             isOffline = false
-        } catch let error as APIError where error == .offline {
-            isOffline = true
+            isServerUnavailable = false
+            return .settled
         } catch {
-            errorMessage = error.localizedDescription
+            guard generation == self.generation else { return .stopped }
+            switch Self.verdict(for: error) {
+            case .refused(let detail):
+                report(detail)
+                return .settled
+            case .retryLater(let offline):
+                noteUnreachable(offline: offline)
+                return .held
+            case .signedOut:
+                onUnauthorized()
+                return .stopped
+            }
         }
     }
 
-    private func replay(_ op: PendingOp, client: any ShoppingAPI, remap: inout [UUID: UUID]) async throws {
+    /// What a failed request means for the op that made it.
+    enum Verdict: Equatable {
+        /// The API read the request and turned it down, in words.
+        case refused(String)
+        /// Worth sending again later: no signal (`offline`), or a server that
+        /// isn't answering properly: restarting, busy, or not the API at all
+        /// (a captive portal's page, a proxy's error).
+        case retryLater(offline: Bool)
+        /// The token no longer works.
+        case signedOut
+    }
+
+    /// Only a refusal the API itself wrote drops an op (`APIError.refusal`).
+    /// Everything else keeps it, the unexpected included: an op kept too long
+    /// is retried, an op dropped too soon is gone.
+    nonisolated static func verdict(for error: any Error) -> Verdict {
+        guard let error = error as? APIError else {
+            // Chiefly a decode failure: a 200 that wasn't the API's reply.
+            return .retryLater(offline: false)
+        }
+        if let detail = error.refusal { return .refused(detail) }
+        switch error {
+        case .unauthorized: return .signedOut
+        case .offline: return .retryLater(offline: true)
+        default: return .retryLater(offline: false)
+        }
+    }
+
+    private func noteUnreachable(offline: Bool) {
+        isOffline = offline
+        isServerUnavailable = !offline
+    }
+
+    private func report(_ message: String) {
+        errorMessage = [errorMessage, message].compactMap { $0 }.joined(separator: "\n")
+    }
+
+    private func refusalMessage(for op: PendingOp, detail: String) -> String {
+        if case .addAdhoc(_, let name, _, _) = op {
+            return "Couldn't add \(name): \(detail)"
+        }
+        let name = op.itemID.flatMap { id in cache?.payload.items.first { $0.id == id }?.name } ?? "an item"
+        return "Couldn't sync a change to \(name): \(detail)"
+    }
+
+    /// Try again later, backing off: 2s, 4s, 8s … five minutes at most. A tap,
+    /// the app coming to the foreground or the network coming back all sync
+    /// sooner.
+    private func scheduleRetry() {
+        failureStreak += 1
+        let delay = Self.retryDelay(afterFailures: failureStreak)
+        retryTask?.cancel()
+        retryTask = Task { [weak self, sleep] in
+            do {
+                try await sleep(delay)
+            } catch {
+                return
+            }
+            await self?.sync()
+        }
+    }
+
+    nonisolated static func retryDelay(afterFailures failures: Int) -> Duration {
+        let doublings = min(max(failures - 1, 0), 8)
+        return .seconds(min(2 << doublings, 300))
+    }
+
+    private enum Replayed {
+        case updated(ListItem)
+        case added(ListItem)
+        case deleted
+    }
+
+    private func replay(_ op: PendingOp, client: any ShoppingAPI) async throws -> Replayed {
         switch op {
         case .setChecked(_, let itemID, let value):
-            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: value, excluded: nil, stapleNeeded: nil)
+            return .updated(try await client.patchItem(id: itemID, checked: value, excluded: nil, stapleNeeded: nil))
         case .setExcluded(_, let itemID, let value):
-            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: nil, excluded: value, stapleNeeded: nil)
+            return .updated(try await client.patchItem(id: itemID, checked: nil, excluded: value, stapleNeeded: nil))
         case .setStapleNeeded(_, let itemID, let value):
-            _ = try await client.patchItem(id: remap[itemID] ?? itemID, checked: nil, excluded: nil, stapleNeeded: value)
+            return .updated(try await client.patchItem(id: itemID, checked: nil, excluded: nil, stapleNeeded: value))
         case .addAdhoc(let id, let name, let quantity, let unit):
-            let item = try await client.addItem(AdhocPayload(id: id, name: name, quantity: quantity, unit: unit))
-            // The server may merge into an existing line with a different id;
-            // later queued ops on our synthetic id must follow it there.
-            if item.id != id { remap[id] = item.id }
+            return .added(try await client.addItem(AdhocPayload(id: id, name: name, quantity: quantity, unit: unit)))
         case .deleteItem(_, let itemID):
-            try await client.deleteItem(id: remap[itemID] ?? itemID)
+            try await client.deleteItem(id: itemID)
+            return .deleted
         }
     }
 
+    /// Make a replayed op part of server truth: off the queue, and into the
+    /// cache the way the server answered. Both are written before anything
+    /// else can go wrong, so a sync cut short here (signal gone, app killed)
+    /// resumes from exactly this point, with every id where the server put it.
+    private func settle(_ op: PendingOp, as replayed: Replayed) {
+        pending.removeAll { $0.id == op.id }
+        switch replayed {
+        case .updated(let item):
+            if let index = cache?.payload.items.firstIndex(where: { $0.id == item.id }) {
+                cache?.payload.items[index] = item
+            }
+        case .added(let item):
+            if item.id != op.id {
+                // Merged into a line the server already had: later ops aimed
+                // at our stand-in id follow it there.
+                pending = pending.map { $0.retargeted(from: op.id, to: item.id) }
+            }
+            if let index = cache?.payload.items.firstIndex(where: { $0.id == item.id }) {
+                cache?.payload.items[index] = item
+            } else {
+                cache?.payload.items.append(item)
+            }
+        case .deleted:
+            cache?.payload.items.removeAll { $0.id == op.itemID }
+        }
+        persistQueue()
+        persistCache()
+    }
+
+    /// Sync first, so every tick and add lands on the list it was made on; only
+    /// then archive, and start the next list from nothing.
     func finishShop() async throws {
+        await sync()
+        guard pending.isEmpty else { throw StillSyncing(count: pending.count) }
+        let generation = self.generation
         try await api().archiveList()
+        guard generation == self.generation else { return }
+        // The server starts the next list empty. Show that now rather than the
+        // archived one, even if the refetch below can't get through.
+        if cache != nil {
+            cache?.payload.items = []
+            persistCache()
+        }
         await sync()
     }
 
     // MARK: - Persistence
 
+    /// `pending-ops.json`: the live queue, whose it is, and what is held for
+    /// others. One file, so moving ops between owners is one atomic write.
+    private struct QueueFile: Codable {
+        var owner: DataOwner?
+        var ops: [PendingOp]
+        var held: [HeldQueue]?
+    }
+
     private func load() {
-        if let data = try? Data(contentsOf: cacheURL) {
-            cache = try? APIClient.decoder().decode(ShoppingCache.self, from: data)
+        var queueHadOwner = false
+        if let data = try? Data(contentsOf: pendingURL) {
+            if let file = try? JSONDecoder().decode(QueueFile.self, from: data) {
+                owner = file.owner
+                pending = file.ops
+                held = file.held ?? []
+                queueHadOwner = file.owner != nil
+            } else if let ops = try? JSONDecoder().decode([PendingOp].self, from: data) {
+                pending = ops  // written before owners were recorded
+            }
         }
-        if let data = try? Data(contentsOf: pendingURL),
-           let ops = try? JSONDecoder().decode([PendingOp].self, from: data) {
-            pending = ops
+        if let data = try? Data(contentsOf: cacheURL),
+           let loaded = try? APIClient.decoder().decode(ShoppingCache.self, from: data) {
+            if !queueHadOwner {
+                owner = loaded.owner
+                cache = loaded
+            } else if loaded.owner == owner {
+                cache = loaded
+            }
+            // Otherwise it's left over from a switch the app didn't live to
+            // finish; the queue's owner is the word that counts.
         }
     }
 
     private func persistCache() {
-        guard let cache else { return }
+        guard let cache else {
+            try? FileManager.default.removeItem(at: cacheURL)
+            return
+        }
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         if let data = try? encoder.encode(cache) {
@@ -318,8 +724,9 @@ final class ShoppingListStore {
         }
     }
 
-    private func persistPending() {
-        if let data = try? JSONEncoder().encode(pending) {
+    private func persistQueue() {
+        let file = QueueFile(owner: owner, ops: pending, held: held)
+        if let data = try? JSONEncoder().encode(file) {
             try? data.write(to: pendingURL, options: .atomic)
         }
     }
