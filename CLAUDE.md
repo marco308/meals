@@ -142,7 +142,14 @@ instrumentation a new feature usually needs.
   201), and item ids are honoured unless already taken. iOS
   `ShoppingListStore` renders *server truth + queued `PendingOp`s*, persists
   both to disk, and replays ops in order — changes there must preserve
-  idempotency and id-remapping.
+  idempotency and id-remapping. Only a refusal the API itself wrote drops an
+  op (400/403/404/409/410/422 *with* a `{"detail": …}` body, see
+  `APIError.refusal`), and the list shows its sentence; a 5xx, 408, 429, a
+  proxy's page or an unreadable reply keeps the op and retries with backoff,
+  and a 401 signs out and keeps it. The cache and queue are stamped with their
+  owner (server origin, user, household) and follow `Session.onAccountChange`,
+  which fires synchronously: another owner's queue is held back, never sent.
+  The token itself is bound to the server that issued it.
 - **Aisle order** (`services/aisles.py`) is the default shopping-list sort
   order and its emoji vocabulary is published in the skill. Keep the two in
   sync. Households can override the *order* (never the vocabulary) per store

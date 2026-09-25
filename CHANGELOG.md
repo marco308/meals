@@ -24,6 +24,16 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 `households`, and a backfill naming the lead as the payer of every household
 that has paid (until now only the lead could open a checkout).
 
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
+
 ### Fixed
 
 - **A declined renewal is no longer a year for free.** Stripe moves

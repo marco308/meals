@@ -6,6 +6,9 @@ struct ShoppingListView: View {
     @Environment(ShoppingListStore.self) private var store
     @Environment(Session.self) private var session
     @State private var quickAddText = ""
+    /// Why the server would refuse what's typed. Shown under the field, which
+    /// keeps the text so it can be corrected rather than typed again.
+    @State private var quickAddProblem: String?
     @State private var showStaplesCheck = false
     @State private var showFinishConfirm = false
     @State private var finishError: String?
@@ -27,16 +30,50 @@ struct ShoppingListView: View {
                             .font(.callout)
                             .foregroundStyle(.orange)
                     }
+                } else if store.isServerUnavailable {
+                    Section {
+                        Label(
+                            "The server isn't answering. Changes are saved on this phone and will sync when it's back.",
+                            systemImage: "exclamationmark.icloud"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    }
+                }
+
+                // What the server turned down while syncing, in its own words.
+                // Dropped from the queue, so this is the only place it's said.
+                if let message = store.errorMessage {
+                    Section {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label(message, systemImage: "exclamationmark.triangle")
+                                .font(.callout)
+                                .foregroundStyle(.red)
+                            Spacer()
+                            Button {
+                                store.errorMessage = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Dismiss")
+                        }
+                    }
                 }
 
                 Section {
                     HStack {
                         TextField("Add something (e.g. milk)", text: $quickAddText)
                             .onSubmit(quickAdd)
+                            .onChange(of: quickAddText) { quickAddProblem = nil }
                         Button(action: quickAdd) {
                             Image(systemName: "plus.circle.fill")
                         }
                         .disabled(quickAddText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                } footer: {
+                    if let quickAddProblem {
+                        Text(quickAddProblem).foregroundStyle(.red)
                     }
                 }
 
@@ -166,11 +203,16 @@ struct ShoppingListView: View {
         return "Add meals to the plan or quick-add items above."
     }
 
+    /// Queued only if the server would take it. "milk 4 pints" used to be
+    /// queued, refused on replay and dropped without a word.
     private func quickAdd() {
         let text = quickAddText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         let (name, quantity, unit) = Self.parseQuickAdd(text)
-        store.addAdhoc(name: name, quantity: quantity, unit: unit)
+        if let problem = store.addAdhoc(name: name, quantity: quantity, unit: unit) {
+            quickAddProblem = problem
+            return
+        }
         quickAddText = ""
     }
 

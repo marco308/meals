@@ -293,9 +293,9 @@ struct MealEditorView: View {
 
     private func scaleLabel(_ recipe: RecipeSummary) -> String {
         let scale = scales[recipe.id] ?? 1
-        let multiple = "×\(IngredientLineEditor.amountText(scale))"
+        let multiple = "×\(MealsUnits.amountText(scale))"
         guard let servings = recipe.servings else { return "\(multiple) — batch cooking" }
-        let feeds = "Serves \(IngredientLineEditor.amountText((Double(servings) * scale).rounded()))"
+        let feeds = "Serves \(MealsUnits.amountText((Double(servings) * scale).rounded()))"
         // The multiple is what the shopping list works in, so keep it visible
         // once it stops being ×1.
         return scale == 1 ? "\(feeds) — the recipe's own" : "\(feeds) — \(multiple)"

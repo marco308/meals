@@ -8,8 +8,6 @@ import SwiftUI
 /// even talking to?" is a question only this app makes people ask.
 struct SettingsView: View {
     @Environment(Session.self) private var session
-    @Environment(PlanStore.self) private var planStore
-    @Environment(RecipeStore.self) private var recipeStore
 
     @State private var showChangePassword = false
     @State private var showDeleteAccount = false
@@ -30,7 +28,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showChangePassword) { ChangePasswordView() }
             .sheet(isPresented: $showInvite) { InviteSheet() }
             .sheet(isPresented: $showDeleteAccount) {
-                DeleteAccountView(clearCaches: clearCaches)
+                DeleteAccountView()
             }
             .task { await session.restore() }
         }
@@ -157,22 +155,17 @@ struct SettingsView: View {
         }
     }
 
+    /// Cached reads belong to the login that fetched them, so signing out
+    /// clears them all, the shopping list's included (`MealsApp` hears it from
+    /// the session). Changes queued offline and not yet sent are kept for this
+    /// account's next sign-in, and never sent as anyone else.
     private var dangerSection: some View {
         Section {
             Button("Log out") {
-                clearCaches()
                 session.logOut()
             }
             Button("Delete account…", role: .destructive) { showDeleteAccount = true }
         }
-    }
-
-    /// Cached reads belong to the login that fetched them — a stale plan must
-    /// not outlive it. The shopping list is deliberately left alone: it holds
-    /// the offline queue, and dropping that would destroy unsynced changes.
-    private func clearCaches() {
-        planStore.clearCache()
-        recipeStore.clearCache()
     }
 }
 
