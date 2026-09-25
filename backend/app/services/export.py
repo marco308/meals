@@ -30,6 +30,7 @@ Three decisions shape the module:
 """
 
 import json
+import math
 import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, date, datetime
@@ -66,7 +67,12 @@ BATCH = 200
 def _encode(value: Any) -> str:
     """One row as JSON. Datetimes are stamped UTC rather than left naive:
     SQLite round-trips them without a timezone, and a consumer should not have
-    to guess which one the file means."""
+    to guess which one the file means.
+
+    A float JSON cannot carry (an amount stored before non-finite ones were
+    refused, or a total that overflowed) is written as null, as the API shows
+    it. Left to `json.dumps` it would be a bare `Infinity`, and a strict
+    parser refuses the whole file over one of those."""
 
     def default(item: Any) -> Any:
         if isinstance(item, uuid.UUID):
@@ -77,7 +83,18 @@ def _encode(value: Any) -> str:
             return item.isoformat()
         raise TypeError(f"{type(item).__name__} is not JSON")
 
-    return json.dumps(value, default=default)
+    return json.dumps(_null_non_finite(value), default=default, allow_nan=False)
+
+
+def _null_non_finite(value: Any) -> Any:
+    """`value` with every float that JSON cannot carry replaced by None."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _null_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_null_non_finite(item) for item in value]
+    return value
 
 
 async def _stream_rows(db: AsyncSession, statement: Select) -> AsyncIterator[Any]:
