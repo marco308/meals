@@ -43,15 +43,9 @@ non-finite quantity, `prep_minutes` or `cook_minutes` over 525,600, an
 parts run past their bounds (which, like any unparseable one, makes an
 unidentified client rather than a refusal).
 
-### Changed
-
-- **`/privacy` says what the app keeps through a sign-out.** The cached
-  shopping list is cleared on sign-out, on account deletion and on moving
-  household, as the page already claimed and build 27 did not do. Offline
-  changes not yet sent are kept through a sign-out and sent only as the
-  account and household that made them. The sign-in token is stored with the
-  server that issued it and sent nowhere else. This describes the next iOS
-  build, which fixes the offline shopping list: deploy it with that build.
+The `/privacy` wording for the iOS offline-list fix
+([#156](https://github.com/marco308/meals/pull/156)) is held back for the
+build that ships it.
 
 ### Fixed
 
