@@ -228,9 +228,15 @@ class TestNothingIsLeftBehind:
         # about. All of it means nothing on the box the household is moving to —
         # and `billing_customer_id` is somebody else's identifier for a
         # relationship with *this* server, which is the clearest case of the lot.
+        # The subscription it follows, what that is doing, when the processor
+        # last said so and whose card it is are the same kind of thing.
         Household: {
             "tier",
             "billing_customer_id",
+            "billing_subscription_id",
+            "billing_subscription_state",
+            "billing_event_at",
+            "billing_user_id",
             "price_pence",
             "price_currency",
             "price_set_at",
