@@ -1,9 +1,9 @@
 """The ios-* recipes have to fail when Xcode does.
 
-They pipe xcodebuild into grep and tail, and without pipefail a pipeline's
-status is its last command's: `make ios-build` exited 0 on a failed build, and
-`make ios-testflight` read "** ARCHIVE FAILED **" as a match and went on to
-export and upload whatever archive the previous run had left behind.
+They used to pipe xcodebuild into grep and tail, and without pipefail a
+pipeline's status is its last command's: `make ios-build` exited 0 on a failed
+build, and `make ios-testflight` read "** ARCHIVE FAILED **" as a match and
+went on to export and upload whatever archive the previous run had left behind.
 
 There is no iOS job in CI, so these run the real recipes against stand-ins for
 Xcode's tools, with whatever make this machine has. On a Mac that is GNU make

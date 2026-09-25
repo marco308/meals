@@ -119,11 +119,14 @@ on Postgres.
   the client took to download, so writes failed with "database is locked"
   after five seconds. SQLite now runs in WAL mode with a 15 second busy
   timeout.
-- **`make ios-build`, `ios-test` and `ios-testflight` fail when Xcode does.**
-  They piped `xcodebuild` into `grep`, whose status became the recipe's, so a
-  failed build exited 0 and a failed archive went on to upload the previous
-  one. pipefail now rides on `SHELL` rather than `.SHELLFLAGS`, which the GNU
-  make 3.81 that macOS ships ignores, and the old archive is deleted first.
+- **`make ios-build`, `ios-test` and `ios-testflight` fail when Xcode does**
+  ([#159](https://github.com/marco308/meals/pull/159)). They piped `xcodebuild`
+  into `grep`, whose status became the recipe's, so a failed build exited 0
+  and a failed archive went on to upload the previous one. `ios-testflight`
+  also deletes the old archive before it starts, and
+  `tests/unit/test_makefile.py` runs all three recipes against stand-ins for
+  Xcode's tools with whatever make the machine has, which on a Mac is 3.81 and
+  ignores `.SHELLFLAGS`.
 - **`.env` is kept out of the image's build context at every depth**, not just
   the root: `mcp/`, `skill/` and `web/` are copied in whole.
 - **Coverage counts the lines after a database await**

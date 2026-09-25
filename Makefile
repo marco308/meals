@@ -1,11 +1,5 @@
 .DEFAULT_GOAL := help
-# -e, and pipefail so a pipeline fails when any stage does: the ios-* targets
-# pipe xcodebuild into grep and tail, which otherwise exit 0 on a failed build.
-# The flags ride on SHELL rather than on `.SHELLFLAGS := -eo pipefail -c`
-# because macOS still ships GNU make 3.81, which predates .SHELLFLAGS and
-# ignores it without a word, and the ios-* targets only ever run on macOS.
-# Every version accepts a SHELL with arguments.
-SHELL := /bin/bash -eo pipefail
+SHELL := /bin/bash
 
 BACKEND_DIR := backend
 UV := uv
@@ -167,10 +161,8 @@ ios-export-options:
 		'</dict>' \
 		'</plist>' > $(IOS_DIR)/ExportOptions.plist
 
-# The last run's archive and .ipa are deleted first. grep matches
-# "** ARCHIVE FAILED **" as happily as a success, so pipefail (SHELL, at the
-# top) is what stops the recipe when a step fails; with nothing left over,
-# there is also no stale build for a failure to go on and upload.
+# The last run's archive and .ipa are deleted before a new archive starts,
+# so however a later step fails, there is nothing stale for it to upload.
 .PHONY: ios-testflight
 ios-testflight: ios-export-options ## Archive, export, and upload the iOS app to TestFlight (needs ios/.env)
 	@test -n "$(ASC_KEY_ID)" -a -n "$(ASC_ISSUER)" || \
