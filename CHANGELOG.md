@@ -20,7 +20,13 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Fixed
+
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
 
 ## 2026-09-21 — YAMP on the public pages
 
