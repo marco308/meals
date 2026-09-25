@@ -321,6 +321,10 @@ it boring to operate:
   strings outside it.
 - Dialog code must not depend on the `close` *event* — some embedded browsers
   never deliver it; `openDialog` patches `close()` to also remove the element.
+- **"New plan" wraps up the plan it replaces, first.** The API allows more
+  than one active plan and every one of them feeds the shopping list, so a new
+  plan that left the old one open would count each carried-over meal twice.
+  The plan page lists any other active plan for the same reason.
 - **No inline `style` attributes**: the CSP's `style-src 'self'` forbids them.
   A computed width (the allowance bars in Settings) travels on a data attribute
   and is applied through the CSSOM, which CSP deliberately does not police.

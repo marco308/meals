@@ -1,5 +1,5 @@
-"""The web client's half of the limits vocabulary (issue #120), and the pages
-it is the only route to.
+"""The web client's half of the limits vocabulary (issue #120), the pages it
+is the only route to, and how the plan page treats more than one active plan.
 
 `web/` ships inside this image and calls `GET /limits` and `GET /client-config`
 to tell a household what it is allowed. Both answer with the resource *names*
@@ -118,3 +118,28 @@ def test_settings_links_every_page_this_server_publishes():
     assert missing == [], (
         f"web/js/views/settings.js links to none of {missing}, which this server renders. Add them to the About card."
     )
+
+
+def test_a_new_plan_wraps_up_the_plan_it_replaces_first():
+    """Every active plan feeds the shopping list, and the API allows more than
+    one, so a "New plan" that only POSTed /plans left the old plan running out
+    of sight: carrying its meals over counted each of them twice. The dialog
+    archives the plan it replaces, and does so before creating the next one,
+    because an archived plan is what frees a place under a plan allowance."""
+    signature = re.search(r"function newPlanDialog\([^)]*\) \{", (WEB / "plan.js").read_text())
+    assert signature, "web/js/views/plan.js no longer has a newPlanDialog"
+    dialog = _block(WEB / "plan.js", signature.group(0))
+    archive = dialog.find("api(`/plans/${currentPlan.id}/archive`")
+    create = dialog.find('api("/plans", { method: "POST"')
+    assert archive != -1, "web/js/views/plan.js newPlanDialog no longer wraps up the plan it replaces"
+    assert create != -1, "newPlanDialog no longer POSTs /plans in the shape this lint reads; update the lint"
+    assert archive < create, "newPlanDialog has to archive the current plan before it creates the next one"
+
+
+def test_the_plan_page_lists_every_active_plan():
+    """/plans/current is only the newest active plan. Any other keeps adding to
+    the list, so the page asks for the active ones too instead of showing the
+    archived plans alone and leaving the rest out of sight."""
+    source = (WEB / "plan.js").read_text()
+    assert 'api("/plans", { query: { status: "active" } })' in source
+    assert "${isActive && otherActivePlans(active, plan.id)}" in source
