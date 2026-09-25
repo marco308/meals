@@ -57,6 +57,22 @@ saying what is missing.
 - **Changing a password retires outstanding reset codes**, as well as the
   sessions it already revoked.
 
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
+- `POST /auth/invites/redeem` takes an optional `password`, and answers 401
+  without it when the caller is the only member of their household or sends
+  `force`. That comes before the `force` 409, so an older client is told what
+  is missing rather than asked to confirm something it then can't finish.
+- Outgoing email gets `SMTP_TIMEOUT_SECONDS` (10 by default) for the whole
+  send, where aiosmtplib allowed 60 seconds per command.
+
 ### Fixed
 
 - **A declined renewal is no longer a year for free.** Stripe moves
@@ -99,6 +115,11 @@ saying what is missing.
 - **The URL-ingest quota counts every ingest.** Two ingests at once could both
   read the same count and write the same number back; checking and charging is
   now one conditional `UPDATE`.
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
 - **bcrypt runs on a worker thread**, so sign-ins no longer hold up every other
   request in the process, `/healthz` included.
 - **A new password over 72 bytes is a 422 that says so**, where it was a 500.
@@ -109,15 +130,6 @@ saying what is missing.
 - **An auth token row must say what kind it is.** `AuthToken.kind` no longer
   defaults to `session`, so a row written without one fails instead of becoming
   a credential.
-
-### Changed
-
-- `POST /auth/invites/redeem` takes an optional `password`, and answers 401
-  without it when the caller is the only member of their household or sends
-  `force`. That comes before the `force` 409, so an older client is told what
-  is missing rather than asked to confirm something it then can't finish.
-- Outgoing email gets `SMTP_TIMEOUT_SECONDS` (10 by default) for the whole
-  send, where aiosmtplib allowed 60 seconds per command.
 
 ### Added
 

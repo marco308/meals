@@ -230,7 +230,7 @@ struct RecipeDetailView: View {
         guard let link = planContext?.meal.recipes.first(where: { $0.id == recipeId }),
               let scale = link.scale, scale != 1
         else { return nil }
-        let multiple = "×\(IngredientLineEditor.amountText(scale))"
+        let multiple = "×\(MealsUnits.amountText(scale))"
         guard let feeds = link.scaledServings else { return multiple }
         return "\(multiple) — serves \(feeds)"
     }

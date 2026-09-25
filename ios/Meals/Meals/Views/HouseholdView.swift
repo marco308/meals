@@ -10,8 +10,6 @@ import SwiftUI
 /// account would be a worse trap than the one this screen exists to open.
 struct HouseholdView: View {
     @Environment(Session.self) private var session
-    @Environment(PlanStore.self) private var planStore
-    @Environment(RecipeStore.self) private var recipeStore
 
     @State private var household: Household?
     @State private var loaded = false
@@ -47,11 +45,7 @@ struct HouseholdView: View {
             HandOverLeadSheet(members: others) { await refresh() }
         }
         .sheet(isPresented: $showJoin) {
-            JoinHouseholdSheet(
-                currentName: household?.name ?? "this household",
-                needsPassword: others.isEmpty,
-                clearCaches: clearCaches
-            )
+            JoinHouseholdSheet(currentName: household?.name ?? "this household", needsPassword: others.isEmpty)
         }
         .confirmationDialog(
             removalPrompt,
@@ -181,23 +175,16 @@ struct HouseholdView: View {
         }
     }
 
+    /// When it was you, every cached read (the shopping list and its queue
+    /// too) belongs to a household this account is no longer in. The session
+    /// says so to every store the moment the server confirms.
     private func remove(_ member: HouseholdMember) async {
         do {
-            let result = try await session.removeMember(id: member.id)
-            if result.youLeft {
-                // Every cached read belongs to a household this account is no
-                // longer in — the same reasoning as logging out.
-                clearCaches()
-            }
+            try await session.removeMember(id: member.id)
             await refresh()
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func clearCaches() {
-        planStore.clearCache()
-        recipeStore.clearCache()
     }
 }
 
@@ -344,7 +331,6 @@ private struct JoinHouseholdSheet: View {
     /// This account is the household's only member, so the server will ask
     /// for the password; asking up front saves a round trip to be told so.
     let needsPassword: Bool
-    let clearCaches: () -> Void
 
     @State private var code = ""
     @State private var password = ""
@@ -415,12 +401,13 @@ private struct JoinHouseholdSheet: View {
         Task {
             defer { isWorking = false }
             do {
+                // Everything cached for the household we left goes with it:
+                // the session tells the stores.
                 try await session.joinHousehold(
                     code: code.trimmingCharacters(in: .whitespaces),
                     force: force,
                     password: needsPassword ? password : nil
                 )
-                clearCaches()
                 dismiss()
             } catch let APIError.server(status, detail) where status == 409 && detail.contains("force") {
                 // The server is saying this would delete a library nobody else

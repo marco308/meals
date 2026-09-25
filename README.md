@@ -232,12 +232,14 @@ in [ios/AppStore/](ios/AppStore/).
 
 ## Trying the AI layer
 
-> **`meals.marcuslab.uk` is my household's private instance, not a free public
-> service.** Registration on it is closed. Self-hosting is the supported way to
-> use this — it's AGPL, it costs nothing, and `make dev` gets you the whole
-> stack. If you'd rather I hosted it for you, that's a paid arrangement: open an
-> issue and ask. The `/skill` and `/prompt-pack` endpoints stay open to
-> everyone, because they're documentation.
+> **`meals.marcuslab.uk` is my hosted service, and anyone can sign up to it.**
+> A household there is free within the limits the server publishes, and paying
+> for a year lifts them ([TERMS.md](TERMS.md) has the details). API tokens and
+> `/mcp` are part of the free tier. Self-hosting is still free and fully
+> supported: it's AGPL, a server you run has no household limits unless you set
+> some, and `make dev` gets you the whole stack. The `/skill` and
+> `/prompt-pack` endpoints stay open to everyone, because they're
+> documentation.
 
 The MCP server ships with the deployment — any MCP-capable assistant connects
 by URL, no local Python or repo checkout. **The API serves it at `/mcp` on its
@@ -293,9 +295,10 @@ not a repo checkout, so it always matches the endpoints it describes:
   add your API token, and the REST API alone is enough (no MCP needed).
 
 Both are unauthenticated on any instance, so you can read mine to see the shape
-of them — <https://meals.marcuslab.uk/skill> and
-<https://meals.marcuslab.uk/prompt-pack> — but point your assistant at your own
-server, since the pack embeds the base URL it was served from.
+of them (<https://meals.marcuslab.uk/skill> and
+<https://meals.marcuslab.uk/prompt-pack>). Give your assistant the ones from the
+server your household is on, though, since the pack embeds the base URL it was
+served from.
 
 Both are unauthenticated, ship inside the backend image, and are advertised
 from the API root (`GET /` returns a JSON landing for non-browser clients).

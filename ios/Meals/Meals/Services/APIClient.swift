@@ -16,8 +16,23 @@ enum APIError: LocalizedError, Equatable {
         // list has a queue that can keep that promise (Q11), and this error is
         // raised on every path (#33).
         case .offline: "You're offline."
-        case .invalidURL: "Invalid server URL."
+        case .invalidURL: "That server address can't be used. It should look like https://meals.example.com."
         }
+    }
+
+    /// The server's own words when the API itself turned the request down:
+    /// a status that means "not this, not ever" from this API (bad request,
+    /// forbidden, no such thing, conflict, gone, unprocessable) *and* a
+    /// `{"detail": …}` body. The status alone isn't enough. A proxy's 403
+    /// page, or Traefik's 404 while a deploy rolls over, carry the same
+    /// numbers and say nothing about the request, and the offline queue drops
+    /// what it's refused (Q11).
+    var refusal: String? {
+        guard case .server(let status, let detail) = self,
+              [400, 403, 404, 409, 410, 422].contains(status),
+              detail != APIClient.unexplainedDetail(status: status)
+        else { return nil }
+        return detail
     }
 }
 
@@ -57,7 +72,9 @@ extension Notification.Name {
 /// Thin async client for the Meals API. The backend's errors are written to
 /// be shown verbatim ({"detail": "..."}), so this surfaces them as-is.
 struct APIClient: Sendable {
-    var baseURL: URL
+    /// nil when the configured address isn't a usable server: every request
+    /// then fails with `.invalidURL`, rather than going to some other host.
+    var baseURL: URL?
     var token: String?
     var session: URLSession = .shared
 
@@ -67,7 +84,10 @@ struct APIClient: Sendable {
         return decoder
     }
 
-    private func request(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) -> URLRequest {
+    private func request(
+        _ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil
+    ) throws -> URLRequest {
+        guard let baseURL else { throw APIError.invalidURL }
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
@@ -99,7 +119,7 @@ struct APIClient: Sendable {
             let cleaned = json.compactMapValues { $0 }
             body = try JSONSerialization.data(withJSONObject: cleaned)
         }
-        let urlRequest = request(method, path, query: query, body: body)
+        let urlRequest = try request(method, path, query: query, body: body)
         let data: Data
         let response: URLResponse
         do {
@@ -109,7 +129,7 @@ struct APIClient: Sendable {
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status < 400 else {
-            let detail = Self.errorDetail(from: data) ?? "Request failed (\(status))"
+            let detail = Self.errorDetail(from: data) ?? Self.unexplainedDetail(status: status)
             switch status {
             case 401:
                 throw APIError.unauthorized(detail: detail)
@@ -125,6 +145,12 @@ struct APIClient: Sendable {
             }
         }
         return data
+    }
+
+    /// What an error says when its body isn't the API's `{"detail": …}`: a
+    /// gateway's page, a proxy's, a captive portal's.
+    static func unexplainedDetail(status: Int) -> String {
+        "Request failed (\(status))"
     }
 
     /// FastAPI errors are {"detail": "text"} or, for validation, a list of
