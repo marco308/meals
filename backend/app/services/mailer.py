@@ -6,6 +6,7 @@ by design, and every relay speaks SMTP while every SDK needs an account with one
 particular company.
 """
 
+import asyncio
 import uuid
 from email.message import EmailMessage
 
@@ -40,20 +41,22 @@ async def send_email(to: str, subject: str, body: str, *, purpose: str, **ids: u
     message.set_content(body)
 
     try:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            start_tls=settings.smtp_start_tls,
-        )
+        async with asyncio.timeout(settings.smtp_timeout_seconds):
+            await aiosmtplib.send(
+                message,
+                hostname=settings.smtp_host,
+                port=settings.smtp_port,
+                username=settings.smtp_username,
+                password=settings.smtp_password,
+                start_tls=settings.smtp_start_tls,
+            )
     except Exception as exc:  # noqa: BLE001 — the relay's failure modes are many and all equivalent here
         # Logged for the operator as what failed and for whom, by id. Never the
         # address, and never the relay's words, which quote it back ("550
         # <someone@example.com>: no such user"). The caller does not pass the
         # reason on to the user either, since the endpoint must not reveal
-        # whether an address exists, let alone what the mail server said.
+        # whether an address exists, let alone what the mail server said. A
+        # send cut off by SMTP_TIMEOUT_SECONDS arrives here as TimeoutError.
         error = type(exc).__name__
         log_event("email.failed", outcome=purpose, error=error, **ids)
         raise EmailSendFailed(error) from exc

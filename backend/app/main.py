@@ -32,6 +32,7 @@ from app.routers import (
 )
 from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version
+from app.services import security
 
 settings = get_settings()
 observability.setup_logging()
@@ -45,6 +46,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # The usage gauges only surface through /metrics, so with metrics off
     # there is nothing to refresh and no task to run. Tests drive the app
     # through ASGITransport, which skips lifespan — also on purpose.
+    # Before the first request, so no login answer pays for it (security.warm_up).
+    await security.warm_up()
     refresher: asyncio.Task | None = None
     if get_settings().metrics_token:
         refresher = asyncio.create_task(metrics.usage_gauge_refresher())
@@ -62,7 +65,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     lifespan=lifespan,
     title="Meals API",
-    version="1.6.4",
+    version="1.6.5",
     description=(
         "A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and an "
         "aisle-sorted shopping list. Designed to be driven by any AI assistant: every error "

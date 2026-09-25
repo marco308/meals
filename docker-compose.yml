@@ -39,6 +39,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://meals:${POSTGRES_PASSWORD:-meals}@db:5432/meals
       ENVIRONMENT: development
+      # Put a reverse proxy in front and this must name it, or the per-client
+      # auth rate limit sees one client: the proxy. uvicorn reads it itself;
+      # see README, "Behind a reverse proxy".
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       - "8000:8000"
     depends_on:

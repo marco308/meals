@@ -85,7 +85,7 @@ async def provision(
     async with (sessions or SessionLocal)() as db:
         existing = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
         if existing is not None:
-            existing.password_hash = hash_password(password)
+            existing.password_hash = await hash_password(password)
             # Deliberately no token revocation here: this is a rescue hatch, and
             # signing every device out mid-review would be its own small disaster.
             await db.commit()
@@ -98,7 +98,7 @@ async def provision(
         user = User(
             household_id=household.id,
             email=email,
-            password_hash=hash_password(password),
+            password_hash=await hash_password(password),
             display_name=display_name,
         )
         db.add(user)

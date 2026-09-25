@@ -2,13 +2,14 @@ import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app import limits
 from app.config import get_settings
-from app.deps import CurrentUser, DbSession, as_aware, auth_rate_limit, forgive_auth_attempt
+from app.deps import CurrentUser, DbSession, SessionUser, as_aware, auth_rate_limit, forgive_auth_attempt
 from app.models import AuthToken, Household, HouseholdInvite, User
 from app.observability import log_event
 from app.schemas.auth import (
@@ -36,12 +37,14 @@ from app.schemas.auth import (
 )
 from app.services import entitlements
 from app.services.accounts import (
+    WouldEmptyHousehold,
     delete_user,
     household_has_content,
     household_members,
     household_user_count,
     leads_alongside_others,
     move_user_to_household,
+    withdraw_invites,
 )
 from app.services.mailer import EmailNotConfigured, EmailSendFailed, password_reset_body, send_email
 from app.services.security import (
@@ -68,23 +71,66 @@ async def _email_taken(db: DbSession, email: str) -> bool:
     return await _find_user(db, email) is not None
 
 
-async def _redeem_invite(db: DbSession, code: str) -> HouseholdInvite:
-    """Resolve an invite code to its household, or raise. Single-use and
-    time-limited; brute force is bounded by the /auth/register rate limit."""
+#: One message for every way a code can fail, losing a race for it included: a
+#: caller probing codes learns only "no", never "that one existed but was used".
+INVITE_INVALID = (
+    "that invite code is not valid — it may have been used already or expired. "
+    "Ask whoever invited you for a fresh one from POST /auth/invites, or omit "
+    "invite_code to start a household of your own."
+)
+
+RESET_CODE_INVALID = (
+    "that reset code is not valid — it may have been used already or expired. "
+    "Request a fresh one from POST /auth/password-reset."
+)
+
+ONLY_MEMBER_CANNOT_LEAVE = (
+    "you are the only member, so there is nothing to leave: the household's recipes and "
+    "history would go with you. DELETE /auth/me does that, and asks for your password first"
+)
+
+
+async def _find_invite(db: DbSession, code: str) -> HouseholdInvite:
+    """Resolve an invite code to its household, or raise. Time-limited, and
+    brute force is bounded by the rate limit on both endpoints that take one.
+
+    This only *reads*: it is how a request learns early that a code is no good.
+    Two requests holding the same code can both get past it, so it is not what
+    makes a code single-use. That is `_claim_invite`'s job."""
     result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == hash_short_code(code)))
     invite = result.scalar_one_or_none()
-    # One message for every failure mode: a caller probing codes learns only
-    # "no", never "that one existed but was used".
     if invite is None or invite.accepted_at is not None or as_aware(invite.expires_at) <= datetime.now(UTC):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "that invite code is not valid — it may have been used already or expired. "
-                "Ask whoever invited you for a fresh one from POST /auth/invites, or omit "
-                "invite_code to start a household of your own."
-            ),
-        )
+        raise HTTPException(status_code=400, detail=INVITE_INVALID)
     return invite
+
+
+async def _claim_invite(db: DbSession, invite: HouseholdInvite, user_id: uuid.UUID) -> None:
+    """Spend an invite on `user_id`, or raise the same 400 as an unknown code.
+
+    One conditional UPDATE rather than a read and then a write, because only
+    the database can settle which of two requests holding the same code gets
+    it. On Postgres the second waits on the row lock, then finds
+    `accepted_at` set and matches nothing; on SQLite writers take turns.
+
+    It joins the caller's transaction and comes after everything that can still
+    refuse the request, so a refusal rolls back with the code unspent (which
+    the instance-ceiling sentence promises the caller), and so does losing the
+    race, taking the account or move it was for with it.
+    """
+    now = datetime.now(UTC)
+    claimed = await db.execute(
+        update(HouseholdInvite)
+        .where(
+            HouseholdInvite.id == invite.id,
+            HouseholdInvite.accepted_at.is_(None),
+            HouseholdInvite.expires_at > now,
+        )
+        .values(accepted_at=now, accepted_by_user_id=user_id)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=INVITE_INVALID)
 
 
 def _session_token(user: User) -> AuthToken:
@@ -119,7 +165,7 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     invite gets past the closed door but not past a full one.
     """
     email = payload.email.lower()
-    invite = await _redeem_invite(db, payload.invite_code) if payload.invite_code else None
+    invite = await _find_invite(db, payload.invite_code) if payload.invite_code else None
     if invite is None and not get_settings().registration_enabled:
         raise HTTPException(
             status_code=403,
@@ -133,32 +179,37 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
 
     # Last, and before anything is written: a refusal here must leave no
     # half-made household behind and, for an invited caller, must leave their
-    # code unredeemed — `_redeem_invite` only validates, and `accepted_at` is
-    # set further down.
+    # code unredeemed. Nothing spends it until `_claim_invite`, below.
     await limits.admit_registration(db, invited=invite is not None)
+    if invite is not None:
+        # An invite can outlive the headroom that justified it, so the check is
+        # here as well as at POST /auth/invites.
+        await limits.enforce(db, invite.household, "members")
+
+    # The slow part, placed after every refusal so none of them pays for it,
+    # and before the first write so no transaction is held open across it.
+    password_hash = await hash_password(payload.password)
 
     if invite is not None:
         household = invite.household
-        # An invite can outlive the headroom that justified it, so the check is
-        # here as well as at POST /auth/invites.
-        await limits.enforce(db, household, "members")
     else:
-        household = Household(name=(payload.household_name or "Home").strip())
+        household = Household(name=payload.household_name or "Home")
         db.add(household)
         await db.flush()
 
     user = User(
         household_id=household.id,
         email=email,
-        password_hash=hash_password(payload.password),
-        display_name=payload.display_name.strip(),
+        password_hash=password_hash,
+        display_name=payload.display_name,
     )
     db.add(user)
     try:
         await db.flush()
         if invite is not None:
-            invite.accepted_at = datetime.now(UTC)
-            invite.accepted_by_user_id = user.id
+            # In this transaction, so the account and the spent code commit
+            # together or not at all.
+            await _claim_invite(db, invite, user.id)
         else:
             # Whoever starts a household leads it (Q23). Joining by invite never
             # changes the lead — that is the whole point of the invite being
@@ -188,7 +239,10 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
 async def login(payload: LoginIn, request: Request, db: DbSession, _: None = Depends(auth_rate_limit)) -> AuthOut:
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # An address with no account is checked too, against a stand-in hash, so a
+    # failed login costs the same bcrypt work whichever kind of failure it is.
+    matched = await verify_password(payload.password, user.password_hash if user is not None else None)
+    if user is None or not matched:
         # No email in the event: it would put every typo'd address in the log.
         # A run of these is what brute force looks like before the rate limit
         # trips (auth.rate_limited in deps.py).
@@ -212,17 +266,18 @@ async def change_password(
 
     Every existing session token is revoked (a password change should evict
     anyone still holding one) and a fresh one is returned, so the caller stays
-    logged in while other devices have to sign in again. Personal API tokens
-    are separate credentials and deliberately survive: rotating a password
-    shouldn't silently break every AI client. Revoke those via
-    DELETE /auth/tokens/{id}."""
-    if not verify_password(payload.current_password, user.password_hash):
+    logged in while other devices have to sign in again. Any outstanding reset
+    code goes too, or an emailed code from before the change could undo it.
+    Personal API tokens are separate credentials and deliberately survive:
+    rotating a password shouldn't silently break every AI client. Revoke those
+    via DELETE /auth/tokens/{id}."""
+    if not await verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="current password is incorrect")
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="new password must be different from the current one")
     forgive_auth_attempt(request)  # current password checked out; not a brute-force attempt
-    user.password_hash = hash_password(payload.new_password)
-    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "session"))
+    user.password_hash = await hash_password(payload.new_password)
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("session", "reset"))))
     token = _session_token(user)
     db.add(token)
     await db.commit()
@@ -231,7 +286,7 @@ async def change_password(
 
 @router.post("/password-reset", response_model=AcceptedOut, status_code=status.HTTP_202_ACCEPTED)
 async def request_password_reset(
-    payload: PasswordResetRequestIn, db: DbSession, _: None = Depends(auth_rate_limit)
+    payload: PasswordResetRequestIn, background: BackgroundTasks, db: DbSession, _: None = Depends(auth_rate_limit)
 ) -> AcceptedOut:
     """Email a single-use code that lets someone set a new password without
     knowing the old one (decision Q20). `POST /auth/password/reset-confirm`
@@ -240,7 +295,9 @@ async def request_password_reset(
     **Always returns 202**, whether or not an account exists with that address,
     and whether or not the email actually went out. Any other behaviour turns
     this endpoint into a way to ask "does this person have an account here?".
-    A delivery failure is logged for the operator instead.
+    A delivery failure is logged for the operator instead. How long the 202
+    takes is part of the answer too, so looking the address up, minting the code
+    and sending it all happen after the response has gone.
 
     The exception is a server with no SMTP configured at all, which returns 503:
     that says something about the *server*, not about any account, and a
@@ -260,38 +317,50 @@ async def request_password_reset(
             ),
         )
 
-    result = await db.execute(select(User).where(User.email == payload.email.lower()))
-    user = result.scalar_one_or_none()
-    accepted = AcceptedOut(
+    # The request's own session is only borrowed for the database it points at:
+    # the work runs after the response, in a session of its own.
+    background.add_task(_send_reset_code, db.bind, payload.email.lower())
+    return AcceptedOut(
         detail=(
             "if that address has an account, a reset code is on its way — it expires in "
             f"{settings.password_reset_ttl_minutes} minutes and can be used once"
         )
     )
-    if user is None:
-        return accepted
 
-    # Supersede any outstanding code: two live codes for one account is one more
-    # than anybody needs.
-    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "reset"))
-    code, code_hash = generate_short_code()
-    db.add(
-        AuthToken(
-            user_id=user.id,
-            token_hash=code_hash,
-            kind="reset",
-            expires_at=datetime.now(UTC) + timedelta(minutes=settings.password_reset_ttl_minutes),
+
+async def _send_reset_code(bind: AsyncEngine | AsyncConnection | None, email: str) -> None:
+    """Everything `POST /auth/password-reset` does that depends on whether the
+    address has an account, run once its 202 has been sent.
+
+    Nothing here can change what the caller was told. A failure to deliver is
+    suppressed and logged by mailer.py, as it always was; anything unexpected
+    propagates to the server's error log like any other unhandled error.
+    """
+    settings = get_settings()
+    async with AsyncSession(bind, expire_on_commit=False) as db:
+        user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if user is None:
+            return
+        # Supersede any outstanding code: two live codes for one account is one
+        # more than anybody needs.
+        await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "reset"))
+        code, code_hash = generate_short_code()
+        db.add(
+            AuthToken(
+                user_id=user.id,
+                token_hash=code_hash,
+                kind="reset",
+                expires_at=datetime.now(UTC) + timedelta(minutes=settings.password_reset_ttl_minutes),
+            )
         )
-    )
-    # Commit before sending: a code that exists but wasn't delivered is a dead
-    # end the user can retry past, while a delivered code with no row behind it
-    # is one they cannot.
-    await db.commit()
-    # Operator-side only — the HTTP response stays identical either way, and
+        # Commit before sending: a code that exists but wasn't delivered is a
+        # dead end the user can retry past, while a delivered code with no row
+        # behind it is one they cannot.
+        await db.commit()
+    # Operator-side only — the HTTP response was identical either way, and
     # that anti-oracle property is about the response, not the server's logs.
     log_event("password_reset.requested", user_id=user.id)
-    # Suppressed, not ignored: mailer.py logs the failure. The response must not
-    # vary with delivery success or the endpoint becomes an account oracle.
+    # Suppressed, not ignored: mailer.py logs the failure.
     with contextlib.suppress(EmailNotConfigured, EmailSendFailed):
         await send_email(
             to=user.email,
@@ -300,7 +369,6 @@ async def request_password_reset(
             purpose="password_reset",
             user_id=user.id,
         )
-    return accepted
 
 
 @router.post("/password/reset-confirm", response_model=AuthOut)
@@ -319,17 +387,21 @@ async def confirm_password_reset(
     )
     reset = result.scalar_one_or_none()
     if reset is None or (reset.expires_at is not None and as_aware(reset.expires_at) <= datetime.now(UTC)):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "that reset code is not valid — it may have been used already or expired. "
-                "Request a fresh one from POST /auth/password-reset."
-            ),
-        )
+        raise HTTPException(status_code=400, detail=RESET_CODE_INVALID)
     forgive_auth_attempt(request)  # valid reset code; not a brute-force attempt
     user = reset.user
-    user.password_hash = hash_password(payload.new_password)
-    # Drop the reset code (single use) and every session token, then issue one.
+    password_hash = await hash_password(payload.new_password)
+    # Spend the code before using it, the same way an invite is claimed: two
+    # requests holding one code can both get this far, and only one of them
+    # can delete its row.
+    spent = await db.execute(
+        delete(AuthToken).where(AuthToken.id == reset.id).execution_options(synchronize_session=False)
+    )
+    if spent.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=RESET_CODE_INVALID)
+    user.password_hash = password_hash
+    # Drop any other reset code and every session token, then issue one.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("reset", "session"))))
     token = _session_token(user)
     db.add(token)
@@ -399,7 +471,7 @@ async def delete_account(
 
     Every token the account holds, session and API, stops working immediately.
     """
-    if not verify_password(payload.password, user.password_hash):
+    if not await verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
     forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
     # Every household this card pays for, which is almost always just their own.
@@ -511,6 +583,10 @@ async def update_household(payload: HouseholdUpdateIn, user: CurrentUser, db: Db
     it simple. A subscription does not move with it: billing belongs to whoever
     pays, so a lead whose card pays for one that will renew is refused until
     it is cancelled, rather than left paying for a household somebody else runs.
+
+    Handing over also withdraws every invite the outgoing lead issued that
+    nobody has used: an invite speaks for whoever leads the household, and from
+    now on that is somebody else. Redeemed ones stay in `GET /auth/invites`.
     """
     household = await _require_lead(db, user, "rename the household or hand the lead on")
 
@@ -532,9 +608,10 @@ async def update_household(payload: HouseholdUpdateIn, user: CurrentUser, db: Db
         )
         household.lead_user_id = successor.id
         handed_to = successor.id
+        await withdraw_invites(db, household.id, user.id)
 
     if payload.name is not None:
-        household.name = payload.name.strip()
+        household.name = payload.name
 
     await db.commit()
     await db.refresh(household)
@@ -557,6 +634,7 @@ async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) ->
     and every token they hold, and land in a new household of their own with
     nothing in it. The recipes, plans, lists and cooked history stay where they
     are, because those belong to the household rather than to a member (Q20).
+    Any invite they issued for it that nobody has used is withdrawn.
     """
     target = await db.get(User, user_id)
     if target is None or target.household_id != user.household_id:
@@ -584,13 +662,7 @@ async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) ->
             ),
         )
     elif await household_user_count(db, user.household_id) <= 1:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "you are the only member, so there is nothing to leave: the household's recipes and "
-                "history would go with you. DELETE /auth/me does that, and asks for your password first"
-            ),
-        )
+        raise HTTPException(status_code=409, detail=ONLY_MEMBER_CANNOT_LEAVE)
     else:
         _refuse_while_charging(
             await db.get(Household, user.household_id),
@@ -609,7 +681,13 @@ async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) ->
     db.add(home)
     await db.flush()
     home.lead_user_id = target.id  # their own household, so theirs to lead
-    await move_user_to_household(db, target, home.id)
+    try:
+        # Leaving deletes nothing, ever: if everyone else left since the count
+        # above, this caller is now the only member, and gets that answer.
+        await move_user_to_household(db, target, home.id, may_collect=False)
+    except WouldEmptyHousehold:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=ONLY_MEMBER_CANNOT_LEAVE) from None
     await db.commit()
 
     log_event(
@@ -679,7 +757,9 @@ async def list_invites(user: CurrentUser, db: DbSession) -> list[InviteOut]:
 
 
 @router.post("/invites/redeem", response_model=UserOut)
-async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSession) -> UserOut:
+async def redeem_invite(
+    payload: InviteRedeemIn, request: Request, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> UserOut:
     """Join another household with an invite code, while already signed in.
 
     Until Q23 a code could only be spent at `POST /auth/register`, which made
@@ -689,13 +769,16 @@ async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSessio
     You keep your account, your password and every token you hold — only which
     household you are in changes, and your next request reads the new one.
 
-    **If you are the only member of your current household**, leaving it deletes
-    its recipes, plans and history: nobody would be able to reach them again.
-    That needs `{"force": true}`, the same way a re-parse that would discard
-    someone's edits does. A household you have never put anything in doesn't
-    ask.
+    **If you are the only member of your current household**, joining another
+    one deletes it, exactly as `DELETE /auth/me` would, so it asks for what that
+    asks for: your `password`, in the body. If the household also holds recipes,
+    plans or history, which nobody would be able to reach again, it needs
+    `{"force": true}` as well, the same way a re-parse that would discard
+    someone's edits does, and `force` always comes with the password. Joining
+    from a household other people are still in deletes nothing and needs
+    neither. Rate-limited like every other endpoint that checks a password.
     """
-    invite = await _redeem_invite(db, payload.code)
+    invite = await _find_invite(db, payload.code)
     if invite.household_id == user.household_id:
         raise HTTPException(
             status_code=409,
@@ -723,22 +806,53 @@ async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSessio
     )
 
     origin_id = user.household_id
+    # The last one out collects the household behind them
+    # (`move_user_to_household`): the destruction DELETE /auth/me asks a
+    # password for, so a bearer token alone must not be enough to cause it.
     alone = await household_user_count(db, origin_id) <= 1
+    if alone or payload.force:
+        if payload.password is None:
+            why = (
+                "you are the only member of your current household, so joining another one deletes it. "
+                "That needs your password, as deleting your account does"
+                if alone
+                else '"force" needs your password as well'
+            )
+            raise HTTPException(status_code=401, detail=f'{why}: send it as "password" alongside the code')
+        if not await verify_password(payload.password, user.password_hash):
+            raise HTTPException(
+                status_code=401, detail="that password is incorrect, so you are still in your current household"
+            )
+        forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
+
     if alone and not payload.force and await household_has_content(db, origin_id):
         raise HTTPException(
             status_code=409,
             detail=(
                 "you are the only member of your current household, so joining another one deletes its "
                 'recipes, plans and cooked history — nobody could reach them again. Send {"force": true} '
-                "to accept that, or invite someone into it first"
+                "with your password to accept that, or invite someone into it first"
             ),
         )
 
     await limits.enforce(db, invite.household_id, "members")
 
-    invite.accepted_at = datetime.now(UTC)
-    invite.accepted_by_user_id = user.id
-    collected = await move_user_to_household(db, user, invite.household_id)
+    # Claimed before the move, so losing a race for the code collects nothing.
+    await _claim_invite(db, invite, user.id)
+    try:
+        # Only a caller who was alone, and so gave their password above, may
+        # empty the household; one who counted company that has since left may
+        # not, and is sent round again to be asked.
+        collected = await move_user_to_household(db, user, invite.household_id, may_collect=alone)
+    except WouldEmptyHousehold:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "everyone else has just left your household, so joining another one would now delete it. "
+                'Try again, sending your password as "password" alongside the code'
+            ),
+        ) from None
     await db.commit()
     await db.refresh(user)
 
@@ -777,9 +891,13 @@ async def revoke_invite(invite_id: uuid.UUID, user: CurrentUser, db: DbSession) 
 
 
 @router.post("/tokens", response_model=TokenCreatedOut, status_code=status.HTTP_201_CREATED)
-async def create_api_token(payload: TokenCreateIn, user: CurrentUser, db: DbSession) -> TokenCreatedOut:
+async def create_api_token(payload: TokenCreateIn, user: SessionUser, db: DbSession) -> TokenCreatedOut:
     """Create a personal API token for an AI client (MCP, scripts). The
-    plaintext token is returned once and never stored."""
+    plaintext token is returned once and never stored.
+
+    Needs a session from `POST /auth/login`: an API token can list and revoke
+    API tokens, but not create one, so revoking a token that leaked is enough
+    to shut out whoever has it."""
     await limits.enforce(db, user.household, "api_tokens")
     plain, token_hash = generate_token()
     expires_at = None

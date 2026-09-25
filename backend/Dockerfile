@@ -53,5 +53,7 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=5 \
 # SIGTERM directly and drains in-flight requests on shutdown; without it the
 # signal stops at `sh` and uvicorn is killed mid-response. The swarm stack
 # overrides this command (it waits for Postgres first) and execs for the same
-# reason.
+# reason. Behind a reverse proxy, set FORWARDED_ALLOW_IPS in the container's
+# environment (README, "Behind a reverse proxy"): uvicorn reads it, and without
+# it every client shares the proxy's auth rate-limit bucket.
 CMD ["sh", "-c", ".venv/bin/alembic upgrade head && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]

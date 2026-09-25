@@ -286,6 +286,11 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from: str | None = None  # falls back to smtp_username
     smtp_start_tls: Annotated[bool, BlankIsDefault] = True
+    # The whole of one send, connection to QUIT. aiosmtplib's own timeout is per
+    # command and 60s, so a relay answering slowly but steadily could hold a send
+    # for minutes; a reset email runs after its response has gone, but a stuck
+    # one still holds a connection and a task until this runs out.
+    smtp_timeout_seconds: float = 10.0
     # Reset codes are short-lived on purpose: emailed in plaintext, and holding
     # one is enough to change a password.
     password_reset_ttl_minutes: int = 30

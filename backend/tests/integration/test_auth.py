@@ -1,12 +1,21 @@
+import asyncio
+import contextlib
+import uuid
 from datetime import timedelta
 
+import bcrypt
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import Household, User
+from app import main
+from app.models import AuthToken, Household, User
 from app.routers import auth as auth_router
+from app.services import security
 from tests.conftest import create_recipe, register
+
+PASSWORD = "a-strong-password"
 
 
 @pytest.fixture
@@ -435,3 +444,225 @@ class TestInvites:
 
     async def test_invites_require_auth(self, client):
         assert (await client.post("/auth/invites", json={})).status_code == 401
+
+
+def _on_the_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+class TestBcryptStaysOffTheEventLoop:
+    """A bcrypt check is a quarter of a second of CPU. On the event loop that
+    is a quarter of a second in which nobody else is served, `/healthz`
+    included; on a worker thread it is nobody else's business."""
+
+    async def test_every_endpoint_that_hashes_or_checks_does_it_on_a_worker_thread(self, client, monkeypatch):
+        calls: list[tuple[str, bool]] = []
+        real_hashpw, real_checkpw = bcrypt.hashpw, bcrypt.checkpw
+
+        def hashpw(*args):
+            calls.append(("hashpw", _on_the_event_loop()))
+            return real_hashpw(*args)
+
+        def checkpw(*args):
+            calls.append(("checkpw", _on_the_event_loop()))
+            return real_checkpw(*args)
+
+        monkeypatch.setattr(security.bcrypt, "hashpw", hashpw)
+        monkeypatch.setattr(security.bcrypt, "checkpw", checkpw)
+
+        async def through_bcrypt(method: str, path: str, **kwargs):
+            before = len(calls)
+            response = await client.request(method, path, **kwargs)
+            assert len(calls) > before, f"{method} {path} never reached bcrypt"
+            return response
+
+        lead = await register(client, email="lead@example.com", name="Lead")
+        code = (
+            await client.post("/auth/invites", json={}, headers={"Authorization": f"Bearer {lead['token']}"})
+        ).json()["code"]
+        me = (
+            await through_bcrypt(
+                "POST", "/auth/register", json={"email": "me@example.com", "password": PASSWORD, "display_name": "Me"}
+            )
+        ).json()
+        mine = {"Authorization": f"Bearer {me['token']}"}
+        await through_bcrypt("POST", "/auth/login", json={"email": "me@example.com", "password": PASSWORD})
+        await through_bcrypt("POST", "/auth/login", json={"email": "me@example.com", "password": "not-my-password"})
+        await through_bcrypt("POST", "/auth/login", json={"email": "nobody@example.com", "password": PASSWORD})
+        changed = await through_bcrypt(
+            "POST",
+            "/auth/password",
+            json={"current_password": PASSWORD, "new_password": "a-newer-password"},
+            headers=mine,
+        )
+        mine = {"Authorization": f"Bearer {changed.json()['token']}"}
+        await through_bcrypt(
+            "POST", "/auth/invites/redeem", json={"code": code, "password": "a-newer-password"}, headers=mine
+        )
+        await through_bcrypt("DELETE", "/auth/me", json={"password": "a-newer-password"}, headers=mine)
+
+        assert {name for name, _ in calls} == {"hashpw", "checkpw"}
+        assert [call for call in calls if call[1]] == [], "bcrypt ran on the event loop"
+
+
+class TestAFailedLoginCostsTheSameEitherWay:
+    """Whether the address has an account must not show in how long a wrong
+    password takes to refuse."""
+
+    async def test_an_unknown_address_pays_for_a_bcrypt_check_too(self, client, monkeypatch):
+        await register(client)
+        checks: list[bytes] = []
+        real_checkpw = bcrypt.checkpw
+
+        def checkpw(password: bytes, hashed: bytes) -> bool:
+            checks.append(hashed)
+            return real_checkpw(password, hashed)
+
+        monkeypatch.setattr(security.bcrypt, "checkpw", checkpw)
+        answers = []
+        for email in ("marcus@example.com", "nobody@example.com"):
+            before = len(checks)
+            response = await client.post("/auth/login", json={"email": email, "password": "not-my-password"})
+            answers.append((response.status_code, response.json()))
+            assert len(checks) - before == 1, f"a failed login for {email} did not do exactly one bcrypt check"
+
+        assert answers[0] == answers[1] == (401, {"detail": "incorrect email or password"})
+
+    async def test_the_server_makes_the_stand_in_before_it_answers_anything(self, monkeypatch):
+        """Made lazily, the stand-in would double the first unknown-address
+        login after a restart, and that one slow answer would say the address
+        has no account."""
+        made: list[str] = []
+
+        async def warm_up() -> None:
+            made.append("stand-in")
+
+        monkeypatch.setattr(main.security, "warm_up", warm_up)
+        # The real MCP session manager runs once per process; tests enter it themselves.
+        monkeypatch.setattr(main.mcp_mount, "running", contextlib.nullcontext)
+        async with main.lifespan(main.app):
+            assert made == ["stand-in"]
+
+    async def test_warming_up_makes_the_stand_in(self):
+        security._stand_in_hash.cache_clear()
+        await security.warm_up()
+        assert security._stand_in_hash.cache_info().currsize == 1
+
+    async def test_the_stand_in_hash_costs_what_a_real_one_does(self, client, engine):
+        await register(client)
+        async with async_sessionmaker(engine)() as db:
+            real = (await db.execute(select(User.password_hash))).scalar_one()
+        # "$2b$12$": the same algorithm at the same cost factor, so checking
+        # against it takes as long as checking against somebody's password.
+        assert security._stand_in_hash()[:7] == real[:7]
+
+
+class TestPasswordsAreMeasuredInBytes:
+    """bcrypt's limit is 72 *bytes*, and bcrypt 5 raises past it. A character
+    limit let forty accented letters (eighty bytes) through to a 500."""
+
+    TOO_LONG = "é" * 40  # 40 characters, 80 bytes
+
+    @staticmethod
+    def assert_refused_with_a_sentence(response, field: str) -> None:
+        assert response.status_code == 422, response.text
+        (error,) = response.json()["detail"]
+        assert error["loc"][-1] == field
+        assert "72 bytes" in error["msg"]
+        assert "shorter" in error["msg"]
+        assert not error["msg"].startswith("Value error")  # shown verbatim by the iPhone app
+
+    async def test_registering_with_one_is_a_422_that_says_why(self, client):
+        response = await client.post(
+            "/auth/register", json={"email": "a@b.com", "password": self.TOO_LONG, "display_name": "A"}
+        )
+        self.assert_refused_with_a_sentence(response, "password")
+
+    async def test_changing_to_one_is_a_422_that_says_why(self, auth_client):
+        response = await auth_client.post(
+            "/auth/password", json={"current_password": PASSWORD, "new_password": self.TOO_LONG}
+        )
+        self.assert_refused_with_a_sentence(response, "new_password")
+
+    async def test_a_long_ascii_password_gets_the_same_sentence(self, client):
+        response = await client.post(
+            "/auth/register", json={"email": "a@b.com", "password": "x" * 73, "display_name": "A"}
+        )
+        self.assert_refused_with_a_sentence(response, "password")
+
+    async def test_checking_one_is_a_refusal_rather_than_a_crash(self, client):
+        """bcrypt 5 raises on a long password when checking, too. Nobody can
+        have stored one, so it simply doesn't match."""
+        await register(client)
+        response = await client.post("/auth/login", json={"email": "marcus@example.com", "password": self.TOO_LONG})
+        assert response.status_code == 401
+
+    async def test_exactly_72_bytes_is_a_password(self, client):
+        password = "é" * 36
+        response = await client.post(
+            "/auth/register", json={"email": "a@b.com", "password": password, "display_name": "A"}
+        )
+        assert response.status_code == 201
+        login = await client.post("/auth/login", json={"email": "a@b.com", "password": password})
+        assert login.status_code == 200
+
+
+class TestOnlyASignedInPersonMintsApiTokens:
+    async def test_an_api_token_cannot_create_another(self, auth_client):
+        pat = (await auth_client.post("/auth/tokens", json={"label": "my AI"})).json()["token"]
+        response = await auth_client.post(
+            "/auth/tokens", json={"label": "a spare"}, headers={"Authorization": f"Bearer {pat}"}
+        )
+
+        assert response.status_code == 403
+        assert "POST /auth/login" in response.json()["detail"]
+        assert [t["label"] for t in (await auth_client.get("/auth/tokens")).json()] == ["my AI"]
+
+    async def test_an_api_token_can_still_list_and_revoke(self, auth_client):
+        """Tidying up after itself is fine; it is only multiplying that isn't."""
+        created = (await auth_client.post("/auth/tokens", json={"label": "my AI"})).json()
+        own = {"Authorization": f"Bearer {created['token']}"}
+        assert (await auth_client.get("/auth/tokens", headers=own)).status_code == 200
+        assert (await auth_client.delete(f"/auth/tokens/{created['id']}", headers=own)).status_code == 204
+
+
+class TestEveryTokenSaysWhatKindItIs:
+    async def test_a_token_written_without_a_kind_is_refused(self, client, engine):
+        """`deps.AUTHENTICATING_KINDS` is an allow-list. A default of "session"
+        would make any row written without a kind a credential by accident."""
+        auth = await register(client)
+        async with async_sessionmaker(engine)() as db:
+            db.add(AuthToken(user_id=uuid.UUID(auth["user"]["id"]), token_hash="0" * 64))
+            with pytest.raises(IntegrityError):
+                await db.flush()
+
+
+class TestNamesAreTrimmedBeforeTheyAreMeasured:
+    async def test_a_display_name_of_spaces_is_refused(self, client):
+        response = await client.post(
+            "/auth/register", json={"email": "a@b.com", "password": PASSWORD, "display_name": "   "}
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"][-1] == "display_name"
+
+    async def test_a_household_name_of_spaces_is_refused(self, client):
+        response = await client.post(
+            "/auth/register",
+            json={"email": "a@b.com", "password": PASSWORD, "display_name": "A", "household_name": " \t "},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"][-1] == "household_name"
+
+    async def test_renaming_to_spaces_is_refused(self, auth_client):
+        response = await auth_client.patch("/auth/household", json={"name": "   "})
+        assert response.status_code == 422
+        assert (await auth_client.get("/auth/me")).json()["household_name"] == "Home"
+
+    async def test_names_are_kept_without_the_padding(self, client):
+        auth = await register(client, email="isla@example.com", name="  Isla ", household_name=" Williams  ")
+        assert auth["user"]["display_name"] == "Isla"
+        assert auth["user"]["household_name"] == "Williams"
