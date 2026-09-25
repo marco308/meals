@@ -66,6 +66,11 @@ that has paid (until now only the lead could open a checkout).
 - **The URL-ingest quota counts every ingest.** Two ingests at once could both
   read the same count and write the same number back; checking and charging is
   now one conditional `UPDATE`.
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
 
 ### Added
 
