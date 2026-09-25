@@ -20,25 +20,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**Two migrations**, both additive, run in this order:
-
-- `ef71d71574d8`: four nullable columns on `households`, and a backfill
-  naming the lead as the payer of every household that has paid (until now
-  only the lead could open a checkout).
-- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
-  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
-  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
-  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
-  against the migrated schema, as it does for the few seconds of a
-  start-first rollout. Additive for clients too: no response field was
-  removed or renamed, and the household export gains two.
-
-Billing, shopping-list and recipe fixes, and authentication hardening (the
-**Security** entries and the last four under **Fixed**). One request changes shape for some callers:
-`POST /auth/invites/redeem` needs the caller's password whenever it would delete
-the household they are leaving (see **Changed**). The web app asks for it now
-and the iPhone app from its next build; builds already installed get a sentence
-saying what is missing.
+Authentication hardening. No migrations. One request changes shape for some
+callers: `POST /auth/invites/redeem` needs the caller's password whenever it
+would delete the household they are leaving (see **Changed**). The web app asks
+for it now and the iPhone app from its next build; builds already installed get
+a sentence saying what is missing.
 
 ### Security
 
@@ -66,21 +52,59 @@ saying what is missing.
 - **Changing a password retires outstanding reset codes**, as well as the
   sessions it already revoked.
 
+### Fixed
+
+- **bcrypt runs on a worker thread**, so sign-ins no longer hold up every other
+  request in the process, `/healthz` included.
+- **A new password over 72 bytes is a 422 that says so**, where it was a 500.
+  The limit was counted in characters and bcrypt's is in bytes; accented
+  letters and emoji take 2 to 4 each.
+- **Display and household names are trimmed before they are measured**, so one
+  made only of spaces is refused rather than stored empty.
+- **An auth token row must say what kind it is.** `AuthToken.kind` no longer
+  defaults to `session`, so a row written without one fails instead of becoming
+  a credential.
+
 ### Changed
 
-- **`/privacy` says what the app keeps through a sign-out.** The cached
-  shopping list is cleared on sign-out, on account deletion and on moving
-  household, as the page already claimed and build 27 did not do. Offline
-  changes not yet sent are kept through a sign-out and sent only as the
-  account and household that made them. The sign-in token is stored with the
-  server that issued it and sent nowhere else. This describes the next iOS
-  build, which fixes the offline shopping list: deploy it with that build.
 - `POST /auth/invites/redeem` takes an optional `password`, and answers 401
   without it when the caller is the only member of their household or sends
   `force`. That comes before the `force` 409, so an older client is told what
   is missing rather than asked to confirm something it then can't finish.
 - Outgoing email gets `SMTP_TIMEOUT_SECONDS` (10 by default) for the whole
   send, where aiosmtplib allowed 60 seconds per command.
+
+### Added
+
+- **`FORWARDED_ALLOW_IPS` is documented** (README, "Behind a reverse proxy";
+  `.env.example`; `SECURITY.md`) and passed through by `docker-compose.yml`.
+  uvicorn reads it to decide whose `X-Forwarded-For` to believe, and behind a
+  proxy the per-client auth rate limit depends on it.
+
+## 2026-09-25 — grant only what was paid for, bound what a request can cost
+
+Released as **1.6.4**. **Two migrations**, both additive, run in this order:
+
+- `ef71d71574d8`: four nullable columns on `households`, and a backfill
+  naming the lead as the payer of every household that has paid (until now
+  only the lead could open a checkout).
+- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
+  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
+  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
+  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
+  against the migrated schema, as it does for the few seconds of a
+  start-first rollout. Additive for clients too: no response field was
+  removed or renamed, and the household export gains two.
+
+Validation is tighter in a few places, each far past real use: a
+non-finite quantity, `prep_minutes` or `cook_minutes` over 525,600, an
+`aisle_order` longer than the 14 aisles, and an `X-Meals-Client` header whose
+parts run past their bounds (which, like any unparseable one, makes an
+unidentified client rather than a refusal).
+
+The `/privacy` wording for the iOS offline-list fix
+([#156](https://github.com/marco308/meals/pull/156)) is held back for the
+build that ships it.
 
 ### Fixed
 
@@ -165,26 +189,40 @@ saying what is missing.
   had wrapped itself up. It now archives the current plan first, then starts
   the new one from it. The plan page lists any other active plan under **Also
   on the go**, and "Wrap up" no longer claims the list keeps the plan's items.
-- **bcrypt runs on a worker thread**, so sign-ins no longer hold up every other
-  request in the process, `/healthz` included.
-- **A new password over 72 bytes is a 422 that says so**, where it was a 500.
-  The limit was counted in characters and bcrypt's is in bytes; accented
-  letters and emoji take 2 to 4 each.
-- **Display and household names are trimmed before they are measured**, so one
-  made only of spaces is refused rather than stored empty.
-- **An auth token row must say what kind it is.** `AuthToken.kind` no longer
-  defaults to `session`, so a row written without one fails instead of becoming
-  a credential.
+- **Recipe ingestion is bounded**
+  ([#157](https://github.com/marco308/meals/pull/157)). Pages are requested
+  uncompressed, and a server that compresses anyway has at most one layer of
+  gzip or deflate undone here, under the 5 MB cap while it inflates. The whole
+  fetch has one deadline (`RECIPE_FETCH_TIMEOUT_SECONDS` now covers DNS,
+  redirects and the body together), no database connection waits on it, and
+  the page is parsed in a worker thread with each ingredient line cut to the
+  500 characters a line stores. Whatever a page holds ends as a recipe or the
+  read-it-yourself 422: yields and times out of range are dropped, lines past
+  100 are trimmed, and unreadable JSON-LD, an odd charset or a malformed URL no
+  longer turns an ingest that was already charged into a 500. A URL stored by
+  a concurrent request comes back as cached.
+- **Non-finite quantities are refused**
+  ([#160](https://github.com/marco308/meals/pull/160)). `Infinity`, `NaN` and
+  amounts that overflow once converted are a 422 saying what to send instead.
+  One already stored shows as no amount rather than failing every view of its
+  list, and the export writes it as `null`.
+- **A refusal can always be sent**
+  ([#160](https://github.com/marco308/meals/pull/160),
+  [#157](https://github.com/marco308/meals/pull/157)). A 422 that echoed
+  `NaN`, `Infinity`, a body that isn't UTF-8 or half a surrogate pair went out
+  as a 500.
+- **Smaller** ([#157](https://github.com/marco308/meals/pull/157)): a
+  supermarket's `aisle_order` is capped at the 14 aisles and checked for
+  repeats in one pass; the `client_platform` and `method` labels on
+  `meals_http_requests_total` are folded into fixed sets; an over-long
+  `X-Meals-Client` build is an unidentified client rather than a 500; and
+  `prep_minutes` and `cook_minutes` stop at a year.
 
 ### Added
 
 - `payer_user_id` and `renews` on `GET /billing/subscription`, and an `unpaid`
   outcome on `meals_billing_webhooks_total`. `/privacy` says what else is now
   recorded and sent.
-- **`FORWARDED_ALLOW_IPS` is documented** (README, "Behind a reverse proxy";
-  `.env.example`; `SECURITY.md`) and passed through by `docker-compose.yml`.
-  uvicorn reads it to decide whose `X-Forwarded-For` to believe, and behind a
-  proxy the per-client auth rate limit depends on it.
 
 ## 2026-09-21 — YAMP on the public pages
 

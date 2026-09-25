@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.common import IngredientLineIn
+from app.services.aisles import AISLE_EMOJIS
 
 
 class AdhocItemIn(IngredientLineIn):
@@ -75,14 +76,15 @@ class SupermarketOut(BaseModel):
 class SupermarketCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     # Aisle emojis first-to-last as walked; omitted aisles keep their usual
-    # place at the end. Default: the built-in store-walking order.
-    aisle_order: list[str] | None = None
+    # place at the end. Default: the built-in store-walking order. Each aisle
+    # may appear once, so a longer list is refused before anything reads it.
+    aisle_order: list[str] | None = Field(default=None, max_length=len(AISLE_EMOJIS))
     is_active: bool = False
 
 
 class SupermarketUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    aisle_order: list[str] | None = None
+    aisle_order: list[str] | None = Field(default=None, max_length=len(AISLE_EMOJIS))
     is_active: bool | None = None  # true sorts the list for this store; false falls back to the built-in order
 
 

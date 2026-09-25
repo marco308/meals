@@ -65,7 +65,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     lifespan=lifespan,
     title="Meals API",
-    version="1.6.3",
+    version="1.6.4",
     description=(
         "A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and an "
         "aisle-sorted shopping list. Designed to be driven by any AI assistant: every error "
@@ -162,20 +162,29 @@ async def request_validation_handler(_: Request, exc: Exception) -> Response:
     will not encode a float JSON has no spelling for, so a request that had
     been correctly refused came back as a 500 telling the caller it was not
     their fault. Those floats are echoed as the strings "Infinity",
-    "-Infinity" and "NaN" instead.
+    "-Infinity" and "NaN" instead. Text failed the same way: half a surrogate
+    pair has no UTF-8 encoding, and a non-JSON body that isn't UTF-8 made
+    jsonable_encoder raise before that, so both are echoed with the bad part
+    replaced.
     """
     assert isinstance(exc, RequestValidationError)
-    return JSONResponse(status_code=422, content={"detail": _spell_non_finite(jsonable_encoder(exc.errors()))})
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))})
 
 
-def _spell_non_finite(value: Any) -> Any:
-    """`value` with every float that JSON cannot carry replaced by its name."""
+def _encodable(value: Any) -> Any:
+    """`value` with anything JSON can't carry spelled out: a float by its name,
+    text with what won't encode as UTF-8 replaced. It runs before
+    jsonable_encoder, which is itself what fails on bytes that aren't UTF-8."""
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, str):
+        return value.encode("utf-8", "replace").decode("utf-8")
     if isinstance(value, dict):
-        return {key: _spell_non_finite(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_spell_non_finite(item) for item in value]
+        return {_encodable(key): _encodable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_encodable(item) for item in value]
     return value
 
 

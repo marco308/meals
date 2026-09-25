@@ -13,7 +13,9 @@ never heard of it loses nothing; set, it answers only a matching
 
 Label discipline: `route` is the matched route *template* (a bounded set),
 never the raw path — otherwise every scanner probing /wp-login.php mints a new
-timeseries. Requests that matched nothing are all "unmatched". The usage
+timeseries. Requests that matched nothing are all "unmatched". The same goes
+for everything else a caller chooses: the method and the client platform are
+folded into fixed sets before they become labels. The usage
 gauges are whole-server counts on purpose (they exist to answer "is anyone
 using this"), which is why those queries have no household_id filter — they
 count rows, and read nothing anyone entered.
@@ -112,9 +114,24 @@ def count_billing_webhook(outcome: str) -> None:
     _BILLING_WEBHOOKS.labels(outcome=outcome).inc()
 
 
+# The platforms this API has clients on. The platform arrives in the
+# unauthenticated X-Meals-Client header and is recorded on every response,
+# 404s included, so anything else is "other" rather than a timeseries of its own.
+_PLATFORM_LABELS = frozenset({"ios", "web"})
+# Likewise the method: HTTP allows any token there, and a 405 still counts.
+_METHOD_LABELS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+
+
+def _platform_label(platform: str | None) -> str:
+    if platform is None:
+        return "none"
+    return platform if platform in _PLATFORM_LABELS else "other"
+
+
 def observe_request(method: str, route: str, status: int, client_platform: str | None, duration_seconds: float) -> None:
+    method = method if method in _METHOD_LABELS else "OTHER"
     _HTTP_REQUESTS.labels(
-        method=method, route=route, status=str(status), client_platform=client_platform or "none"
+        method=method, route=route, status=str(status), client_platform=_platform_label(client_platform)
     ).inc()
     _HTTP_DURATION.labels(method=method, route=route).observe(duration_seconds)
 

@@ -1,3 +1,9 @@
+import asyncio
+import gzip
+import time
+import tracemalloc
+import zlib
+
 import httpcore
 import httpx
 import pytest
@@ -6,6 +12,50 @@ import respx
 from app.config import get_settings
 from app.services import recipe_parser
 from app.services.recipe_parser import RecipeFetchError, fetch_page
+
+
+def _serve_raw(monkeypatch, *chunks: bytes, stream_class: type[httpcore.AsyncMockStream] = httpcore.AsyncMockStream):
+    """Answer the next fetch with exactly these bytes on the socket, so the
+    real httpx and httpcore stack reads what a server sent: nothing in between
+    to decode, re-encode or buffer it first."""
+
+    class Backend(httpcore.AsyncMockBackend):
+        async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+            return stream_class(list(chunks))
+
+    def canned_transport() -> httpx.AsyncHTTPTransport:
+        transport = httpx.AsyncHTTPTransport()
+        transport._pool._network_backend = Backend([])
+        return transport
+
+    monkeypatch.setattr(recipe_parser, "_fetch_transport", canned_transport)
+
+
+def _response_head(**headers: str) -> bytes:
+    lines = ["HTTP/1.1 200 OK", *(f"{name.replace('_', '-')}: {value}" for name, value in headers.items())]
+    return ("\r\n".join(lines) + "\r\n\r\n").encode()
+
+
+def _gzip_of_zeros(size: int) -> bytes:
+    """gzip of `size` zero bytes, built a megabyte at a time so the test never
+    holds what the response claims to be."""
+    packer = zlib.compressobj(9, zlib.DEFLATED, zlib.MAX_WBITS | 16)
+    megabyte = bytes(1024 * 1024)
+    return b"".join([*(packer.compress(megabyte) for _ in range(size // len(megabyte))), packer.flush()])
+
+
+async def _peak_allocation(coroutine) -> tuple[int, Exception | None]:
+    """The most memory Python held at once while `coroutine` ran, and what it raised."""
+    raised = None
+    tracemalloc.start()
+    try:
+        await coroutine
+    except Exception as exc:
+        raised = exc
+    finally:
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    return peak, raised
 
 
 @respx.mock
@@ -97,6 +147,114 @@ async def test_undecodable_bytes_do_not_lose_the_page():
     assert "ok" in await fetch_page("https://example.com/messy")
 
 
+@respx.mock
+@pytest.mark.parametrize("charset", ["idna", "punycode", "undefined", "rot13", "no-such-charset"])
+async def test_a_charset_no_page_is_written_in_falls_back_to_utf8(charset):
+    """idna and undefined refuse errors="replace", which was a 500; punycode
+    decodes in quadratic time, which was the event loop held for as long as
+    the page liked; rot13 is not a text encoding at all. No web page is
+    written in any of them."""
+    body = b"<html>" + b"b" * 200_000 + b"</html>"
+    respx.get("https://example.com/odd").mock(
+        return_value=httpx.Response(200, headers={"content-type": f"text/html; charset={charset}"}, content=body)
+    )
+    started = time.perf_counter()
+    assert await fetch_page("https://example.com/odd") == body.decode()
+    assert time.perf_counter() - started < 1.0
+
+
+# ------------------------------------------------------------------ compression
+# The size cap has to hold for what decompression produces. httpx inflates a
+# chunk whole before it can be counted, and honours stacked codings, so the
+# body is read raw and inflated here instead.
+
+
+@respx.mock
+async def test_pages_are_asked_for_uncompressed():
+    route = respx.get("https://example.com/plain").mock(return_value=httpx.Response(200, text="<html>hi</html>"))
+    await fetch_page("https://example.com/plain")
+    assert route.calls.last.request.headers["accept-encoding"] == "identity"
+
+
+@pytest.mark.parametrize(
+    "coding,compress",
+    [("gzip", gzip.compress), ("x-gzip", gzip.compress), ("deflate", zlib.compress), ("identity", bytes)],
+)
+async def test_a_server_that_compresses_anyway_is_still_read(monkeypatch, coding, compress):
+    page = b"<html>" + b"chilli con carne " * 5_000 + b"</html>"
+    body = compress(page)
+    _serve_raw(monkeypatch, _response_head(content_encoding=coding, content_length=str(len(body))), body)
+    assert await fetch_page("http://example.com/chilli") == page.decode()
+
+
+async def test_stacked_compression_is_refused_without_unpacking_it(monkeypatch):
+    """gzip inside gzip: a few hundred bytes on the wire used to arrive at the
+    size check as one chunk of tens of megabytes."""
+    bomb = gzip.compress(_gzip_of_zeros(64 * 1024 * 1024))
+    assert len(bomb) < 1024
+    _serve_raw(monkeypatch, _response_head(content_encoding="gzip, gzip", content_length=str(len(bomb))), bomb)
+
+    peak, raised = await _peak_allocation(fetch_page("http://example.com/bomb"))
+    assert isinstance(raised, RecipeFetchError)
+    assert "does not unpack" in str(raised)
+    assert "POST /recipes" in str(raised)  # says what to do instead
+    assert peak < get_settings().recipe_fetch_max_bytes
+
+
+@pytest.mark.parametrize("coding", ["br", "zstd", "compress", "gzip, br"])
+async def test_a_compression_this_server_does_not_undo_is_refused(monkeypatch, coding):
+    _serve_raw(monkeypatch, _response_head(content_encoding=coding, content_length="5"), b"\x00" * 5)
+    with pytest.raises(RecipeFetchError, match="does not unpack"):
+        await fetch_page("http://example.com/odd")
+
+
+async def test_a_compressed_page_is_capped_while_it_inflates(monkeypatch):
+    """One layer of gzip is undone, but the ceiling applies to the bytes as
+    they come out of zlib: 64 KB on the wire that inflates to 64 MB is refused
+    having held about the ceiling's worth, never the 64 MB."""
+    limit = get_settings().recipe_fetch_max_bytes
+    bomb = _gzip_of_zeros(64 * 1024 * 1024)
+    _serve_raw(monkeypatch, _response_head(content_encoding="gzip", content_length=str(len(bomb))), bomb)
+
+    peak, raised = await _peak_allocation(fetch_page("http://example.com/bomb"))
+    assert isinstance(raised, RecipeFetchError)
+    assert "larger than this server will read" in str(raised)
+    assert peak < 2 * limit
+
+
+async def test_a_body_that_will_not_decompress_is_actionable(monkeypatch):
+    body = b"this is not gzip at all"
+    _serve_raw(monkeypatch, _response_head(content_encoding="gzip", content_length=str(len(body))), body)
+    with pytest.raises(RecipeFetchError, match="would not decompress") as exc_info:
+        await fetch_page("http://example.com/garbled")
+    assert "POST /recipes" in str(exc_info.value)
+
+
+# ------------------------------------------------------------------ deadline
+# httpx's timeout is per network phase, so a server that drips a byte at a
+# time never trips it; meanwhile the request holds its place in the API.
+
+
+class _DrippingStream(httpcore.AsyncMockStream):
+    """The canned response head, then one byte every 50 ms for ever."""
+
+    async def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        if self._buffer:
+            return self._buffer.pop(0)
+        await asyncio.sleep(0.05)
+        return b"x"
+
+
+async def test_a_slow_drip_is_cut_off_by_the_whole_fetch_deadline(monkeypatch, settings_override):
+    settings_override(RECIPE_FETCH_TIMEOUT_SECONDS="0.5")
+    _serve_raw(monkeypatch, _response_head(content_type="text/html"), stream_class=_DrippingStream)
+    started = time.perf_counter()
+    with pytest.raises(RecipeFetchError, match="took longer than 0.5 seconds") as exc_info:
+        await fetch_page("http://example.com/slow")
+    assert time.perf_counter() - started < 2.0
+    assert "POST /recipes" in str(exc_info.value)
+
+
 # ------------------------------------------------------------------ SSRF guard
 # Ingestion fetches a URL the caller chose, so the endpoint would otherwise
 # read the network the server is deployed on and hand back the result.
@@ -177,6 +335,13 @@ async def test_non_http_schemes_are_refused(url):
 async def test_url_without_a_hostname_is_refused():
     with pytest.raises(RecipeFetchError, match="no hostname"):
         await fetch_page("https:///recipes/chilli")
+
+
+async def test_a_url_that_does_not_parse_is_refused_not_raised():
+    """urlsplit raises ValueError on an unclosed IPv6 bracket; that was a 500."""
+    with pytest.raises(RecipeFetchError, match="not a URL this server can read") as exc_info:
+        await fetch_page("http://[::1/x")
+    assert "POST /recipes" in str(exc_info.value)
 
 
 async def test_an_answer_that_is_not_an_address_fails_closed(monkeypatch):

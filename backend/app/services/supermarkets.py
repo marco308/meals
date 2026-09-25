@@ -8,6 +8,7 @@ no client needs to know supermarkets exist to honour one.
 """
 
 import uuid
+from collections import Counter
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +50,9 @@ def invalid_aisle_order_detail(order: list[str]) -> str | None:
             "List them first-to-last as you walk the store — any you leave out keep "
             "their usual place at the end"
         )
-    duplicates = sorted({emoji for emoji in order if order.count(emoji) > 1})
+    # Counted once, not rescanned per entry: order.count() in a loop was
+    # quadratic, 15 seconds of the event loop for a 40,000-entry list.
+    duplicates = sorted(emoji for emoji, seen in Counter(order).items() if seen > 1)
     if duplicates:
         return f"aisle(s) {' '.join(duplicates)} listed more than once; each aisle appears at most once"
     return None

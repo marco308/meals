@@ -7,10 +7,12 @@ recipe via POST /recipes instead.
 """
 
 import asyncio
+import codecs
 import ipaddress
 import json
 import re
 import socket
+import zlib
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -19,6 +21,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import get_settings
+from app.schemas.catalog import MAX_RECIPE_LINES
 from app.services.ingredient_names import _MODIFIERS, is_protected_name
 from app.services.units import (
     _UNIT_SYNONYMS,
@@ -62,6 +65,10 @@ class ParsedRecipe:
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _MAX_REDIRECTS = 5
 _READ_IT_YOURSELF = "read the page yourself and submit the structured recipe via POST /recipes"
+SUBMIT_IT_YOURSELF = (
+    "read the page yourself and submit the structured recipe via POST /recipes (title, servings, times, "
+    "and one ingredient line per item with quantities normalised to g/kg/ml/l or natural counts)"
+)
 
 
 async def _resolve_host(host: str) -> list[str]:
@@ -111,7 +118,12 @@ async def _assert_public_url(url: str) -> list[str]:
     would let a record that changed between the two lookups — DNS rebinding —
     point the fetch at a private address after all.
     """
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError as exc:  # "http://[::1/x": an unclosed IPv6 bracket, and the like
+        raise RecipeFetchError(
+            f"{url} is not a URL this server can read ({exc}); check it, or {_READ_IT_YOURSELF}"
+        ) from exc
     if parts.scheme.lower() not in _ALLOWED_SCHEMES:
         raise RecipeFetchError(
             f"{parts.scheme or url!r} is not a scheme this server will fetch — recipe URLs must be "
@@ -229,39 +241,134 @@ def _too_big(url: str, limit: int) -> RecipeFetchError:
     )
 
 
+# The content codings this server undoes itself. It asks for none
+# (Accept-Encoding: identity); these are for servers that compress anyway.
+# Anything else is refused rather than read as bytes nobody can parse, and so
+# is a stack of more than one ("gzip, gzip"): every layer multiplies what the
+# one inside it produces, and no real page needs two.
+_CONTENT_CODINGS = {"gzip": zlib.MAX_WBITS | 16, "x-gzip": zlib.MAX_WBITS | 16, "deflate": zlib.MAX_WBITS}
+
+# How much inflated output to ask zlib for at a time, so a compressed page
+# grows towards the ceiling in pieces this size instead of in one allocation.
+_INFLATE_STEP = 64 * 1024
+
+# Charsets never honoured, whatever a page declares: punycode decodes in
+# quadratic time (a 5 MB page would hold the event loop for most of an hour)
+# and idna refuses errors="replace". No web page is written in either.
+_REFUSED_CHARSETS = frozenset({"idna", "punycode"})
+
+
+def _content_coding(response: httpx.Response, url: str) -> str | None:
+    """The one content coding to undo, None for none; stacked or unknown
+    codings are refused."""
+    codings = [value.strip().lower() for value in response.headers.get_list("content-encoding", split_commas=True)]
+    codings = [coding for coding in codings if coding and coding != "identity"]
+    if not codings:
+        return None
+    if len(codings) > 1 or codings[0] not in _CONTENT_CODINGS:
+        raise RecipeFetchError(
+            f"{url} came back compressed as {', '.join(codings)}, which this server does not unpack "
+            f"(it asks for pages uncompressed, and undoes at most one layer of gzip or deflate); "
+            f"{_READ_IT_YOURSELF}"
+        )
+    return codings[0]
+
+
+def _decode(body: bytes, charset: str | None) -> str:
+    """Decode the way response.text would: the charset the response declared,
+    else UTF-8. Undecodable bytes are replaced rather than fatal — a page with
+    a few bad bytes can still carry perfectly good JSON-LD."""
+    if charset:
+        try:
+            if codecs.lookup(charset).name not in _REFUSED_CHARSETS:
+                return body.decode(charset, errors="replace")
+        except (LookupError, ValueError):  # a charset nobody has heard of, or one that isn't text
+            pass
+    return body.decode("utf-8", errors="replace")
+
+
 async def _read_capped(response: httpx.Response, url: str, limit: int) -> str:
     """The response body, refused once it passes `limit` bytes.
 
     A declared Content-Length is checked first so an obvious offender is
     dropped before a byte is read, but it's a courtesy rather than the guard:
-    the header is the remote server's claim, and the running total below is
-    what actually stops us.
+    the header is the remote server's claim, and the running totals below are
+    what actually stop us.
+
+    The body is read raw and inflated here rather than by httpx, because httpx
+    inflates each chunk whole before anybody can count it: the ceiling has to
+    apply to what decompression produces, while it is producing it.
     """
     declared = response.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > limit:
         raise _too_big(url, limit)
 
+    coding = _content_coding(response, url)
+    decompressor = zlib.decompressobj(_CONTENT_CODINGS[coding]) if coding else None
     chunks: list[bytes] = []
-    total = 0
-    async for chunk in response.aiter_bytes():
-        total += len(chunk)
-        if total > limit:
+    received = total = 0
+    async for raw in response.aiter_raw():
+        # Compressed or not, a body bigger than the ceiling on the wire was
+        # never going to be a page this server reads.
+        received += len(raw)
+        if received > limit:
             raise _too_big(url, limit)
-        chunks.append(chunk)
-    # Streaming rules out response.text, which needs the whole body buffered,
-    # so decode the way it would: the charset the response declared, else
-    # UTF-8. Undecodable bytes are replaced rather than fatal — a page with a
-    # few bad bytes can still carry perfectly good JSON-LD.
-    encoding = response.charset_encoding or "utf-8"
-    try:
-        return b"".join(chunks).decode(encoding, errors="replace")
-    except LookupError:  # a charset nobody has heard of
-        return b"".join(chunks).decode("utf-8", errors="replace")
+        if decompressor is None:
+            total = received
+            chunks.append(raw)
+            continue
+        pending = raw
+        while True:
+            # One byte more than there is room for is enough to know the page
+            # is over the ceiling, so zlib is never asked for more than that.
+            wanted = min(limit - total + 1, _INFLATE_STEP)
+            try:
+                piece = decompressor.decompress(pending, wanted)
+            except zlib.error as exc:
+                raise RecipeFetchError(
+                    f"{url} came back {coding}-compressed but would not decompress ({exc}); {_READ_IT_YOURSELF}"
+                ) from exc
+            total += len(piece)
+            if total > limit:
+                raise _too_big(url, limit)
+            chunks.append(piece)
+            pending = decompressor.unconsumed_tail
+            # A full answer may have more behind it even once the input is
+            # used up; a short one with nothing left over means this chunk is done.
+            if not pending and len(piece) < wanted:
+                break
+    # Streaming rules out response.text, which needs the whole body buffered.
+    return _decode(b"".join(chunks), response.charset_encoding)
 
 
 async def fetch_page(url: str) -> str:
+    """The page at `url` as text, or a RecipeFetchError that says what to do
+    instead.
+
+    The whole fetch (DNS, every redirect, every byte) has to finish inside
+    `recipe_fetch_timeout_seconds`. httpx's own timeout applies to each network
+    phase separately, so on its own it let a server that drips a byte at a time
+    hold a request open indefinitely.
+    """
+    timeout = get_settings().recipe_fetch_timeout_seconds
+    try:
+        async with asyncio.timeout(timeout):
+            return await _fetch_page(url)
+    except TimeoutError as exc:
+        raise RecipeFetchError(
+            f"fetching {url} took longer than {timeout:g} seconds, so this server gave up; check the URL, "
+            f"or {_READ_IT_YOURSELF}"
+        ) from exc
+
+
+async def _fetch_page(url: str) -> str:
     settings = get_settings()
-    headers = {"User-Agent": "MealsBot/0.1 (+recipe ingestion; JSON-LD only)"}
+    headers = {
+        "User-Agent": "MealsBot/0.1 (+recipe ingestion; JSON-LD only)",
+        # Uncompressed, please. A server that compresses anyway is unpacked by
+        # _read_capped, one layer at most, under the same ceiling.
+        "Accept-Encoding": "identity",
+    }
     # host → the addresses judged public for it; the transport refuses to dial
     # anything else, so the address checked is the address connected.
     pins: dict[str, list[str]] = {}
@@ -302,24 +409,33 @@ async def fetch_page(url: str) -> str:
 
 
 def extract_recipe(html: str, url: str | None = None) -> ParsedRecipe:
-    """Extract the first schema.org/Recipe node from a page's JSON-LD."""
+    """Extract the first schema.org/Recipe node from a page's JSON-LD.
+
+    The page is somebody else's, so whatever it holds the answer is a recipe
+    or NoRecipeFound, never a crash: a crash here is a 500 on an ingest that
+    has already been charged. CPU-bound on a big page, so the routers run it
+    off the event loop.
+    """
     soup = BeautifulSoup(html, "html.parser")
     for script in soup.find_all("script", type="application/ld+json"):
         text = script.string or script.get_text()
         if not text or not text.strip():
             continue
         try:
-            data = json.loads(text.strip())
-        except json.JSONDecodeError:
+            node = _find_recipe_node(json.loads(text.strip()))
+        except (ValueError, RecursionError):
+            # Not JSON, a number past int()'s 4,300-digit limit, or nesting
+            # deeper than Python will follow: unreadable, like any broken script.
             continue
-        node = _find_recipe_node(data)
         if node is not None:
-            return _node_to_recipe(node, url)
-    raise NoRecipeFound(
-        "no schema.org/Recipe JSON-LD found on this page; read the page yourself and submit the "
-        "structured recipe via POST /recipes (title, servings, times, and one ingredient line per "
-        "item with quantities normalised to g/kg/ml/l or natural counts)"
-    )
+            try:
+                return _node_to_recipe(node, url)
+            except (RecursionError, ValueError, TypeError) as exc:
+                raise NoRecipeFound(
+                    f"this page's schema.org/Recipe JSON-LD could not be read ({exc.__class__.__name__}); "
+                    f"{SUBMIT_IT_YOURSELF}"
+                ) from exc
+    raise NoRecipeFound(f"no schema.org/Recipe JSON-LD found on this page; {SUBMIT_IT_YOURSELF}")
 
 
 def _find_recipe_node(data: object) -> dict | None:
@@ -348,9 +464,10 @@ def _is_recipe_type(type_value: object) -> bool:
 
 
 def _node_to_recipe(node: dict, url: str | None) -> ParsedRecipe:
-    title = _as_text(node.get("name")) or "Untitled recipe"
+    # A name of only whitespace is no title, and a blank one can't be stored.
+    title = (_as_text(node.get("name")) or "").strip() or "Untitled recipe"
     recipe = ParsedRecipe(
-        title=title.strip(),
+        title=title,
         source_url=url,
         servings=_parse_yield(node.get("recipeYield")),
         prep_minutes=parse_iso8601_duration(_as_text(node.get("prepTime"))),
@@ -366,9 +483,12 @@ def _node_to_recipe(node: dict, url: str | None) -> ParsedRecipe:
     raw_lines = node.get("recipeIngredient") or node.get("ingredients") or []
     if isinstance(raw_lines, str):
         raw_lines = [raw_lines]
-    for line in raw_lines:
-        if isinstance(line, str) and line.strip():
-            recipe.ingredients.append(parse_ingredient_line(line))
+    elif not isinstance(raw_lines, list):
+        raw_lines = []  # a number or an object lists no ingredients
+    lines = [line for line in raw_lines if isinstance(line, str) and line.strip()]
+    # Only as many as a recipe holds: the rest could never be stored, and
+    # parsing them anyway is CPU spent on the page's say-so.
+    recipe.ingredients = [parse_ingredient_line(line) for line in lines[:MAX_RECIPE_LINES]]
     return recipe
 
 
@@ -389,7 +509,10 @@ def _parse_yield(value: object) -> int | None:
     if text:
         match = re.search(r"\d+", text)
         if match:
-            return int(match.group())
+            try:
+                return int(match.group())
+            except ValueError:  # past int()'s 4,300-digit limit, and no serving count either
+                return None
     return None
 
 
@@ -457,17 +580,34 @@ def parse_iso8601_duration(value: str | None) -> int | None:
     match = _DURATION_RE.match(value.strip().upper())
     if not match or not any(match.groupdict().values()):
         return None
-    days = int(match.group("days") or 0)
-    hours = int(match.group("hours") or 0)
-    minutes = int(match.group("minutes") or 0)
-    seconds = int(match.group("seconds") or 0)
+    try:
+        days = int(match.group("days") or 0)
+        hours = int(match.group("hours") or 0)
+        minutes = int(match.group("minutes") or 0)
+        seconds = int(match.group("seconds") or 0)
+    except ValueError:  # a field past int()'s 4,300-digit limit is no real duration
+        return None
     total = days * 1440 + hours * 60 + minutes + (1 if seconds >= 30 else 0)
     return total or None
 
 
 # ---------------------------------------------------------------- ingredient lines
 
-_NUMBER_TOKEN = r"\d+(?:[./]\d+)?|[½⅓⅔¼¾⅕⅛]|\d+\s*[½⅓⅔¼¾⅕⅛]|\d+\s+\d/\d|\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?"
+# The page chooses these strings, so a line is cut to what can be stored
+# (IngredientLineIn.raw, and the raw_text column) before any regex sees it.
+_MAX_LINE_CHARS = 500
+
+# "2", "1.5", "1/2", "½", "1½", "1 1/2", "1-2". Every digit run is possessive
+# (`\d++`) and no token may start inside one (`(?<!\d)`): a line of n digits
+# used to be tried from every digit, each try backtracking through every
+# shorter run in every alternative, which is O(n²): 27 s at 16,000 digits
+# (CWE-1333). Neither changes what matches, because nothing that may follow a
+# digit run in these patterns is itself a digit, and a token that could start
+# mid-run can always start at the run's first digit instead.
+_NUMBER_TOKEN = (
+    r"(?<!\d)(?:\d++(?:[./]\d++)?|[½⅓⅔¼¾⅕⅛]|\d++\s*[½⅓⅔¼¾⅕⅛]|\d++\s+\d/\d"
+    r"|\d++(?:\.\d++)?\s*[-–]\s*\d++(?:\.\d++)?)"
+)
 
 # Dual-measure lines state the same amount twice around a slash, metric first —
 # BBC Food does it on every ingredient: "100g/3½oz vermicelli rice noodles",
@@ -567,8 +707,10 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
     """Parse a human ingredient line ('500g minced beef', '2 x 400g tins chopped tomatoes').
 
     Conservative by design: anything unparseable keeps quantity=None and the
-    full line as the name; the raw line is always preserved.
+    full line as the name; the raw line is always preserved, up to the
+    _MAX_LINE_CHARS a recipe line can store.
     """
+    raw = raw[:_MAX_LINE_CHARS]
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
     cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
