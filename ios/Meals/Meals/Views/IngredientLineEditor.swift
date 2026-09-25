@@ -22,7 +22,7 @@ struct IngredientLineEditor: View {
         self.title = title
         self.onSave = onSave
         _name = State(initialValue: line?.name ?? "")
-        _amount = State(initialValue: line.flatMap { $0.quantity.map(Self.amountText) } ?? "")
+        _amount = State(initialValue: line.flatMap { $0.quantity.map(MealsUnits.amountText) } ?? "")
         _unit = State(initialValue: line?.unit ?? "")
     }
 
@@ -32,8 +32,17 @@ struct IngredientLineEditor: View {
         MealsUnits.rejection(for: unit).map { "\($0). The list only takes metric or a count." }
     }
 
+    /// Zero, negatives, "inf": the API refuses every one, so say so here.
+    private var amountWarning: String? {
+        MealsUnits.rejection(forAmount: parsedAmount).map { "\($0)." }
+    }
+
+    private var parsedAmount: Double? {
+        Double(amount.replacingOccurrences(of: ",", with: "."))
+    }
+
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && unitWarning == nil
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && unitWarning == nil && amountWarning == nil
     }
 
     var body: some View {
@@ -70,8 +79,8 @@ struct IngredientLineEditor: View {
             } header: {
                 Text("How much")
             } footer: {
-                if let unitWarning {
-                    Text(unitWarning).foregroundStyle(.red)
+                if let warning = amountWarning ?? unitWarning {
+                    Text(warning).foregroundStyle(.red)
                 } else {
                     Text("Leave the amount blank for things you don't measure. Metric (g, ml) or a count of a natural unit — 2 tins, 3 cloves.")
                 }
@@ -112,7 +121,7 @@ struct IngredientLineEditor: View {
         let trimmedUnit = unit.trimmingCharacters(in: .whitespaces)
         // A quantity with no unit would render as nothing at all, so a bare
         // number counts things (Q2's "4 items").
-        let quantity = Double(amount.replacingOccurrences(of: ",", with: "."))
+        let quantity = parsedAmount
         onSave(
             LooseLine(
                 name: trimmedName,
@@ -121,10 +130,6 @@ struct IngredientLineEditor: View {
             )
         )
         dismiss()
-    }
-
-    static func amountText(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(value)
     }
 }
 

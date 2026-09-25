@@ -13,26 +13,72 @@ enum MealsUnits {
 
     /// Units the API rejects, with the conversion it will quote back. Checked
     /// as the user types so the correction arrives at the field rather than
-    /// after the whole meal or recipe fails to save.
+    /// after the whole meal or recipe fails to save, and before a quick add is
+    /// queued: the offline queue drops whatever the server refuses (Q11).
+    ///
+    /// Every key of the backend's `BANNED_UNITS` (`app/services/units.py`),
+    /// plurals included, each with the conversion quoted there. There is no
+    /// iOS job in CI, so `backend/tests/unit/test_ios_units.py` keeps the two
+    /// in step from the side that does run.
     static let rejected: [String: String] = [
         "tsp": "1 tsp = 5 ml",
         "teaspoon": "1 tsp = 5 ml",
+        "teaspoons": "1 tsp = 5 ml",
         "tbsp": "1 tbsp = 15 ml",
         "tablespoon": "1 tbsp = 15 ml",
+        "tablespoons": "1 tbsp = 15 ml",
         "cup": "1 cup = 240 ml",
         "cups": "1 cup = 240 ml",
         "oz": "1 oz = 28 g",
         "ounce": "1 oz = 28 g",
+        "ounces": "1 oz = 28 g",
         "lb": "1 lb = 454 g",
+        "lbs": "1 lb = 454 g",
         "pound": "1 lb = 454 g",
+        "pounds": "1 lb = 454 g",
         "pint": "1 UK pint = 568 ml",
-        "stick": "sticks aren't metric — use g or ml",
+        "pints": "1 UK pint = 568 ml",
+        "fl oz": "1 fl oz = 28 ml",
+        "floz": "1 fl oz = 28 ml",
+        "quart": "1 quart = 946 ml",
+        "gallon": "1 gallon = 3785 ml",
+        "stick": "1 stick of butter = 113 g",
+        "sticks": "1 stick of butter = 113 g",
     ]
 
     /// nil when the unit is fine; otherwise the conversion to show.
+    ///
+    /// Past the banned list, the server takes any word at all as a natural
+    /// unit, in any script, with spaces or hyphens inside it. What it refuses
+    /// is anything else ("l.", "2kg"), so that is refused here too; a word
+    /// this build has never heard of is still the server's business.
     static func rejection(for unit: String?) -> String? {
-        guard let unit, !unit.isEmpty else { return nil }
-        return rejected[unit.lowercased().trimmingCharacters(in: .whitespaces)]
+        guard let unit else { return nil }
+        let cleaned = unit.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        if let conversion = rejected[cleaned] { return conversion }
+        let word = cleaned.filter { $0 != " " && $0 != "-" }
+        guard !word.isEmpty, word.allSatisfy(\.isLetter) else { return "“\(cleaned)” isn't a unit" }
+        return nil
+    }
+
+    /// nil when the API will take the amount; otherwise what to say. Zero and
+    /// negatives are refused there, and so is what `Double` will happily read
+    /// out of "inf" or "nan": neither can even be written as JSON.
+    static func rejection(forAmount quantity: Double?) -> String? {
+        guard let quantity else { return nil }
+        return quantity.isFinite && quantity > 0 ? nil : "An amount has to be a number above zero"
+    }
+
+    /// How an amount is written, in the app's own lists and in the editor's
+    /// field: "2", "1.5", and "1e+20" for the absurd. Never `Int(value)` on its
+    /// own, which traps past Int.max and on infinity. The server stores and
+    /// serves amounts that large, so one such line would crash the Shopping
+    /// tab on every phone in the household. Plain rather than localised, so
+    /// the editor can read back what it wrote.
+    static func amountText(_ value: Double) -> String {
+        if let whole = Int(exactly: value) { return String(whole) }
+        return String(value)
     }
 }
 

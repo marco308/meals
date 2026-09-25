@@ -33,6 +33,16 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   start-first rollout. Additive for clients too: no response field was
   removed or renamed, and the household export gains two.
 
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
+
 ### Fixed
 
 - **A declined renewal is no longer a year for free.** Stripe moves
@@ -75,6 +85,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - **The URL-ingest quota counts every ingest.** Two ingests at once could both
   read the same count and write the same number back; checking and charging is
   now one conditional `UPDATE`.
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
 - **Editing a planned meal or recipe no longer gives its shopping-list lines
   new ids.** The re-sync deleted every line only that meal needed and made it
   again, so a tick the phone had queued offline against the old id came back

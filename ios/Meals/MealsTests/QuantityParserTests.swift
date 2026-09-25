@@ -76,4 +76,44 @@ final class UnitVocabularyTests: XCTestCase {
         // the app's — never a client-side block.
         XCTAssertNil(MealsUnits.rejection(for: "punnet"))
     }
+
+    /// The server bans the plurals too, and "milk 4 pints" used to sail past
+    /// this list into the queue, to be refused on replay and dropped.
+    /// `backend/tests/unit/test_ios_units.py` holds the list to the server's.
+    func testThePluralsTheServerBansAreRefusedHereToo() {
+        for unit in [
+            "teaspoons", "tablespoons", "ounces", "lbs", "pounds", "pints", "sticks", "quart", "gallon",
+            "fl oz", "floz", "PINTS",
+        ] {
+            XCTAssertNotNil(MealsUnits.rejection(for: unit), unit)
+        }
+        XCTAssertEqual(MealsUnits.rejection(for: "pints"), "1 UK pint = 568 ml")
+        XCTAssertEqual(MealsUnits.rejection(for: "sticks"), "1 stick of butter = 113 g")
+    }
+
+    func testOnlyAWordCanBeAUnit() {
+        // The server takes any word as a natural unit and nothing that isn't one.
+        XCTAssertNotNil(MealsUnits.rejection(for: "l."))
+        XCTAssertNotNil(MealsUnits.rejection(for: "2kg"))
+        XCTAssertNotNil(MealsUnits.rejection(for: "-"))
+        XCTAssertNil(MealsUnits.rejection(for: "gousse"))
+        XCTAssertNil(MealsUnits.rejection(for: "tea bag"))
+    }
+
+    func testAnAmountHasToBeAboveZero() {
+        for amount in [0, -1, Double.infinity, -Double.infinity, Double.nan] {
+            XCTAssertNotNil(MealsUnits.rejection(forAmount: amount), "\(amount)")
+        }
+        XCTAssertNil(MealsUnits.rejection(forAmount: 0.5))
+        XCTAssertNil(MealsUnits.rejection(forAmount: nil))
+    }
+
+    func testAmountTextNeverTraps() {
+        XCTAssertEqual(MealsUnits.amountText(2), "2")
+        XCTAssertEqual(MealsUnits.amountText(1.5), "1.5")
+        XCTAssertEqual(MealsUnits.amountText(-0.0), "0")
+        XCTAssertEqual(MealsUnits.amountText(1e19), "1e+19")
+        XCTAssertEqual(MealsUnits.amountText(.infinity), "inf")
+        XCTAssertEqual(Double(MealsUnits.amountText(1e19)), 1e19, "the editor has to read back what it wrote")
+    }
 }

@@ -12,10 +12,6 @@ struct DeleteAccountView: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
 
-    /// Cleared before the account goes, for the same reason logging out clears
-    /// them: cached reads belong to the login that fetched them.
-    let clearCaches: () -> Void
-
     @State private var password = ""
     @State private var confirmation = ""
     @State private var isDeleting = false
@@ -84,9 +80,11 @@ struct DeleteAccountView: View {
         Task {
             defer { isDeleting = false }
             do {
-                clearCaches()
-                // Session.deleteAccount logs out on success, which swaps the
-                // root view back to the login screen underneath this sheet.
+                // On success Session.deleteAccount wipes what the account left
+                // on this phone (cached reads, and the offline queue, which can
+                // never be sent now) and logs out, which swaps the root view
+                // back to the login screen underneath this sheet. On failure
+                // nothing is touched.
                 try await session.deleteAccount(password: password)
                 dismiss()
             } catch {
