@@ -20,7 +20,69 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+One migration, `67a229a2837f`, which rebuilds `household_invites` on SQLite
+and does nothing on Postgres. Nothing in the API contract changed.
+
+### Security
+
+- **`make up` no longer puts Postgres on the network.** The reference
+  `docker-compose.yml` published the database's superuser, password `meals`,
+  on port 5433 of every interface, and Docker's published ports go around ufw.
+  It is now on `127.0.0.1:5433` for `make db`, and the password comes from
+  `POSTGRES_PASSWORD`, whose default of `meals` is for laptops only.
+- **Personal data stays out of the logs.** A failed email logged the
+  recipient's address and the relay's reply, which quotes it again, and
+  dunning logged the same reply as its reason. Both now log ids and the
+  exception's class. A failed query no longer carries its bound values into
+  the last-resort handler's traceback (`hide_parameters`), httpx no longer
+  logs the full URL of every page an ingest fetches or every call the mounted
+  MCP server makes, and aiosqlite no longer logs every statement's values
+  under `LOG_LEVEL=DEBUG`.
+- **Raw HTML in `/privacy`, `/support`, `/terms` and `/credits` is escaped.**
+  The commonmark preset switches it on, whatever the comment said. The pages
+  render exactly as before, since none of them used any.
+- **A signature or bearer token with a non-ASCII byte in it is a 401, not a
+  500.** `compare_digest` raises on such a string. On the billing webhook that
+  500 was invisible to the alert and retried by the processor; the comparisons
+  are over bytes now, so it is a counted `bad_signature`.
+
+### Fixed
+
+- **Deleting an account on SQLite no longer deletes the invites it issued.**
+  `f3a7c02e5b91` added the new `SET NULL` key beside the old `CASCADE` one
+  instead of replacing it, so on SQLite both applied. `67a229a2837f` rebuilds
+  the table with only the keys the model declares, and the suite now migrates
+  a SQLite file and compares every foreign key with the models'.
+- **A `%` in `DATABASE_URL` no longer stops the container booting.** Alembic
+  handed the URL to ConfigParser, which read a percent-encoded password as
+  interpolation and printed the whole URL, password included, on the way out.
+- **A paused export no longer locks every write out on SQLite.** The export
+  streams through an open cursor, which held SQLite's read lock for as long as
+  the client took to download, so writes failed with "database is locked"
+  after five seconds. SQLite now runs in WAL mode with a 15 second busy
+  timeout.
+- **The iOS targets stay failing when Xcode does.** `ios-testflight` deletes
+  the last archive before it starts, so no failure has a stale build to
+  upload, and `tests/unit/test_makefile.py` runs `ios-build`, `ios-test` and
+  `ios-testflight` against stand-ins for Xcode's tools with whatever make the
+  machine has (3.81 on a Mac, which ignores `.SHELLFLAGS`), so the fix in
+  [#159](https://github.com/marco308/meals/pull/159) cannot quietly regress.
+- **`.env` is kept out of the image's build context at every depth**, not just
+  the root: `mcp/`, `skill/` and `web/` are copied in whole.
+- **Coverage counts the lines after a database await**
+  (`concurrency = ["greenlet", "thread"]`). `app/deps.py` read 79% covered
+  when it was 96%.
+
+### Notes for whoever deploys this
+
+- A SQLite install switches to WAL on its first connection, after which
+  `/data` holds `meals.db-wal` and `meals.db-shm` beside `meals.db`. Back up
+  the directory rather than the one file, and keep it on a local disk: WAL
+  does not work on a network filesystem.
+- An existing compose stack keeps the password its volume was created with.
+  Setting `POSTGRES_PASSWORD` later changes what the API and the backup
+  sidecar send, not what Postgres expects, so run `ALTER ROLE meals PASSWORD
+  '…'` first.
 
 ## 2026-09-25 — grant only what was paid for, bound what a request can cost
 

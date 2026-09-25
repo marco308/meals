@@ -292,7 +292,12 @@ async def metrics_endpoint(request: Request) -> Response:
         raise HTTPException(status_code=404, detail="Not Found")
     provided = request.headers.get("Authorization", "")
     scheme, _, credential = provided.partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(credential.strip(), token):
+    # Compared as bytes: compare_digest raises TypeError on a str holding
+    # anything outside ASCII, so one stray byte in the header was a 500 rather
+    # than a 401. Starlette decodes headers as Latin-1, which is undone here to
+    # get the bytes that were sent, and a scraper sends a token as UTF-8.
+    offered = credential.strip().encode("latin-1")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(offered, token.encode()):
         raise HTTPException(
             status_code=401,
             detail="metrics are enabled on this server but need its METRICS_TOKEN: Authorization: Bearer <token>",

@@ -22,8 +22,12 @@ from app.models import *  # noqa: E402,F401,F403 — register all tables on Base
 
 target_metadata = Base.metadata
 
-# The runtime DATABASE_URL always wins over alembic.ini.
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# The runtime DATABASE_URL always wins over alembic.ini. It goes through
+# ConfigParser, which reads `%` as interpolation, so a percent-encoded password
+# (`p%40ss`) raised at boot, printing the whole URL on its way out, and the
+# container never started. Doubling it is ConfigParser's escape; reading the
+# option back gives the URL as it was.
+config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

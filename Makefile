@@ -161,11 +161,14 @@ ios-export-options:
 		'</dict>' \
 		'</plist>' > $(IOS_DIR)/ExportOptions.plist
 
+# The last run's archive and .ipa are deleted before a new archive starts,
+# so however a later step fails, there is nothing stale for it to upload.
 .PHONY: ios-testflight
 ios-testflight: ios-export-options ## Archive, export, and upload the iOS app to TestFlight (needs ios/.env)
 	@test -n "$(ASC_KEY_ID)" -a -n "$(ASC_ISSUER)" || \
 		{ echo "ASC_KEY_ID and ASC_ISSUER must be set — see the comment above ios-testflight in the Makefile"; exit 1; }
 	set -o pipefail; cd $(IOS_DIR) && xcodegen generate && \
+	rm -rf ./build/Meals.xcarchive ./build/export && \
 	xcodebuild archive -project Meals.xcodeproj -scheme Meals \
 		-archivePath ./build/Meals.xcarchive -destination 'generic/platform=iOS' \
 		-allowProvisioningUpdates -authenticationKeyPath $(ASC_KEY_PATH) \

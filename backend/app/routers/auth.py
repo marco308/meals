@@ -290,13 +290,15 @@ async def request_password_reset(
     # Operator-side only — the HTTP response stays identical either way, and
     # that anti-oracle property is about the response, not the server's logs.
     log_event("password_reset.requested", user_id=user.id)
-    # Suppressed, not ignored: mailer.py logs the reason. The response must not
+    # Suppressed, not ignored: mailer.py logs the failure. The response must not
     # vary with delivery success or the endpoint becomes an account oracle.
     with contextlib.suppress(EmailNotConfigured, EmailSendFailed):
         await send_email(
             to=user.email,
             subject="Reset your Meals password",
             body=password_reset_body(user.display_name, code, settings.password_reset_ttl_minutes),
+            purpose="password_reset",
+            user_id=user.id,
         )
     return accepted
 

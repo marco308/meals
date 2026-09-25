@@ -20,7 +20,7 @@ def outbox(monkeypatch, settings_override):
     settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
     sent: list[dict] = []
 
-    async def fake_send(to: str, subject: str, body: str) -> None:
+    async def fake_send(to: str, subject: str, body: str, **_log_context) -> None:
         sent.append({"to": to, "subject": subject, "body": body})
 
     monkeypatch.setattr("app.routers.auth.send_email", fake_send)
