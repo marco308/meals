@@ -19,7 +19,7 @@ by the plan-meal link rather than by this flag. A meal's contribution gets no
 meal_name, which only shows if its plan-meal is later removed.
 
 Revision ID: b9b700d074ec
-Revises: b9d33848e592
+Revises: ef71d71574d8
 Create Date: 2026-09-25 09:30:00.000000
 
 """
@@ -31,7 +31,9 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b9b700d074ec"
-down_revision: str | Sequence[str] | None = "b9d33848e592"
+# After the billing migration that landed first: two revisions sharing a parent
+# are two heads, and `alembic upgrade head` on boot refuses to pick one.
+down_revision: str | Sequence[str] | None = "ef71d71574d8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

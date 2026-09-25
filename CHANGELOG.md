@@ -20,17 +20,61 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-**One migration** (`b9b700d074ec`), additive: two columns on
-`list_item_sources` (`ad_hoc`, `meal_name`, both backfilled) and its
-`plan_meal_id` key moved from `ON DELETE CASCADE` to `SET NULL`. Checked on
-Postgres 17 and SQLite against rows written by 1.6.3, down and up again on
-both, and on Postgres with 1.6.3 still serving against the migrated schema, as
-it does for the few seconds of a start-first rollout. Additive for clients
-too: no response field was removed or renamed, and the household export
-gains two.
+**Two migrations**, both additive, run in this order:
+
+- `ef71d71574d8`: four nullable columns on `households`, and a backfill
+  naming the lead as the payer of every household that has paid (until now
+  only the lead could open a checkout).
+- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
+  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
+  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
+  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
+  against the migrated schema, as it does for the few seconds of a
+  start-first rollout. Additive for clients too: no response field was
+  removed or renamed, and the household export gains two.
 
 ### Fixed
 
+- **A declined renewal is no longer a year for free.** Stripe moves
+  `current_period_end` on before it charges, and every subscription snapshot
+  used to grant. A grant now needs `active` or `trialing` (and each processor's
+  equivalent); `past_due`, `unpaid`, `incomplete` and `paused` hold the
+  household to the moment the charge failed, so the grace period runs from
+  there and a recovered card puts it back. An unknown status is refused rather
+  than granted.
+- **An entitlement follows one subscription, in order.** Grants and endings
+  are matched to the subscription the household paid through and to the
+  processor's own event time, so ending a second, accidental subscription no
+  longer ends the first one's year, and a retry from before a cancellation no
+  longer grants it back. A second subscription paying for a household already
+  paid for is refused, which alerts. Processor events never change a comp that
+  is in force.
+- **Cancelling keeps the grace period TERMS promises.** A processor ending
+  used to drop the household to free at once with no expiry, which skipped the
+  14 days' grace and the lapse email. It now brings the expiry forward and keeps
+  the tier, and a household whose subscription ended may pay again during its
+  grace. `python -m app.entitlements revoke` is unchanged and still immediate.
+- **Ignored events naming a household this server does not have** are
+  recorded (the id in the text, not the foreign key) instead of failing the
+  insert and answering an uncounted 500 that the processor retried until it gave
+  up on the endpoint. An ending for a household that is not here is `ignored`
+  rather than `orphan`, so a household deleting itself does not page anyone.
+- **Two mappings that could never grant.** Paddle's `transaction.completed`
+  and Lemon Squeezy's `subscription_payment_success` carry no subscription
+  period, so every successful payment they reported was `refused` and alerted.
+  Both are ignored now; the subscription's own update credits the year.
+- **Lemon Squeezy's event name comes from the signed body.** The unsigned
+  `X-Event-Name` header used to win over `meta.event_name`; now it may only
+  agree with it, and a body without its own name is refused.
+- **Billing belongs to the payer.** The webhook records whose card it is (the
+  checkout now carries the member's id beside the household's), and
+  `POST /billing/portal` opens a session for them alone rather than for whoever
+  leads the household today. While it will renew, the payer may not hand on the
+  lead, leave, be removed, redeem an invite elsewhere or delete their account:
+  each answers 409 saying to cancel under Manage billing first.
+- **The URL-ingest quota counts every ingest.** Two ingests at once could both
+  read the same count and write the same number back; checking and charging is
+  now one conditional `UPDATE`.
 - **Editing a planned meal or recipe no longer gives its shopping-list lines
   new ids.** The re-sync deleted every line only that meal needed and made it
   again, so a tick the phone had queued offline against the old id came back
@@ -67,6 +111,12 @@ gains two.
   had wrapped itself up. It now archives the current plan first, then starts
   the new one from it. The plan page lists any other active plan under **Also
   on the go**, and "Wrap up" no longer claims the list keeps the plan's items.
+
+### Added
+
+- `payer_user_id` and `renews` on `GET /billing/subscription`, and an `unpaid`
+  outcome on `meals_billing_webhooks_total`. `/privacy` says what else is now
+  recorded and sent.
 
 ## 2026-09-21 — YAMP on the public pages
 

@@ -10,9 +10,11 @@ that 500s is worse than no button.
 
 `POST /webhook` has no authentication in the usual sense: the sender is a
 machine that has never heard of this app's accounts, so the signature *is* the
-authentication. The other two are ordinary authenticated endpoints, and
-`/checkout` is the household lead's alone, because Q23 gates on the lead exactly
-when money is involved and never otherwise.
+authentication. The others are ordinary authenticated endpoints. `/checkout` is
+the household lead's alone, because Q23 gates on the lead exactly when money is
+involved and never otherwise; `/portal` is the *payer's*, because once money has
+moved the portal shows one person's card, address and invoices, and who leads
+the household can change after that.
 
 **Nothing in here is for the iPhone app** (§6). Commerce lives on the web, the
 app never calls these routes, and no error from them is ever rendered in it.
@@ -22,7 +24,6 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app import limits
 from app.config import get_settings
 from app.deps import CurrentUser, DbSession
 from app.models import Household, User
@@ -83,9 +84,11 @@ async def subscription(user: CurrentUser) -> SubscriptionOut:
         offer_price_currency=settings.billing_price_currency if settings.billing_price_pence else None,
         manage_url=settings.billing_manage_url,
         can_manage=billing.can_manage(household),
-        # Already entitled means there is nothing to buy: a second subscription
-        # would be a second charge for the same year.
-        can_checkout=settings.billing_sells and limits.effective_tier(household) == limits.FREE,
+        # Anything still running means there is nothing to buy: a second
+        # subscription would be a second charge for the same year.
+        can_checkout=settings.billing_sells and billing.checkout_refusal(household) is None,
+        payer_user_id=household.billing_user_id,
+        renews=entitlements.renews(household),
     )
 
 
@@ -106,22 +109,15 @@ async def checkout(user: CurrentUser, db: DbSession, request: Request) -> Checko
     household = user.household
     await _require_lead(db, user, household)
 
-    if limits.effective_tier(household) != limits.FREE:
-        entitlement = entitlements.describe(household)
-        until = f" until {entitlement.paid_until:%-d %B %Y}" if entitlement.paid_until else ", and it does not run out"
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"this household is already on the {entitlement.stored_tier} tier{until}, so there is nothing "
-                "to buy. GET /billing/subscription has the details, including where to manage it."
-            ),
-        )
+    refusal = billing.checkout_refusal(household)
+    if refusal is not None:
+        raise HTTPException(status_code=409, detail=refusal)
 
     # Back to the web app's settings page either way: a checkout that was
     # abandoned should land somewhere that makes sense, not on a dead end.
     return_url = f"{base_url(request)}/app/#/settings"
     try:
-        url = await billing.start_checkout(household, email=user.email, return_url=return_url)
+        url = await billing.start_checkout(household, payer=user, return_url=return_url)
     except billing.CheckoutError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return CheckoutOut(url=url)
@@ -136,13 +132,27 @@ async def portal(user: CurrentUser, db: DbSession, request: Request) -> Checkout
     merchant of record: they took the money, so they hold the card details and
     they are who a refund is asked of.
 
-    The lead's alone, like the checkout, and 409 when there is nothing to manage.
+    The payer's alone: it shows their card, their address and their invoices,
+    and it can cancel. Whoever leads the household today may not be who paid.
+    A household with no payer on record, which only gets the configured page,
+    falls back to the lead. 409 when there is nothing to manage.
     """
     _require_billing()
     household = user.household
-    await _require_lead(db, user, household)
+    if household.billing_user_id is None:
+        await _require_lead(db, user, household)
+    elif household.billing_user_id != user.id:
+        payer = await db.get(User, household.billing_user_id)
+        who = f"Ask {payer.display_name} to do it." if payer is not None else "Ask whoever pays for it."
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "only the member who pays for this household can manage its billing, because it is their card, "
+                f"their address and their invoices. {who}"
+            ),
+        )
     try:
-        url = await billing.portal_url(household, return_url=f"{base_url(request)}/app/#/settings")
+        url = await billing.portal_url(household, user=user, return_url=f"{base_url(request)}/app/#/settings")
     except billing.CheckoutError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return CheckoutOut(url=url)

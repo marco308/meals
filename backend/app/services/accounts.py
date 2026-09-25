@@ -13,7 +13,7 @@ ask for each of those live in the router; what is here is what the answer costs.
 
 import uuid
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -114,6 +114,11 @@ async def move_user_to_household(db: AsyncSession, user: User, target_household_
         raise ValueError("move_user_to_household called for a lead who has not handed over")
 
     user.household_id = target_household_id
+    if origin is not None and origin.billing_user_id == user.id:
+        # A payer who has gone cannot open the portal from outside, so the
+        # household stops naming them; the lead gets the configured page. The
+        # routers refuse this while it would still charge them.
+        origin.billing_user_id = None
     await db.flush()
 
     if successor is None:
@@ -153,13 +158,17 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     await db.execute(delete(Ingredient).where(Ingredient.household_id == household_id))
     await db.execute(delete(Supermarket).where(Supermarket.household_id == household_id))
     await db.execute(delete(HouseholdInvite).where(HouseholdInvite.household_id == household_id))
-    # The household points at its lead, so that reference goes before the users
-    # do. `ondelete="SET NULL"` would also handle it, but this module makes its
+    # The household points at its lead, and a household may point at one of
+    # these users as its payer, so those references go before the users do.
+    # `ondelete="SET NULL"` would also handle it, but this module makes its
     # order explicit rather than trusting two engines to agree (Q20).
     household = await db.get(Household, household_id)
     if household is not None:
         household.lead_user_id = None
+        household.billing_user_id = None
         await db.flush()
+    members = select(User.id).where(User.household_id == household_id)
+    await db.execute(update(Household).where(Household.billing_user_id.in_(members)).values(billing_user_id=None))
     await db.execute(delete(User).where(User.household_id == household_id))
     await db.execute(delete(Household).where(Household.id == household_id))
 
@@ -189,6 +198,10 @@ async def delete_user(db: AsyncSession, user: User) -> bool:
         household.lead_user_id = await next_lead(db, household_id, excluding=user.id)
         await db.flush()
 
+    # Wherever they were the payer stops naming them: an account that is gone
+    # cannot open a portal. `DELETE /auth/me` refuses while it would still
+    # charge them, so what is left behind here has stopped renewing.
+    await db.execute(update(Household).where(Household.billing_user_id == user.id).values(billing_user_id=None))
     # Session and API tokens cascade from the user row, but be explicit: this is
     # the one part where leaving a stale credential behind would matter.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))
