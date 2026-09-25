@@ -1,8 +1,45 @@
+import json
 import uuid
 
 import pytest
 
 from tests.conftest import create_meal, create_plan, create_recipe, get_list, item_by_name
+
+#: The spag bol recipe as `planned_week` creates it, for edits that change one line.
+SPAG_LINES = [
+    {"name": "minced beef", "quantity": 500, "unit": "g"},
+    {"name": "onion", "quantity": 1, "unit": "item"},
+    {"name": "chopped tomatoes", "quantity": 2, "unit": "tins"},
+    {"name": "spaghetti", "quantity": 400, "unit": "g"},
+]
+
+
+def spag_lines(**quantities) -> list[dict]:
+    """SPAG_LINES with some quantities changed (None drops the line), keyed by
+    ingredient name with spaces as underscores: `spag_lines(minced_beef=600)`."""
+    lines = []
+    for line in SPAG_LINES:
+        quantity = quantities.get(line["name"].replace(" ", "_"), line["quantity"])
+        if quantity is not None:
+            lines.append({**line, "quantity": quantity})
+    return lines
+
+
+async def edit_recipe(client, recipe_id: str, lines: list[dict]) -> None:
+    response = await client.patch(f"/recipes/{recipe_id}", json={"ingredients": lines})
+    assert response.status_code == 200, response.text
+
+
+def line_ids(shopping_list: dict) -> dict[str, str]:
+    return {item["name"]: item["id"] for item in shopping_list["items"]}
+
+
+async def exported_list(client, list_id: str) -> dict:
+    """An archived list as the household export has it: the only place its
+    lines and their sources can be read back."""
+    response = await client.get("/household/export")
+    assert response.status_code == 200, response.text
+    return next(shop for shop in json.loads(response.text)["shopping_lists"] if shop["id"] == list_id)
 
 
 @pytest.fixture
@@ -326,14 +363,46 @@ class TestArchive:
         assert history.json()[0]["item_count"] == len(before["items"])
 
     async def test_removing_meal_after_archive_leaves_history_alone(self, auth_client, planned_week):
+        """An archived list is the record of a shop that happened. Taking a meal
+        off the plan afterwards used to cascade into it: every line spag bol
+        had contributed to lost its sources, and with them its quantity."""
         before = await get_list(auth_client)
         await auth_client.post("/shopping-list/archive")
 
         plan_id = planned_week["plan"]["id"]
-        await auth_client.delete(f"/plans/{plan_id}/meals/{planned_week['spag_plan_meal_id']}")
+        removed = await auth_client.delete(f"/plans/{plan_id}/meals/{planned_week['spag_plan_meal_id']}")
+        assert removed.status_code == 200
 
         history = await auth_client.get("/shopping-list/archived")
         assert history.json()[0]["item_count"] == len(before["items"])
+
+        archived = await exported_list(auth_client, before["id"])
+        quantities = {item["name"]: item["quantity"] for item in archived["items"]}
+        assert quantities == {item["name"]: item["quantity"] for item in before["items"]}
+        spaghetti = next(item for item in archived["items"] if item["name"] == "spaghetti")
+        # The plan-meal has gone, so the link is blank, but the line still says
+        # which meal it was bought for and that it was not an ad-hoc add.
+        assert [(s["plan_meal_id"], s["meal_name"], s["ad_hoc"], s["quantity"]) for s in spaghetti["sources"]] == [
+            (None, "Spag bol", False, 400)
+        ]
+
+    async def test_deleting_a_meal_after_archive_leaves_history_alone(self, auth_client, planned_week):
+        before = await get_list(auth_client)
+        await auth_client.post("/shopping-list/archive")
+        await auth_client.post("/shopping-list/items", json={"name": "milk", "quantity": 1, "unit": "l"})
+        assert (await auth_client.delete(f"/meals/{planned_week['spag_meal']['id']}")).status_code == 204
+
+        archived = await exported_list(auth_client, before["id"])
+        assert {item["name"]: item["quantity"] for item in archived["items"]} == {
+            item["name"]: item["quantity"] for item in before["items"]
+        }
+        beef = next(item for item in archived["items"] if item["name"] == "minced beef")
+        assert sorted(s["meal_name"] for s in beef["sources"]) == ["Cottage pie with peas", "Spag bol"]
+
+        # The ad-hoc add on the fresh list is still ad hoc, and still deletable.
+        milk = item_by_name(await get_list(auth_client), "milk")
+        assert [s["ad_hoc"] for s in milk["sources"]] == [True]
+        assert (await auth_client.delete(f"/shopping-list/items/{milk['id']}")).status_code == 204
 
     async def test_archive_resets_staple_needed_with_the_shop(self, auth_client, planned_week):
         """'Finish shop' retires the staples check with the rest of the shop
@@ -445,6 +514,181 @@ class TestResync:
         assert item_by_name(shopping, "spaghetti") is None
         beef = item_by_name(shopping, "minced beef")
         assert beef["quantity"] == 500  # cottage pie's share remains
+
+
+class TestResyncKeepsIdentity:
+    """A re-sync is a diff, not a rebuild. It used to delete every line only the
+    edited meal contributed to and recreate it under a new id, so a tick the
+    phone had queued offline against the old id came back 404, and iOS drops a
+    4xx op (Q11): the tick was simply lost."""
+
+    async def test_a_recipe_edit_keeps_every_line_it_still_needs(self, auth_client, planned_week):
+        before = line_ids(await get_list(auth_client))
+        garlic = {"name": "garlic", "quantity": 2, "unit": "cloves"}
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], [*SPAG_LINES, garlic])
+
+        after = line_ids(await get_list(auth_client))
+        # Spaghetti and tomatoes are spag bol's alone, which is what used to churn.
+        assert {name: after[name] for name in before} == before
+        assert "garlic" in after
+
+        queued_tick = await auth_client.patch(f"/shopping-list/items/{before['spaghetti']}", json={"checked": True})
+        assert queued_tick.status_code == 200
+
+    async def test_a_meal_edit_keeps_every_line_it_still_needs(self, auth_client, planned_week):
+        before = line_ids(await get_list(auth_client))
+        response = await auth_client.patch(
+            f"/meals/{planned_week['cottage_meal']['id']}",
+            json={
+                "loose_ingredients": [
+                    {"name": "frozen peas", "quantity": 200, "unit": "g"},
+                    {"name": "green beans", "quantity": 150, "unit": "g"},
+                ]
+            },
+        )
+        assert response.status_code == 200
+
+        after = line_ids(await get_list(auth_client))
+        assert {name: after[name] for name in before} == before  # potato and peas are cottage pie's alone
+
+    async def test_a_changed_need_keeps_its_line_and_comes_back_unticked(self, auth_client, planned_week):
+        """More spaghetti (spag bol's alone) and more onion (shared with cottage
+        pie): both lines keep their ids, and both come back unticked with
+        "already have it" left as it was. The flags used to depend on whether
+        another meal happened to share the line, because only an unshared one
+        was rebuilt from scratch."""
+        shopping = await get_list(auth_client)
+        before = line_ids(shopping)
+        for name in ("spaghetti", "onion"):
+            item = item_by_name(shopping, name)
+            await auth_client.patch(f"/shopping-list/items/{item['id']}", json={"checked": True, "excluded": True})
+
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], spag_lines(spaghetti=500, onion=2))
+
+        after = await get_list(auth_client, include_excluded="true")
+        for name, quantity in (("spaghetti", 500), ("onion", 3)):
+            item = item_by_name(after, name)
+            assert (item["id"], item["quantity"], item["checked"], item["excluded"]) == (
+                before[name],
+                quantity,
+                False,
+                True,
+            )
+
+    async def test_a_dropped_ingredient_leaves_its_share_and_nothing_else(self, auth_client, planned_week):
+        shopping = await get_list(auth_client)
+        onion = item_by_name(shopping, "onion")
+        await auth_client.patch(f"/shopping-list/items/{onion['id']}", json={"checked": True})
+
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], spag_lines(onion=None, spaghetti=None))
+
+        after = await get_list(auth_client)
+        assert item_by_name(after, "spaghetti") is None  # nobody needs it now
+        onion_after = item_by_name(after, "onion")  # cottage pie still does
+        assert (onion_after["id"], onion_after["quantity"], onion_after["checked"]) == (onion["id"], 1, True)
+        assert [s["meal_name"] for s in onion_after["sources"]] == ["Cottage pie with peas"]
+
+    async def test_a_recipe_listing_an_ingredient_twice_keeps_both_shares(self, auth_client, planned_week):
+        lines = [*SPAG_LINES, {"name": "onion", "quantity": 2, "unit": "items"}]
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], lines)
+        onion = item_by_name(await get_list(auth_client), "onion")
+        assert onion["quantity"] == 4  # spag bol 1 + 2, cottage pie 1
+
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], SPAG_LINES)
+        onion = item_by_name(await get_list(auth_client), "onion")
+        assert (onion["quantity"], len(onion["sources"])) == (2, 2)
+
+
+class TestEditsAfterTheShop:
+    """Finishing the shop archives the list while the plan runs on. What the
+    archived list holds was bought, so editing a planned meal afterwards puts
+    only the difference on the fresh list. It used to put the meal's entire
+    need back, which the skill's promise ("added ingredients appear, removed
+    ones come off") never said."""
+
+    async def test_more_of_something_adds_only_the_extra(self, auth_client, planned_week):
+        await auth_client.post("/shopping-list/archive")
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], spag_lines(minced_beef=600))
+
+        fresh = await get_list(auth_client)
+        assert [(item["name"], item["quantity"]) for item in fresh["items"]] == [("minced beef", 100)]
+        source = fresh["items"][0]["sources"][0]
+        assert (source["meal_name"], source["recipe_title"], source["ad_hoc"]) == (
+            "Spag bol",
+            "Spaghetti Bolognese",
+            False,
+        )
+
+    async def test_a_new_ingredient_is_all_that_appears(self, auth_client, planned_week):
+        await auth_client.post("/shopping-list/archive")
+        garlic = {"name": "garlic", "quantity": 2, "unit": "cloves"}
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], [*SPAG_LINES, garlic])
+
+        fresh = await get_list(auth_client)
+        assert [(item["name"], item["quantity"]) for item in fresh["items"]] == [("garlic", 2)]
+
+    async def test_less_of_something_or_none_of_it_adds_nothing(self, auth_client, planned_week):
+        await auth_client.post("/shopping-list/archive")
+        await edit_recipe(auth_client, planned_week["spag_recipe"]["id"], spag_lines(minced_beef=400, spaghetti=None))
+        assert (await get_list(auth_client))["items"] == []
+
+    async def test_the_difference_follows_later_edits(self, auth_client, planned_week):
+        await auth_client.post("/shopping-list/archive")
+        recipe_id = planned_week["spag_recipe"]["id"]
+
+        await edit_recipe(auth_client, recipe_id, spag_lines(minced_beef=600))
+        first = item_by_name(await get_list(auth_client), "minced beef")
+        assert first["quantity"] == 100
+
+        await edit_recipe(auth_client, recipe_id, spag_lines(minced_beef=750))
+        second = item_by_name(await get_list(auth_client), "minced beef")
+        assert (second["id"], second["quantity"]) == (first["id"], 250)
+
+        await edit_recipe(auth_client, recipe_id, SPAG_LINES)  # back to what was bought
+        assert (await get_list(auth_client))["items"] == []
+
+    async def test_a_meal_edit_adds_only_the_difference(self, auth_client, planned_week):
+        await auth_client.post("/shopping-list/archive")
+        response = await auth_client.patch(
+            f"/meals/{planned_week['cottage_meal']['id']}",
+            json={"loose_ingredients": [{"name": "frozen peas", "quantity": 500, "unit": "g"}]},
+        )
+        assert response.status_code == 200
+        fresh = await get_list(auth_client)
+        assert [(item["name"], item["quantity"]) for item in fresh["items"]] == [("frozen peas", 300)]
+
+    async def test_swapping_a_recipe_does_not_rebuy_what_the_meal_already_has(self, auth_client, planned_week):
+        """Cottage pie becomes shepherd's pie after the shop. The onion and the
+        potatoes were bought for this meal, whichever recipe now uses them."""
+        await auth_client.post("/shopping-list/archive")
+        shepherds = await create_recipe(
+            auth_client,
+            title="Shepherd's Pie",
+            ingredients=[
+                {"name": "lamb mince", "quantity": 500, "unit": "g"},
+                {"name": "onion", "quantity": 1, "unit": "item"},
+                {"name": "potato", "quantity": 1, "unit": "kg"},
+            ],
+        )
+        response = await auth_client.patch(
+            f"/meals/{planned_week['cottage_meal']['id']}", json={"recipe_ids": [shepherds["id"]]}
+        )
+        assert response.status_code == 200
+
+        fresh = await get_list(auth_client)
+        assert [(item["name"], item["quantity"]) for item in fresh["items"]] == [("lamb mince", 500)]
+        assert fresh["items"][0]["sources"][0]["recipe_title"] == "Shepherd's Pie"
+
+    async def test_an_unquantified_line_was_bought_too(self, auth_client):
+        salt = {"name": "salt", "raw": "salt to taste"}
+        recipe = await create_recipe(auth_client, title="Seasoned things", ingredients=[salt])
+        meal = await create_meal(auth_client, name="Salty dinner", recipe_ids=[recipe["id"]])
+        plan = await create_plan(auth_client)
+        await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+        await auth_client.post("/shopping-list/archive")
+
+        await edit_recipe(auth_client, recipe["id"], [salt, {"name": "black pepper", "raw": "pepper to taste"}])
+        assert [item["name"] for item in (await get_list(auth_client))["items"]] == ["black pepper"]
 
 
 class TestUnquantifiedLines:

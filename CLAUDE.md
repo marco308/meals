@@ -115,12 +115,18 @@ instrumentation a new feature usually needs.
   introduce per-day scheduling.
 - **The shopping list knows *why*.** `ListItem` identity is
   `(list, ingredient, unit)` and its quantity is the **sum of its
-  `ListItemSource` rows** — one per contributing plan-meal/recipe, or
-  `plan_meal_id IS NULL` for ad-hoc adds. Adding a meal to a plan merges
-  contributions; removing it deletes exactly its own rows and drops the line
-  only when no source remains. Edits to a meal or recipe go through
-  `resync_meal_contributions`. Never mutate `ListItem.quantity` — it's a
-  derived property.
+  `ListItemSource` rows**: one per contributing plan-meal/recipe, or one
+  flagged `ad_hoc` per ad-hoc add. Adding a meal to a plan merges
+  contributions; removing it deletes exactly its own rows from the active list
+  and drops the line only when no source remains. Edits to a meal or recipe go
+  through `resync_meal_contributions`, which is a **diff, never a rebuild**: a
+  line keeps its id for as long as anything needs it, because that id is what
+  a phone's queued tick is addressed to (Q11). What an archived list holds
+  counts as bought, so an edit after "Finish shop" adds only the difference.
+  An archived list is history, so its sources outlive their plan-meal
+  (`plan_meal_id` is `SET NULL` and `meal_name` is kept): a NULL
+  `plan_meal_id` no longer means ad hoc, and `ad_hoc` is what says so. Never
+  mutate `ListItem.quantity` — it's a derived property.
 - **Unit convention (Q2), enforced in `services/units.py`.** Everything is
   metric (canonicalised to g/ml) or a count of a singularised natural unit
   ("tin", "clove"). Imperial and spoon/cup units are rejected for API clients
