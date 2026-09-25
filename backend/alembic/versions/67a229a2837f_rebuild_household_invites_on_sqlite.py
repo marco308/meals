@@ -18,7 +18,7 @@ exactly the keys the model declares. Postgres is already right and is left
 alone.
 
 Revision ID: 67a229a2837f
-Revises: ef71d71574d8
+Revises: b9b700d074ec
 Create Date: 2026-09-25 08:06:49.000000
 
 """
@@ -30,10 +30,10 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "67a229a2837f"
-# Chained after the subscription-tracking migration, which reached main first
-# from the same parent: two revisions sharing a down_revision are two heads,
-# and `alembic upgrade head` on boot refuses to pick one.
-down_revision: str | Sequence[str] | None = "ef71d71574d8"
+# Chained after the list-source migration, the head main reached while this
+# was in review: two revisions sharing a down_revision are two heads, and
+# `alembic upgrade head` on boot refuses to pick one.
+down_revision: str | Sequence[str] | None = "b9b700d074ec"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

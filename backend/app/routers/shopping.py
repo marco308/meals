@@ -9,7 +9,7 @@ from app.deps import CurrentUser, DbSession
 from app.models import ListItem, ShoppingList
 from app.schemas.shopping import AdhocItemIn, ArchiveOut, ListItemOut, ListItemUpdate, ShoppingListOut
 from app.serializers import list_item_out, shopping_list_out
-from app.services.shopping import add_adhoc_item, archive_and_replace, get_active_list, get_list_full, is_adhoc_only
+from app.services.shopping import add_adhoc_item, archive_and_replace, get_active_list, get_list_full, needed_by_a_plan
 from app.services.supermarkets import effective_aisle_order, get_active_supermarket
 
 router = APIRouter(prefix="/shopping-list", tags=["shopping-list"])
@@ -81,7 +81,7 @@ async def delete_item(item_id: uuid.UUID, user: CurrentUser, db: DbSession) -> N
     """Delete an ad-hoc line. Lines that a planned meal needs cannot be
     deleted — remove the meal from the plan, or mark the line excluded."""
     item = await _get_item(db, user.household_id, item_id)
-    if not is_adhoc_only(item):
+    if needed_by_a_plan(item):
         meals = sorted({s.plan_meal.meal.name for s in item.sources if s.plan_meal is not None})
         raise HTTPException(
             status_code=409,

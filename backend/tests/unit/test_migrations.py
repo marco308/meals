@@ -120,8 +120,9 @@ def test_every_sqlite_foreign_key_is_the_one_the_models_declare(migrated):
         assert found == declared, (
             f"{table.name} on a migrated SQLite database has foreign keys the models don't declare "
             f"{dict(found - declared)} and lacks ones they do {dict(declared - found)}. The migration that "
-            "changed them needs a SQLite branch that rebuilds the table from an explicit definition, "
-            f"as {INVITES_REPAIR} does."
+            "changed them has to drop the old key by name on SQLite: rebuild the table from an explicit "
+            f"definition, as {INVITES_REPAIR} does, or name the reflected keys with a naming_convention, "
+            "as b9b700d074ec does."
         )
 
 

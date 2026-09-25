@@ -126,12 +126,18 @@ instrumentation a new feature usually needs.
   introduce per-day scheduling.
 - **The shopping list knows *why*.** `ListItem` identity is
   `(list, ingredient, unit)` and its quantity is the **sum of its
-  `ListItemSource` rows** — one per contributing plan-meal/recipe, or
-  `plan_meal_id IS NULL` for ad-hoc adds. Adding a meal to a plan merges
-  contributions; removing it deletes exactly its own rows and drops the line
-  only when no source remains. Edits to a meal or recipe go through
-  `resync_meal_contributions`. Never mutate `ListItem.quantity` — it's a
-  derived property.
+  `ListItemSource` rows**: one per contributing plan-meal/recipe, or one
+  flagged `ad_hoc` per ad-hoc add. Adding a meal to a plan merges
+  contributions; removing it deletes exactly its own rows from the active list
+  and drops the line only when no source remains. Edits to a meal or recipe go
+  through `resync_meal_contributions`, which is a **diff, never a rebuild**: a
+  line keeps its id for as long as anything needs it, because that id is what
+  a phone's queued tick is addressed to (Q11). What an archived list holds
+  counts as bought, so an edit after "Finish shop" adds only the difference.
+  An archived list is history, so its sources outlive their plan-meal
+  (`plan_meal_id` is `SET NULL` and `meal_name` is kept): a NULL
+  `plan_meal_id` no longer means ad hoc, and `ad_hoc` is what says so. Never
+  mutate `ListItem.quantity` — it's a derived property.
 - **Unit convention (Q2), enforced in `services/units.py`.** Everything is
   metric (canonicalised to g/ml) or a count of a singularised natural unit
   ("tin", "clove"). Imperial and spoon/cup units are rejected for API clients
@@ -355,6 +361,10 @@ it boring to operate:
   strings outside it.
 - Dialog code must not depend on the `close` *event* — some embedded browsers
   never deliver it; `openDialog` patches `close()` to also remove the element.
+- **"New plan" wraps up the plan it replaces, first.** The API allows more
+  than one active plan and every one of them feeds the shopping list, so a new
+  plan that left the old one open would count each carried-over meal twice.
+  The plan page lists any other active plan for the same reason.
 - **No inline `style` attributes**: the CSP's `style-src 'self'` forbids them.
   A computed width (the allowance bars in Settings) travels on a data attribute
   and is applied through the CSSOM, which CSP deliberately does not police.
@@ -526,9 +536,12 @@ create tables from metadata and won't catch a missing migration.
 head` on a SQLite file (what a one-container install boots on) and compares
 every foreign key it leaves, ON DELETE included, with the models'. That is the
 check `alembic check` can't make, because SQLAlchemy's SQLite reflection folds
-two keys on one column into one. A migration that changes a key on SQLite must
-rebuild the table from an explicit definition (`copy_from`, as 67a229a2837f
-does), since a reflected rebuild copies the old key along with the new.
+two keys on one column into one. A migration that changes a key on SQLite has
+to drop the old one by name, and a reflected rebuild has no name for a key
+declared without one, so it copies the old key along with the new. Either
+rebuild from an explicit definition (`copy_from`, as 67a229a2837f does) or give
+the reflected keys names to drop them by (`naming_convention`, as b9b700d074ec
+does).
 
 `.github/workflows/ci.yml` runs `make lint` and `make test` on every push and
 PR, plus the two things the local suite can't see: `alembic upgrade head` +

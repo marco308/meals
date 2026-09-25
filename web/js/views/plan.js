@@ -19,7 +19,12 @@ export async function renderPlan(root, planId = null) {
       if (error.status !== 404) throw error;
     }
   }
-  const archived = await api("/plans", { query: { status: "archived" } });
+  const [archived, active] = await Promise.all([
+    api("/plans", { query: { status: "archived" } }),
+    api("/plans", { query: { status: "active" } }),
+  ]);
+  // Re-render whichever plan this page is showing, not always the current one.
+  const reload = () => renderPlan(root, planId);
 
   if (!plan) {
     render(root, html`
@@ -28,7 +33,7 @@ export async function renderPlan(root, planId = null) {
         ${previousPlans(archived, null)}
       </div>
     `);
-    root.querySelector("[data-new-plan]").onclick = () => newPlanDialog(root, null);
+    root.querySelector("[data-new-plan]").onclick = () => newPlanDialog(root, null, reload);
     return;
   }
 
@@ -66,34 +71,35 @@ export async function renderPlan(root, planId = null) {
         ${plan.meals.length > 0 && html`<p class="menu-foot">${uncooked === 0 ? "all cooked — nicely done" : `${uncooked} still to cook`}</p>`}
       </div>
 
+      ${isActive && otherActivePlans(active, plan.id)}
       ${previousPlans(archived, plan.id)}
     </div>
   `);
 
   if (!isActive) return;
 
-  root.querySelector("[data-add]").onclick = () => addMealDialog(plan, root);
-  root.querySelector("[data-new-plan]").onclick = () => newPlanDialog(root, plan);
+  root.querySelector("[data-add]").onclick = () => addMealDialog(plan, reload);
+  root.querySelector("[data-new-plan]").onclick = () => newPlanDialog(root, plan, reload);
   root.querySelector("[data-archive]").onclick = async () => {
     const ok = await confirmDialog({
       title: "Wrap up this plan?",
-      body: "It moves to your previous plans; meals and their cooked history stay put. The shopping list keeps its items until you finish the shop.",
+      body: "It moves to your previous plans, with its meals and their cooked history. Its meals come off the shopping list; anything added by hand stays.",
       confirmLabel: "Wrap up",
     });
     if (!ok) return;
     await api(`/plans/${plan.id}/archive`, { method: "POST" });
     toast(`“${plan.label}” wrapped up.`, "ok");
-    renderPlan(root);
+    reload();
   };
 
   const label = root.querySelector("[data-label]");
-  label.onclick = () => renameInline(label, plan, root);
+  label.onclick = () => renameInline(label, plan, reload);
 
   for (const button of root.querySelectorAll("[data-cooked]")) {
     button.onclick = async () => {
       await api(`/plans/${plan.id}/meals/${button.dataset.cooked}/cooked`, { method: "POST" });
       toast("Marked cooked — it goes on the record.", "ok");
-      renderPlan(root);
+      reload();
     };
   }
   // Un-cook (#51): the counts come back down server-side, so re-rendering the
@@ -103,7 +109,7 @@ export async function renderPlan(root, planId = null) {
       try {
         await api(`/plans/${plan.id}/meals/${button.dataset.uncooked}/cooked`, { method: "DELETE" });
         toast("Off the record again.", "ok");
-        renderPlan(root);
+        reload();
       } catch (error) {
         toast(error.detail || error.message, "error");
       }
@@ -113,7 +119,7 @@ export async function renderPlan(root, planId = null) {
     button.onclick = async () => {
       await api(`/plans/${plan.id}/meals/${button.dataset.remove}`, { method: "DELETE" });
       toast("Removed — its share left the shopping list.", "ok");
-      renderPlan(root);
+      reload();
     };
   }
 }
@@ -153,30 +159,44 @@ function cookedChip(pm, meal) {
   return chips;
 }
 
+function planRow(p, emoji, note = "") {
+  return html`
+    <a class="row-card" href="#/plans/${p.id}">
+      <span class="rc-emoji" aria-hidden="true">${emoji}</span>
+      <div class="rc-main">
+        <div class="rc-title">${p.label}</div>
+        <div class="rc-sub">${p.meal_count} ${p.meal_count === 1 ? "meal" : "meals"}${note}</div>
+      </div>
+    </a>
+  `;
+}
+
+// Every active plan feeds the shopping list, not just the newest one this page
+// opens on, so the others are listed here rather than left adding to it out of
+// sight. Open one to wrap it up.
+function otherActivePlans(active, currentId) {
+  const others = active.filter((p) => p.id !== currentId);
+  if (others.length === 0) return "";
+  return html`
+    <div class="section" data-other-active>
+      <h2>Also on the go</h2>
+      <ul class="row-list">${others.map((p) => planRow(p, "🍲", " · on the shopping list too"))}</ul>
+    </div>
+  `;
+}
+
 function previousPlans(archived, currentId) {
   const others = archived.filter((p) => p.id !== currentId);
   if (others.length === 0) return "";
   return html`
     <div class="section" data-previous>
       <h2>Previous plans</h2>
-      <ul class="row-list">
-        ${others.slice(0, 8).map(
-          (p) => html`
-            <a class="row-card" href="#/plans/${p.id}">
-              <span class="rc-emoji" aria-hidden="true">🗂️</span>
-              <div class="rc-main">
-                <div class="rc-title">${p.label}</div>
-                <div class="rc-sub">${p.meal_count} ${p.meal_count === 1 ? "meal" : "meals"}</div>
-              </div>
-            </a>
-          `,
-        )}
-      </ul>
+      <ul class="row-list">${others.slice(0, 8).map((p) => planRow(p, "🗂️"))}</ul>
     </div>
   `;
 }
 
-async function renameInline(label, plan, root) {
+async function renameInline(label, plan, reload) {
   const input = document.createElement("input");
   input.type = "text";
   input.value = plan.label;
@@ -190,7 +210,7 @@ async function renameInline(label, plan, root) {
     if (save && input.value.trim() && input.value.trim() !== plan.label) {
       await api(`/plans/${plan.id}`, { method: "PATCH", body: { label: input.value.trim() } });
     }
-    renderPlan(root, plan.status === "active" ? null : plan.id);
+    reload();
   };
   input.onkeydown = (e) => {
     if (e.key === "Enter") done(true);
@@ -199,9 +219,15 @@ async function renameInline(label, plan, root) {
   input.onblur = () => done(true);
 }
 
-function newPlanDialog(root, currentPlan) {
+// A new plan replaces the one on screen, which is wrapped up first: every
+// active plan feeds the shopping list, so leaving it open would count each
+// carried-over meal twice. The API allows more than one active plan, so it
+// won't do this for us. First, too, because an archived plan doesn't count
+// against a plan allowance, so this order is the one that leaves room.
+function newPlanDialog(root, currentPlan, reload) {
   const dialog = openDialog(html`
     <h2>Start a new plan</h2>
+    ${currentPlan && html`<p class="sub">“${currentPlan.label}” wraps up first, and its meals come off the shopping list unless you carry them over.</p>`}
     <form data-f>
       <label class="field"><span>Label</span>
         <input type="text" name="label" required placeholder="Next week" autofocus></label>
@@ -220,19 +246,38 @@ function newPlanDialog(root, currentPlan) {
     event.preventDefault();
     const data = new FormData(event.target);
     const body = { label: data.get("label").trim() };
+    // Checked before anything is archived, so a label the API would refuse
+    // can't leave the old plan wrapped up and no new one started.
+    if (!body.label) {
+      toast("Give the new plan a label.", "error");
+      return;
+    }
     if (currentPlan && data.get("carry")) body.copy_from_plan_id = currentPlan.id;
+    const submit = event.target.querySelector('[type="submit"]');
+    submit.disabled = true;
+    let wrapped = false;
     try {
+      if (currentPlan) {
+        await api(`/plans/${currentPlan.id}/archive`, { method: "POST" });
+        wrapped = true;
+      }
       await api("/plans", { method: "POST", body });
       dialog.close();
-      toast("New plan started — the old one wrapped up itself.", "ok");
-      renderPlan(root);
+      toast(currentPlan ? `New plan started, and “${currentPlan.label}” wrapped up.` : "New plan started.", "ok");
+      if (window.location.hash === "#/plan") renderPlan(root);
+      else window.location.hash = "#/plan";
     } catch (error) {
+      submit.disabled = false;
       toast(error.detail || error.message, "error");
+      // Archiving an archived plan is a no-op, so trying again from this
+      // dialog is safe; the page behind it just has to stop offering the old
+      // plan as if it were still open.
+      if (wrapped) reload();
     }
   };
 }
 
-async function addMealDialog(plan, root) {
+async function addMealDialog(plan, reload) {
   const inPlan = new Set(plan.meals.map((pm) => pm.meal.id));
   const dialog = openDialog(html`
     <h2>Add a meal</h2>
@@ -273,7 +318,7 @@ async function addMealDialog(plan, root) {
           await api(`/plans/${plan.id}/meals`, { method: "POST", body: { meal_id: button.dataset.pick } });
           dialog.close();
           toast("Added — its ingredients just joined the shopping list.", "ok");
-          renderPlan(root);
+          reload();
         } catch (error) {
           button.disabled = false;
           toast(error.detail || error.message, "error");
