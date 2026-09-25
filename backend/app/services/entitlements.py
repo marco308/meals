@@ -65,6 +65,13 @@ GRACE = "grace"  # past expiry, caps not yet re-applied (§5's 14 days)
 LAPSED = "lapsed"  # past expiry and past grace: the free tier's caps apply
 STATES = (PERMANENT, PAID, GRACE, LAPSED)
 
+#: What the subscription behind a processor's entitlement is doing
+#: (`billing_subscription_state`). Stored rather than derived, unlike the states
+#: above, because only the processor knows it: this server hears it in webhooks.
+RENEWING = "renewing"  # the payer's card will be charged again
+CANCELLED = "cancelled"  # paid through its period, and will not renew
+ENDED = "ended"  # over at the processor, so nothing about it can grant again
+
 
 class EntitlementError(Exception):
     """A change that would lose something worth keeping. Carries a sentence the
@@ -89,6 +96,18 @@ class Entitlement:
     lead_email: str | None
 
 
+@dataclass(frozen=True)
+class Tracking:
+    """What one processor event says about the subscription behind an
+    entitlement: which one, what it is doing, when the processor said so, and
+    (on a payment) whose card it is."""
+
+    subscription_id: str | None
+    state: str
+    at: datetime | None
+    payer_id: uuid.UUID | None = None
+
+
 def _aware(value: datetime) -> datetime:
     # SQLite round-trips datetimes naive; stored values are UTC.
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
@@ -107,6 +126,53 @@ def state(household: Household, *, now: datetime | None = None) -> str:
     if now < _aware(household.paid_until):
         return PAID
     return GRACE if now < grace_ends_at(household) else LAPSED
+
+
+def comped(household: Household, *, now: datetime | None = None) -> bool:
+    """Whether an operator's comp is what this household is running on.
+
+    A comp whose date has passed no longer counts: its end came, and a household
+    that pays after that is a customer again rather than a comp to protect.
+    """
+    return household.entitlement_source == COMP and state(household, now=now) in (PERMANENT, PAID)
+
+
+def subscription_open(household: Household) -> bool:
+    """Whether a processor may still have a subscription running for this
+    household: one it is tracking that has not ended, or a paid entitlement from
+    before subscriptions were tracked, which nothing here can rule out."""
+    if household.billing_subscription_state is not None:
+        return household.billing_subscription_state != ENDED
+    return household.entitlement_source not in (None, COMP)
+
+
+def charges_again(household: Household, *, now: datetime | None = None) -> bool:
+    """Whether the payer's card will be charged again for this household.
+
+    What decides whether they may walk away from it: leaving, being removed,
+    handing on the lead or deleting their account would leave a card renewing
+    for a household its owner can no longer manage. Cancelling at the processor
+    (Manage billing) sends the event that clears this.
+
+    A payment from before subscriptions were tracked names no state, and is
+    assumed to renew while it is in date. Assuming wrongly costs somebody a
+    visit to Manage billing; assuming the other way could cost them a year's
+    charge for a household they have left.
+    """
+    if household.billing_subscription_state is not None:
+        return household.billing_subscription_state == RENEWING
+    if household.entitlement_source in (None, COMP) or household.paid_until is None:
+        return False
+    return _aware(household.paid_until) > (now or datetime.now(UTC))
+
+
+def renews(household: Household) -> bool | None:
+    """What `GET /billing/subscription` says about renewal: null where this
+    server has not been told, which is a comp, a household that never paid, and
+    one that paid before subscriptions were tracked."""
+    if household.billing_subscription_state is None:
+        return None
+    return household.billing_subscription_state == RENEWING
 
 
 def describe(household: Household, *, lead_email: str | None = None, now: datetime | None = None) -> Entitlement:
@@ -141,6 +207,7 @@ async def grant(
     price_currency: str | None = None,
     customer_id: str | None = None,
     price_conflict: str = REFUSE_PRICE_CHANGE,
+    tracking: Tracking | None = None,
 ) -> Entitlement:
     """Put a household on a tier until a date, or forever with `until=None`.
 
@@ -156,6 +223,10 @@ async def grant(
     `customer_id` is who the household is at the processor (#129). It is only
     ever set, never cleared: a household that stops paying keeps the customer it
     was, which is exactly who a portal session has to be minted for.
+
+    `tracking` is the webhook's: which subscription this is and whose card. It
+    is applied only once every check above has passed, so a refused grant
+    leaves nothing staged behind it.
     """
     if tier not in limits.TIERS:
         raise EntitlementError(f"{tier!r} is not a tier; choose one of {', '.join(limits.TIERS)}")
@@ -193,6 +264,8 @@ async def grant(
         )
     if customer_id is not None:
         household.billing_customer_id = customer_id
+    if tracking is not None:
+        track(household, tracking)
     _reset_dunning(household)
 
     await db.commit()
@@ -238,12 +311,16 @@ async def extend(
 
 
 async def revoke(db: AsyncSession, household: Household, *, note: str | None = None) -> Entitlement:
-    """Back to the free tier, now.
+    """Back to the free tier, now: the operator's command, with no grace.
 
     Nothing is deleted and nothing becomes unreadable — this only stops the
     household growing past the free allowance (§5). The price snapshot is kept
     on purpose: if they come back, the founding price they were promised is
     still the one on their row.
+
+    A processor never reaches this. A subscription that ends goes through
+    `expire`, which keeps the grace period TERMS promises; this is for an
+    operator ending a comp or suspending somebody, where "now" is the point.
     """
     household.tier = limits.FREE
     household.paid_until = None
@@ -254,6 +331,65 @@ async def revoke(db: AsyncSession, household: Household, *, note: str | None = N
     await db.commit()
     log_event("entitlement.revoked", household_id=household.id)
     return describe(household)
+
+
+async def expire(
+    db: AsyncSession,
+    household: Household,
+    *,
+    at: datetime,
+    note: str | None = None,
+    tracking: Tracking | None = None,
+) -> Entitlement:
+    """Bring the expiry forward to `at`, or leave an earlier one where it is.
+
+    What a subscription ending, or failing to renew, does to the entitlement it
+    paid for. The tier stays, so `limits.effective_tier`, the grace period and
+    dunning treat it exactly as they treat a year that ran out on its own:
+    nothing changes for ENTITLEMENT_GRACE_DAYS, then the free tier's caps apply,
+    and the lapse email goes out (TERMS, "Cancelling, and what happens next").
+    A processor used to reach `revoke` instead, which is right for an operator
+    and skipped all three.
+
+    Never later than it was: a cancellation cannot lengthen anything. And never
+    onto a household with no expiry at all, which a processor's grant never
+    leaves: that is a comp, or one an operator has already revoked to the free
+    tier, and giving it a date would only send it an email about a year it
+    does not have.
+    """
+    if household.paid_until is not None and _aware(at) < _aware(household.paid_until):
+        household.paid_until = at
+        # A new expiry gets its own pair of emails. An unchanged one keeps its
+        # marks, so an end arriving after the lapse email does not send another.
+        _reset_dunning(household)
+    if note is not None:
+        household.entitlement_note = note
+    if tracking is not None:
+        track(household, tracking)
+    await db.commit()
+    until = _aware(household.paid_until).isoformat() if household.paid_until is not None else None
+    log_event("entitlement.expired", household_id=household.id, until=until)
+    return describe(household)
+
+
+def track(household: Household, tracking: Tracking) -> None:
+    """Record a processor's `Tracking` on the household. Staged, not
+    committed: it lands with the entitlement change or the ledger row that
+    follows, so the two cannot disagree.
+
+    The subscription and the payer are only ever set here, never cleared, the
+    rule `customer_id` follows: an ended subscription is still the one whose
+    late retries have to be recognised, and its payer is still whose invoices
+    the portal holds. (A payer who leaves the household is cleared by
+    `services/accounts.py`, which is where they leave.)
+    """
+    if tracking.subscription_id is not None:
+        household.billing_subscription_id = tracking.subscription_id
+    household.billing_subscription_state = tracking.state
+    if tracking.at is not None:
+        household.billing_event_at = tracking.at
+    if tracking.payer_id is not None:
+        household.billing_user_id = tracking.payer_id
 
 
 def _reset_dunning(household: Household) -> None:

@@ -16,6 +16,7 @@ the suite slower.
 """
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -796,6 +797,48 @@ class TestTheIngestQuota:
         await signed_in(client)
         recipe = await create_recipe(client, title="Read it myself", source_url="https://example.com/a")
         assert recipe["id"]
+
+    async def test_two_ingests_at_once_are_both_counted(self, engine, client, hosted):
+        """Both loaded the household with nothing used, and both wrote 1 back, so
+        the second ingest was spent and never counted. Checked and charged in
+        one statement, each lands."""
+        hosted(free={"ingests_per_month": 5, "recipes": None, "ingredients": None})
+        await signed_in(client)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as first, maker() as second:
+            one = (await first.execute(select(Household))).scalars().one()
+            two = (await second.execute(select(Household))).scalars().one()
+            await limits.reserve_ingest(first, one)
+            await limits.reserve_ingest(second, two)  # `two` still says none were used
+        async with maker() as session:
+            assert (await session.execute(select(Household))).scalars().one().ingests_used == 2
+
+    async def test_the_months_last_ingest_goes_to_only_one_of_them(self, engine, client, hosted):
+        hosted(free={"ingests_per_month": 1, "recipes": None, "ingredients": None})
+        await signed_in(client)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as first, maker() as second:
+            one = (await first.execute(select(Household))).scalars().one()
+            two = (await second.execute(select(Household))).scalars().one()
+            await limits.reserve_ingest(first, one)
+            with pytest.raises(limits.LimitExceeded) as refused:
+                await limits.reserve_ingest(second, two)
+        assert (refused.value.status_code, refused.value.used, refused.value.limit) == (402, 1, 1)
+        async with maker() as session:
+            assert (await session.execute(select(Household))).scalars().one().ingests_used == 1
+
+    async def test_a_new_month_starts_the_count_again(self, engine, client, hosted):
+        hosted(free={"ingests_per_month": 1, "recipes": None, "ingredients": None})
+        await signed_in(client)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as session:
+            household = (await session.execute(select(Household))).scalars().one()
+            household.ingest_period_started_at = datetime(2020, 1, 1, tzinfo=UTC)
+            household.ingests_used = 1
+            await session.commit()
+            await limits.reserve_ingest(session, household)
+            assert household.ingests_used == 1
+            assert household.ingest_period_started_at.month == datetime.now(UTC).month
 
     async def test_the_counter_is_the_households_own(self, engine, client, hosted, fetch_stub):
         hosted(free={"ingests_per_month": 2, "recipes": None, "ingredients": None})

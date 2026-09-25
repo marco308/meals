@@ -98,7 +98,8 @@ _CEILING_GAUGES: tuple[tuple[Gauge, str], ...] = (
 #   increase(meals_billing_webhooks_total{outcome=~"orphan|refused|bad_signature|unsigned|stale|unreadable"}[1h]) > 0
 #
 # `granted` and `duplicate` are the healthy outcomes; `duplicate` is a retry
-# doing its job, not a problem.
+# doing its job, not a problem. `unpaid` is a declined renewal the processor is
+# retrying, which the grace period and dunning already handle.
 _BILLING_WEBHOOKS = Counter(
     "meals_billing_webhooks_total",
     "Billing webhooks received, by outcome.",

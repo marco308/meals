@@ -1,10 +1,14 @@
 import asyncio
 import contextlib
+import math
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -147,6 +151,32 @@ async def instance_full_handler(_: Request, exc: Exception) -> Response:
     """
     assert isinstance(exc, limits.InstanceFull)
     return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(_: Request, exc: Exception) -> Response:
+    """FastAPI's own 422, in FastAPI's own shape, made safe to send.
+
+    Python's JSON parser reads `Infinity`, `NaN` and an overflowing `1e400` as
+    floats, and every validation error echoes the input it refused. Starlette
+    will not encode a float JSON has no spelling for, so a request that had
+    been correctly refused came back as a 500 telling the caller it was not
+    their fault. Those floats are echoed as the strings "Infinity",
+    "-Infinity" and "NaN" instead.
+    """
+    assert isinstance(exc, RequestValidationError)
+    return JSONResponse(status_code=422, content={"detail": _spell_non_finite(jsonable_encoder(exc.errors()))})
+
+
+def _spell_non_finite(value: Any) -> Any:
+    """`value` with every float that JSON cannot carry replaced by its name."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+    if isinstance(value, dict):
+        return {key: _spell_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_spell_non_finite(item) for item in value]
+    return value
 
 
 # Registered last so it is the *outermost* middleware (Starlette builds the

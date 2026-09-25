@@ -94,6 +94,30 @@ class Household(Base):
     # page that emails them a link. Null for every household that never paid,
     # which is all of them on a self-hosted instance, and for a comp.
     billing_customer_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    # Which subscription at the processor the entitlement follows, and what it
+    # is doing. Without the id, a webhook about *any* subscription could grant
+    # or end this one: cancelling a second, accidental subscription ended the
+    # year the first had paid for, and a retried event from before a
+    # cancellation granted the year back. The state is 'renewing' (the card
+    # will be charged again), 'cancelled' (paid through its period, and will
+    # not renew) or 'ended'. Null for a household that never paid, and for one
+    # whose last payment predates these columns until its next event says.
+    billing_subscription_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    billing_subscription_state: Mapped[str | None] = mapped_column(String(20), default=None)
+    # The processor's own time for the newest event applied here. Processors
+    # deliver out of order and retry for days, and this is what tells a stale
+    # retry from news.
+    billing_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # The member whose card it is. Billing belongs to the payer, not to
+    # whoever leads the household today: only they may open the portal, which
+    # shows their card, their address and their invoices, and while it will
+    # charge them again they may not leave, be removed, hand the lead on or
+    # delete their account. A cycle with `users` like the lead's, hence
+    # `use_alter`.
+    billing_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL", use_alter=True, name="households_billing_user_id_fkey"),
+        default=None,
+    )
     # Why, in one line, for whoever is reading the list a year later: "early
     # supporter", "PikaPods", "found the backup bug".
     entitlement_note: Mapped[str | None] = mapped_column(String(200), default=None)

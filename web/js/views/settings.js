@@ -108,7 +108,7 @@ export async function renderSettings(root) {
 
       ${allowancesSection(allowances)}
 
-      ${subscriptionSection(subscription, household, youLead, leadName)}
+      ${subscriptionSection(subscription, household, user, youLead, leadName)}
 
       <div class="section card">
         <h2>Supermarkets &amp; aisle order</h2>
@@ -437,21 +437,37 @@ export async function renderSettings(root) {
 // Paying leaves this app entirely. The processor is the merchant of record, so
 // the checkout, the card details, the invoices and any refund are theirs, and
 // this server never sees a card number.
+//
+// Starting a subscription is the lead's, but managing one is the payer's: the
+// portal shows their card, their address and their invoices, and the lead can
+// have changed since they paid. With no payer on record it falls to the lead,
+// who then gets the processor's own login page. The server keeps the same rule.
 
-function subscriptionSection(subscription, household, youLead, leadName) {
+function subscriptionSection(subscription, household, user, youLead, leadName) {
   if (!subscription) return "";
+  const payer = subscription.payer_user_id;
+  const youManage = payer ? payer === user.id : youLead;
+  const payerName = household.members.find((m) => m.id === payer)?.display_name || "whoever pays for it";
   return html`
     <div class="section card">
       <h2>Subscription</h2>
       <p class="sub">${subscriptionState(subscription)}</p>
-      ${(subscription.can_checkout || subscription.can_manage) && !youLead
+      ${subscription.can_checkout && !youLead
         ? html`<p class="sub">${leadName} leads “${household.name}”, so this is theirs to arrange.</p>`
+        : ""}
+      ${subscription.can_manage && !youManage
+        ? html`<p class="sub">${payer ? payerName : leadName} ${payer ? "pays for" : "leads"}
+            “${household.name}”, so managing it is theirs.</p>`
+        : ""}
+      ${subscription.can_manage && youManage && subscription.renews
+        ? html`<p class="sub">It is your card, so cancel it here before you leave the household or
+            delete your account.</p>`
         : ""}
       <div class="dialog-actions">
         ${subscription.can_checkout && youLead
           ? html`<button class="btn" data-subscribe>${subscribeLabel(subscription)}</button>`
           : ""}
-        ${subscription.can_manage && youLead
+        ${subscription.can_manage && youManage
           ? html`<button class="btn ghost" data-manage>Manage billing</button>`
           : ""}
       </div>
@@ -464,7 +480,8 @@ function subscriptionState(subscription) {
   const from = subscription.source === "comp" ? ", with the compliments of whoever runs it" : "";
   switch (subscription.state) {
     case "paid":
-      return `Paid until ${fmtDate(subscription.paid_until)}${from}${paid ? `, at ${paid} a year` : ""}.`;
+      return `Paid until ${fmtDate(subscription.paid_until)}${from}${paid ? `, at ${paid} a year` : ""}.${
+        subscription.renews === false ? " It has been cancelled, so it ends then." : ""}`;
     case "grace":
       // §5: lapsing reduces what a household can add, and takes nothing away.
       return `This ran out on ${fmtDate(subscription.paid_until)}. The free tier's limits come back on
