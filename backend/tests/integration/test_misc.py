@@ -197,6 +197,16 @@ class TestPublicPages:
         response = await client.get("/privacy")
         assert 'id="contact"' in response.text
 
+    async def test_every_link_works_from_both_copies(self, client):
+        """Each page is read here and on GitHub, and a relative link can only be
+        right in one of them: `[SECURITY.md](SECURITY.md)` resolved in the repo
+        and 404'd on `/support`, an App Store URL. So a link names its scheme or
+        stays on the page."""
+        for path in ("/privacy", "/support", "/terms", "/credits"):
+            text = (await client.get(path)).text
+            for href in re.findall(r"<a href=[\"']([^\"']*)", text):
+                assert href.startswith("#") or re.match(r"[a-z]+:", href), f"{path} links to {href!r}"
+
     async def test_pages_need_no_auth(self, client):
         """`client` is unauthenticated — Apple's reviewer opens these in a browser."""
         for path in ("/privacy", "/support", "/terms", "/credits"):

@@ -136,6 +136,30 @@ class TestCreateRecipe:
         patched = await auth_client.patch(f"/recipes/{recipe['id']}", json={field: MAX_RECIPE_MINUTES + 1})
         assert patched.status_code == 422
 
+    async def test_an_empty_source_url_is_no_source_url(self, auth_client):
+        """`source_url` is the parse-once cache key (Q3), and models often send
+        "" through submit_recipe. Used as a key, "" made every hand-typed recipe
+        the same page: the second came back as the first, with a 200, and was
+        thrown away."""
+        lasagne = await create_recipe(auth_client, title="Lasagne", source_url="")
+        pancakes = await create_recipe(auth_client, title="Pancakes", source_url="")
+        crumble = await create_recipe(auth_client, title="Crumble", source_url="   ")
+        assert len({lasagne["id"], pancakes["id"], crumble["id"]}) == 3
+        assert {recipe["source_url"] for recipe in (lasagne, pancakes, crumble)} == {None}
+        library = await auth_client.get("/recipes")
+        assert [recipe["title"] for recipe in library.json()] == ["Crumble", "Lasagne", "Pancakes"]
+
+    async def test_a_padded_source_url_is_the_same_cache_key(self, auth_client):
+        """Stripped on POST /recipes as on /recipes/ingest, so the two routes
+        into the library agree on what a URL is."""
+        first = await create_recipe(auth_client, source_url="  https://example.com/spag-bol\n")
+        assert first["source_url"] == "https://example.com/spag-bol"
+        again = await auth_client.post(
+            "/recipes", json={"title": "Spag bol again", "source_url": "https://example.com/spag-bol"}
+        )
+        assert again.status_code == 200
+        assert again.json()["id"] == first["id"]
+
 
 class TestIngest:
     @pytest.fixture
@@ -311,6 +335,18 @@ class TestBrowseAndEdit:
 
         cleared = await auth_client.patch(f"/recipes/{recipe['id']}", json={"image_url": None})
         assert cleared.json()["image_url"] is None
+
+    async def test_an_explicit_null_leaves_a_required_field_alone(self, auth_client):
+        """`{"title": null}` used to write None into a NOT NULL column and 500.
+        A null clears what may be empty (the photo, above); for the title and
+        the tags it means "leave it", as it does on every other PATCH."""
+        recipe = await create_recipe(auth_client, tags=["pasta"])
+        response = await auth_client.patch(
+            f"/recipes/{recipe['id']}", json={"title": None, "tags": None, "servings": 6}
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert (body["title"], body["tags"], body["servings"]) == ("Spaghetti Bolognese", ["pasta"], 6)
 
     async def test_get_unknown_recipe_404(self, auth_client):
         response = await auth_client.get("/recipes/00000000-0000-0000-0000-000000000000")

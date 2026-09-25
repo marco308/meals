@@ -396,6 +396,47 @@ final class APIClientTests: XCTestCase {
             XCTFail("unexpected error type: \(error)")
         }
     }
+
+    /// An address that isn't a server used to fall back to the default host,
+    /// sign-in included. Now nothing is sent anywhere.
+    func testNoUsableServerMeansNothingIsSent() async {
+        let client = APIClient(baseURL: nil, token: "meals_test-token")
+        do {
+            _ = try await client.fetchAisles()
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? APIError, .invalidURL)
+        }
+    }
+
+    /// The offline queue drops an op only on a refusal the API itself wrote
+    /// (Q11): the same status from a proxy or a gateway says nothing about it.
+    func testOnlyTheAPIsOwnWordsAreARefusal() async {
+        func failure(_ status: Int, _ body: String) async -> APIError? {
+            StubProtocol.handler = { _ in (status, Data(body.utf8)) }
+            do {
+                _ = try await client(protocolClass: StubProtocol.self).fetchAisles()
+                return nil
+            } catch {
+                return error as? APIError
+            }
+        }
+        let proxy = await failure(403, "<html><body>Access denied</body></html>")
+        XCTAssertEqual(proxy, .server(status: 403, detail: "Request failed (403)"), "still shown as it always was")
+        XCTAssertNil(proxy?.refusal, "a proxy's page says nothing about the request")
+
+        let forbidden = await failure(403, #"{"detail": "not yours"}"#)
+        XCTAssertEqual(forbidden?.refusal, "not yours")
+        let missing = await failure(404, #"{"detail": "list item not found"}"#)
+        XCTAssertEqual(missing?.refusal, "list item not found")
+        let invalid = await failure(422, #"{"detail": [{"msg": "unit 'pints' is not accepted"}]}"#)
+        XCTAssertEqual(invalid?.refusal, "unit 'pints' is not accepted")
+
+        let restarting = await failure(503, #"{"detail": "restarting"}"#)
+        XCTAssertNil(restarting?.refusal, "a 503 is worth another try, whoever wrote it")
+        let busy = await failure(429, #"{"detail": "slow down"}"#)
+        XCTAssertNil(busy?.refusal)
+    }
 }
 
 // MARK: - Account lifecycle (decision Q20)

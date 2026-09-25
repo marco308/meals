@@ -110,6 +110,17 @@ class RecipeCreate(BaseModel):
     parse_source: Literal["manual", "ai"] = "manual"
     ingredients: list[IngredientLineIn] = Field(default_factory=list, max_length=MAX_RECIPE_LINES)
 
+    @field_validator("source_url")
+    @classmethod
+    def _clean_source_url(cls, value: str | None) -> str | None:
+        """The parse-once cache key (Q3), so it is stripped as /recipes/ingest
+        strips it, and a blank one is no URL at all. Kept as "", it made every
+        hand-typed recipe the same page: models often send "" through
+        submit_recipe, and the second such recipe came back as the first."""
+        if value is None:
+            return None
+        return value.strip() or None
+
 
 class RecipeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)

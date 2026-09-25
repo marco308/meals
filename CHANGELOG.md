@@ -24,14 +24,34 @@ Nothing merged since the release below.
 
 ## 2026-09-25 — grant only what was paid for, bound what a request can cost
 
-Released as **1.6.4**. **One migration** (`ef71d71574d8`), additive: four
-nullable columns on `households`, and a backfill naming the lead as the payer
-of every household that has paid (until now only the lead could open a
-checkout). Validation is tighter in a few places, each far past real use: a
+Released as **1.6.4**. **Two migrations**, both additive, run in this order:
+
+- `ef71d71574d8`: four nullable columns on `households`, and a backfill
+  naming the lead as the payer of every household that has paid (until now
+  only the lead could open a checkout).
+- `b9b700d074ec`: two columns on `list_item_sources` (`ad_hoc`, `meal_name`,
+  both backfilled) and its `plan_meal_id` key moved from `ON DELETE CASCADE`
+  to `SET NULL`. Checked on Postgres 17 and SQLite against rows written by
+  1.6.3, down and up again on both, and on Postgres with 1.6.3 still serving
+  against the migrated schema, as it does for the few seconds of a
+  start-first rollout. Additive for clients too: no response field was
+  removed or renamed, and the household export gains two.
+
+Validation is tighter in a few places, each far past real use: a
 non-finite quantity, `prep_minutes` or `cook_minutes` over 525,600, an
 `aisle_order` longer than the 14 aisles, and an `X-Meals-Client` header whose
 parts run past their bounds (which, like any unparseable one, makes an
 unidentified client rather than a refusal).
+
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
 
 ### Fixed
 
@@ -75,6 +95,47 @@ unidentified client rather than a refusal).
 - **The URL-ingest quota counts every ingest.** Two ingests at once could both
   read the same count and write the same number back; checking and charging is
   now one conditional `UPDATE`.
+- **`/support` no longer links to a page this server doesn't have.** Its
+  pointer to SECURITY.md was relative, so it worked on GitHub and 404'd on the
+  served page, an App Store URL. It now points at the file on GitHub, and a
+  test holds all four pages to links that work from either copy. The same
+  paragraph no longer says the hosted server holds one household's data.
+- **Editing a planned meal or recipe no longer gives its shopping-list lines
+  new ids.** The re-sync deleted every line only that meal needed and made it
+  again, so a tick the phone had queued offline against the old id came back
+  404, and iOS drops a refused op (Q11): the tick was lost. It now updates the
+  meal's share of each line in place and deletes a line only once nothing needs
+  it. A line whose need changed comes back unticked and keeps "already have
+  it", whether or not another meal shares it; before, that depended on whether
+  the line happened to be rebuilt.
+- **Editing a meal after "Finish shop" adds only the difference.** With the
+  list archived and the plan still running, any edit put the meal's entire
+  need back on the fresh list. What an archived list holds now counts as
+  bought: 500 g to 600 g of mince adds 100 g, a new ingredient adds just
+  itself, and swapping a recipe for one that uses the same onion doesn't add
+  another onion.
+- **Taking a meal off the plan no longer rewrites archived lists.** Its
+  contributions were cascade-deleted from every list, archived ones included,
+  so a finished shop's lines lost their quantities (visible in
+  `GET /household/export`). On an archived list a contribution now keeps its
+  quantity and the meal's name after its plan-meal goes, and an ad-hoc add is
+  recorded as one rather than inferred from a missing plan-meal. The export
+  gains `ad_hoc` and `meal_name` on each source.
+- **Two recipes saved with `source_url: ""` stay two recipes.** The empty
+  string was used as the parse-once cache key, so the second hand-typed recipe
+  came back as the first, with a 200, and was thrown away; models send `""`
+  through `submit_recipe` often. A blank `source_url` is now no URL, and
+  `POST /recipes` strips it as `/recipes/ingest` always has.
+- **`PATCH /recipes/{id}` with `"title": null` leaves the title alone** rather
+  than answering 500. An explicit null still clears what may be empty (the
+  photo, the method) and now leaves the title and tags alone, as the other
+  PATCH endpoints do.
+- **"New plan" on the web wraps up the plan it replaces.** It only created the
+  new one, so the old plan stayed active out of sight and kept feeding the
+  shopping list, every carried-over meal counted twice, while the toast said it
+  had wrapped itself up. It now archives the current plan first, then starts
+  the new one from it. The plan page lists any other active plan under **Also
+  on the go**, and "Wrap up" no longer claims the list keeps the plan's items.
 - **Recipe ingestion is bounded**
   ([#157](https://github.com/marco308/meals/pull/157)). Pages are requested
   uncompressed, and a server that compresses anyway has at most one layer of

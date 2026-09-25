@@ -80,5 +80,6 @@ in.
 
 ## Reporting a security problem
 
-See [SECURITY.md](SECURITY.md). Please don't test against
-`meals.marcuslab.uk` — it holds one household's real data. Run your own.
+See [SECURITY.md](https://github.com/marco308/meals/blob/main/SECURITY.md).
+Please don't test against `meals.marcuslab.uk`: it holds real households'
+data. Run your own.

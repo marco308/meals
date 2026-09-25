@@ -85,19 +85,29 @@ class ListItem(Base):
 
 class ListItemSource(Base):
     """Provenance: why an item is on the list (guiding principle 3). Each row
-    is one contribution — from a planned meal's recipe, a meal's loose
-    ingredient, or (plan_meal_id NULL) an ad-hoc addition like milk. Removing
-    a meal from the plan deletes its contributions and never touches ad-hoc
-    rows."""
+    is one contribution: from a planned meal's recipe, a meal's loose
+    ingredient, or an ad-hoc addition like milk (`ad_hoc`). Removing a meal
+    from the plan deletes its contributions from the live list and never
+    touches ad-hoc rows.
+
+    On an archived list a contribution outlives its plan-meal: the link goes to
+    NULL and the row keeps its quantity and the meal's name, because that list
+    is the record of a shop that happened. That is also why `ad_hoc` is a
+    column: a NULL `plan_meal_id` meant ad hoc only while a meal's rows
+    cascaded away with it."""
 
     __tablename__ = "list_item_sources"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("list_items.id", ondelete="CASCADE"))
     plan_meal_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("plan_meals.id", ondelete="CASCADE"), default=None
+        ForeignKey("plan_meals.id", ondelete="SET NULL"), default=None
     )
     recipe_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recipes.id", ondelete="SET NULL"), default=None)
+    ad_hoc: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The meal's name when it contributed, for once the plan-meal has gone:
+    # CookedEvent keeps its own copy for the same reason.
+    meal_name: Mapped[str | None] = mapped_column(String(300), default=None)
     quantity: Mapped[float | None] = mapped_column(Float, default=None)
     # Client-supplied dedup key for ad-hoc adds: a retried POST with the same
     # id is a no-op, which offline sync and retrying AIs both rely on.
