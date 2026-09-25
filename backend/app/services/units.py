@@ -150,9 +150,18 @@ def normalize_unit(unit: str) -> tuple[str, float]:
 
 
 def normalize_quantity(quantity: float, unit: str) -> tuple[float, str]:
-    """Normalise an API-submitted (quantity, unit) to canonical form."""
+    """Normalise an API-submitted (quantity, unit) to canonical form.
+
+    The canonical amount has to be finite. Python's JSON parser reads
+    `Infinity` and an overflowing `1e400` as floats, 1e308 kg is infinite
+    once it is grams, and one stored on a line broke every view of it."""
     canonical, multiplier = normalize_unit(unit)
     value = round(quantity * multiplier, 3)
+    if not math.isfinite(value):
+        raise UnitNotAllowedError(
+            "quantity must be a finite number such as 500 or 1.5; Infinity, NaN and amounts too large to store "
+            "are refused. Send the real amount, or leave out both quantity and unit if it isn't known"
+        )
     if value <= 0:
         raise UnitNotAllowedError("quantity must be positive")
     return value, canonical
@@ -192,9 +201,11 @@ def parse_number(token: str) -> float | None:
 def format_quantity(quantity: float | None, unit: str | None) -> str:
     """Human-friendly rendering of a canonical quantity: 1500 g → '1.5 kg'.
 
-    A quantity that isn't finite renders as nothing. Inputs are bounded now,
-    but a household may hold one stored before they were, and a line with no
-    amount beats a list that can't be read at all."""
+    A quantity that isn't finite renders as no amount, like a line that never
+    had one (the number itself goes out as null, which is how pydantic writes
+    one). `normalize_quantity` refuses them on the way in, but one stored
+    before it did, or a total that overflowed, must cost its line the amount
+    rather than fail every view that shows it."""
     if quantity is None or unit is None or not math.isfinite(quantity):
         return ""
     if unit == "g" and quantity >= 1000:
@@ -218,7 +229,7 @@ def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
     two — which is why this isn't done at contribution time. Mass and volume
     are left alone: 750 g of mince is a real thing to ask for."""
     if quantity is None or unit is None or not math.isfinite(quantity):
-        return ""
+        return ""  # before ceil(), which raises on them; see format_quantity
     if unit not in ("g", "ml"):
         quantity = float(math.ceil(round(quantity, 3)))
     return format_quantity(quantity, unit)

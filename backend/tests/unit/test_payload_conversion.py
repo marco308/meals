@@ -2,7 +2,7 @@ import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES, MAX_RECIPE_MINUTES
 from app.services.catalog import parsed_recipe_to_payload
-from app.services.recipe_parser import NoRecipeFound, ParsedIngredient, ParsedRecipe
+from app.services.recipe_parser import NoRecipeFound, ParsedIngredient, ParsedRecipe, parse_ingredient_line
 
 
 def test_out_of_convention_parser_output_degrades_to_unquantified_line():
@@ -15,6 +15,17 @@ def test_out_of_convention_parser_output_degrades_to_unquantified_line():
     assert line.name == "nothing"
     assert line.quantity is None
     assert line.raw == "0 g of nothing"
+
+
+def test_amount_too_large_for_a_float_degrades_to_unquantified_line():
+    """A page can print more digits than a float holds, and they parse to
+    infinity. Stored, that made the recipe unreadable; now it fails the
+    convention like any other amount nobody can shop for."""
+    parsed = ParsedRecipe(title="Edge case", ingredients=[parse_ingredient_line("1" + "0" * 400 + "g flour")])
+    line = parsed_recipe_to_payload(parsed).ingredients[0]
+    assert line.name == "flour"
+    assert line.quantity is None
+    assert line.unit is None
 
 
 def test_empty_parsed_name_falls_back_to_raw():

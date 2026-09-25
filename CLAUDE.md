@@ -95,7 +95,11 @@ instrumentation a new feature usually needs.
   longest-standing member if a lead deletes their account. **Leaving is not
   gated**: `DELETE /auth/household/members/{id}` with your own id is anyone's,
   and it is the same endpoint the lead uses to remove somebody, because they are
-  one act with two callers. Leaving, removal and `POST /auth/invites/redeem` all
+  one act with two callers. The one thing that gates it is money: a member whose
+  card pays for a subscription that will renew may not leave, be removed, hand
+  on the lead, redeem an invite elsewhere or delete their account until it is
+  cancelled, and the 409 says so (`_refuse_while_charging` in `routers/auth.py`).
+  Leaving, removal and `POST /auth/invites/redeem` all
   funnel into `move_user_to_household` in `services/accounts.py`, which moves
   `household_id` and collects the vacated household if nobody is left in it —
   only redeeming can reach that branch, which is why only it takes `force`.
@@ -227,7 +231,11 @@ instrumentation a new feature usually needs.
   defends it. Comp/extend/revoke/list is `python -m app.entitlements` (an
   operator command on the box, like `app/provision.py`, never an endpoint), and
   `python -m app.dunning` from cron sends the two emails, each marked once so it
-  never sends a third and never marked on a relay failure so it retries.
+  never sends a third and never marked on a relay failure so it retries. That
+  `revoke` is the operator's and immediate. A processor ending a subscription
+  goes through `entitlements.expire` instead, which brings `paid_until` forward
+  to the event and keeps the tier, so the grace period TERMS promises, the free
+  caps after it and the lapse email all run as they do for any year that ran out.
 - **Taking a payment is two switches, and both are off by default**
   (`services/billing.py`, `routers/billing.py`). `BILLING_PROCESSOR` +
   `BILLING_WEBHOOK_SECRET` let this server be *told* about payments;
@@ -266,7 +274,13 @@ instrumentation a new feature usually needs.
   asks somebody who is already signed in for their email and then emails them a
   link, so `POST /billing/portal` mints one against the stored customer id and
   `BILLING_MANAGE_URL` is only the fallback for comps, older rows, and the two
-  processors that hand out per-subscription URLs instead.
+  processors that hand out per-subscription URLs instead. It also keeps **which
+  subscription** the entitlement follows and whether it renews
+  (`billing_subscription_id` and `_state`), the processor's time for the newest
+  event applied (`billing_event_at`), and **whose card it is** (`billing_user_id`,
+  from the `user_id` the checkout puts beside the household id). Billing belongs
+  to that payer rather than to whoever leads today: the portal is minted for them
+  alone.
 - **The billing webhook is off unless configured, and its failures are loud**
   (`services/billing.py`, `POST /billing/webhook`). Unset `BILLING_PROCESSOR`
   and the route **404s** rather than existing and refusing — a self-hosted
@@ -290,7 +304,19 @@ instrumentation a new feature usually needs.
   retrying would fail identically, so they are counted and alerted on instead,
   which is the whole point — `increase(meals_billing_webhooks_total{outcome=~
   "orphan|refused|bad_signature|unsigned|stale|unreadable"}[1h]) > 0`. Only
-  genuinely transient failures are left to 500 and be retried.
+  genuinely transient failures are left to 500 and be retried. **A grant needs
+  the money to have arrived**: a subscription snapshot is read by its status
+  (`_STATUS_ACTIONS`), because Stripe moves `current_period_end` on *before* it
+  charges a renewal. `active` and `trialing` grant; `past_due`, `unpaid`,
+  `incomplete` and `paused` hold the expiry to the event (outcome `unpaid`, then
+  grace); an unknown status is refused. **Only the subscription it follows, in
+  order, moves an entitlement**: an event about another subscription, an older
+  one, or one for a subscription that has ended is ignored; a second
+  subscription paying for a household already paid for is refused, because
+  somebody is paying twice; and no processor event changes a comp in force. An
+  ending for a household that is not here is ignored rather than orphaned, since
+  only a payment can be an orphan, and Lemon Squeezy's unsigned `X-Event-Name`
+  may only agree with the signed `meta.event_name`.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above

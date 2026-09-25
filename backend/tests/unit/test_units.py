@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from app.services.units import (
@@ -72,6 +74,16 @@ class TestNormalizeQuantity:
         with pytest.raises(UnitNotAllowedError, match="positive"):
             normalize_quantity(0, "g")
 
+    @pytest.mark.parametrize("quantity", [math.inf, -math.inf, math.nan])
+    def test_non_finite_quantity_rejected(self, quantity):
+        with pytest.raises(UnitNotAllowedError, match="finite number"):
+            normalize_quantity(quantity, "g")
+
+    def test_quantity_that_overflows_into_grams_rejected(self):
+        """1e308 is a float; 1e311 g is not."""
+        with pytest.raises(UnitNotAllowedError, match="finite number"):
+            normalize_quantity(1e308, "kg")
+
 
 class TestParseNumber:
     @pytest.mark.parametrize(
@@ -117,12 +129,11 @@ class TestFormatQuantity:
     def test_none_renders_empty(self):
         assert format_quantity(None, None) == ""
 
-    @pytest.mark.parametrize("quantity", [float("inf"), float("-inf"), float("nan")])
     @pytest.mark.parametrize("unit", ["g", "ml", "item", "tin"])
-    def test_a_quantity_that_is_not_finite_renders_empty(self, quantity, unit):
-        """Only a row stored before quantities were bounded can hold one, and
-        rendering it raised (OverflowError, ValueError), which failed every
-        read of the list or recipe it was on."""
+    @pytest.mark.parametrize("quantity", [math.inf, -math.inf, math.nan])
+    def test_non_finite_renders_empty(self, quantity, unit):
+        """No amount to show, like a line that never had one, rather than an
+        OverflowError that takes the whole view down with it."""
         assert format_quantity(quantity, unit) == ""
         assert format_buy_quantity(quantity, unit) == ""
 

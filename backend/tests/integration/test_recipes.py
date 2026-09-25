@@ -65,6 +65,18 @@ class TestCreateRecipe:
         assert response.status_code == 422
         assert "unit is required" in response.text
 
+    async def test_non_finite_quantity_422_and_nothing_saved(self, auth_client):
+        """`1e400` is standard JSON and parses to infinity; stored on a line,
+        it made the recipe unreadable."""
+        response = await auth_client.post(
+            "/recipes",
+            content='{"title": "Rice", "ingredients": [{"name": "rice", "quantity": 1e400, "unit": "g"}]}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert "ingredient 'rice': quantity must be a finite number" in response.text
+        assert (await auth_client.get("/recipes")).json() == []
+
     async def test_shared_ingredients_are_canonical(self, auth_client):
         first = await create_recipe(auth_client)
         second = await create_recipe(

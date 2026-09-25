@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -401,19 +402,30 @@ class TestValidation:
         response = await auth_client.post("/recipes", json={"title": "x", "ingredients": [{"name": "   "}]})
         assert response.status_code == 422
 
-    # A 422 echoes the input that failed, so the refusal has to be encodable
-    # whatever that input was; FastAPI's own handler raised while rendering
-    # these, and each went out as a 500 instead.
-
-    async def test_a_refusal_that_echoes_nan_is_still_a_422(self, auth_client):
-        response = await auth_client.post(
-            "/meals",
-            content=f'{{"name": "Curry", "recipes": [{{"recipe_id": "{uuid.uuid4()}", "scale": NaN}}]}}',
-            headers={"content-type": "application/json"},
-        )
+    @pytest.mark.parametrize(
+        "path,body,echoed",
+        [
+            ("/recipes", '{"title": "x", "servings": Infinity}', "Infinity"),
+            ("/freezer", '{"label": "x", "portions": NaN}', "NaN"),
+            (
+                "/meals",
+                '{"name": "x", "recipes": [{"recipe_id": "00000000-0000-0000-0000-000000000000", "scale": -Infinity}]}',
+                "-Infinity",
+            ),
+        ],
+        ids=["servings", "portions", "scale"],
+    )
+    async def test_a_number_json_cannot_spell_is_a_422_not_a_500(self, auth_client, path, body, echoed):
+        """Python's JSON parser reads `Infinity` and `NaN` as floats, and every
+        validation error echoes what it was sent. Starlette will not encode a
+        float JSON has no spelling for, so a request that had been correctly
+        refused came back as a 500 telling the caller it was not their fault."""
+        response = await auth_client.post(path, content=body, headers={"Content-Type": "application/json"})
         assert response.status_code == 422
-        error = response.json()["detail"][0]
-        assert (error["loc"], error["input"]) == (["body", "recipes", 0, "scale"], "NaN")
+        assert response.json()["detail"][0]["input"] == echoed
+
+    # Text fails the same way when the 422 echoes it: a body that isn't UTF-8,
+    # or half a surrogate pair, raised while rendering and went out as a 500.
 
     async def test_a_body_that_is_not_utf8_is_a_422(self, auth_client):
         response = await auth_client.post(

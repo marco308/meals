@@ -152,19 +152,26 @@ async def instance_full_handler(_: Request, exc: Exception) -> Response:
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(_: Request, exc: Exception) -> Response:
-    """FastAPI's own 422, in its own shape, made safe to encode.
+    """FastAPI's own 422, in FastAPI's own shape, made safe to send.
 
-    Its errors echo the input that failed, and JSON has no NaN or Infinity: a
-    body refused *because* it held one (`"quantity": NaN`) could not be
-    rendered, and the 422 went out as a 500. Half a surrogate pair fails the
-    UTF-8 encode the same way, and a non-JSON body that isn't UTF-8 fails
-    before that."""
+    Python's JSON parser reads `Infinity`, `NaN` and an overflowing `1e400` as
+    floats, and every validation error echoes the input it refused. Starlette
+    will not encode a float JSON has no spelling for, so a request that had
+    been correctly refused came back as a 500 telling the caller it was not
+    their fault. Those floats are echoed as the strings "Infinity",
+    "-Infinity" and "NaN" instead. Text failed the same way: half a surrogate
+    pair has no UTF-8 encoding, and a non-JSON body that isn't UTF-8 made
+    jsonable_encoder raise before that, so both are echoed with the bad part
+    replaced.
+    """
     assert isinstance(exc, RequestValidationError)
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))})
 
 
 def _encodable(value: Any) -> Any:
-    """`value` with anything JSON can't carry spelled out as a string."""
+    """`value` with anything JSON can't carry spelled out: a float by its name,
+    text with what won't encode as UTF-8 replaced. It runs before
+    jsonable_encoder, which is itself what fails on bytes that aren't UTF-8."""
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
     if isinstance(value, bytes):
