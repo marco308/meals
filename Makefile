@@ -91,13 +91,29 @@ fmt: ## Auto-format + fix lint issues
 
 # ------------------------------------------------------------------ ios (needs Xcode + xcodegen)
 
+# ios-build and ios-test print only the last few lines of xcodebuild's output
+# worth reading (plus the names of any failing tests), keep all of it in
+# $(IOS_DIR)/build/<target>.log, and exit with xcodebuild's status. Piped
+# straight through grep | tail they exited with tail's, so a failed build or
+# test run looked like a pass to anything checking.
+#
+# IOS_DEST picks the simulator by name, and when two share it (an iPhone 17 on
+# each installed iOS runtime, say) Xcode takes the first match, which may be a
+# device another project is testing on. Pin one by its UDID from
+# `xcrun simctl list devices`:
+#
+#   make ios-test IOS_DEST='platform=iOS Simulator,id=<udid>'
 IOS_DIR := ios/Meals
 IOS_DEST := platform=iOS Simulator,name=iPhone 17
 
 .PHONY: ios-build
 ios-build: ## Build the iOS app for the simulator
-	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
-		-destination '$(IOS_DEST)' -derivedDataPath build build 2>&1 | grep -E "error:|warning:|BUILD" | tail -5
+	cd $(IOS_DIR) && xcodegen generate && mkdir -p build && { \
+		xcodebuild -project Meals.xcodeproj -scheme Meals -destination '$(IOS_DEST)' \
+			-derivedDataPath build build > build/ios-build.log 2>&1; status=$$?; \
+		grep -E "error:|warning:|BUILD" build/ios-build.log | tail -5; \
+		[ $$status -eq 0 ] || echo "xcodebuild exited $$status, full log: $(IOS_DIR)/build/ios-build.log"; \
+		exit $$status; }
 
 .PHONY: ios-screenshots
 ios-screenshots: ## Capture the App Store screenshot set (throwaway API + throwaway simulator)
@@ -105,8 +121,13 @@ ios-screenshots: ## Capture the App Store screenshot set (throwaway API + throwa
 
 .PHONY: ios-test
 ios-test: ## Run the iOS unit tests
-	cd $(IOS_DIR) && xcodegen generate && xcodebuild -project Meals.xcodeproj -scheme Meals \
-		-destination '$(IOS_DEST)' -derivedDataPath build test 2>&1 | grep -E "error:|Executed.*test|TEST " | tail -6
+	cd $(IOS_DIR) && xcodegen generate && mkdir -p build && { \
+		xcodebuild -project Meals.xcodeproj -scheme Meals -destination '$(IOS_DEST)' \
+			-derivedDataPath build test > build/ios-test.log 2>&1; status=$$?; \
+		grep -E "error:|Executed.*test|TEST " build/ios-test.log | tail -6; \
+		sed -n '/^Failing tests:/,/^$$/p' build/ios-test.log; \
+		[ $$status -eq 0 ] || echo "xcodebuild exited $$status, full log: $(IOS_DIR)/build/ios-test.log"; \
+		exit $$status; }
 
 # Apple account identifiers. Not credentials, but they identify *an* Apple
 # account, so they live in an untracked ios/.env rather than in the repo — put
@@ -119,6 +140,11 @@ ios-test: ## Run the iOS unit tests
 # MEALS_DEVELOPMENT_TEAM is exported because xcodegen expands it while generating
 # the project. The App Store Connect private key (AuthKey_<id>.p8) is a real
 # credential and never leaves ~/.appstoreconnect.
+#
+# ios-testflight runs under pipefail so a failed archive or export stops it.
+# Without it each step's status was grep's, which matches the error lines, so a
+# failure went on to the next step and could upload whatever an earlier run had
+# left in build/.
 -include ios/.env
 export MEALS_DEVELOPMENT_TEAM
 ASC_KEY_PATH := $(HOME)/.appstoreconnect/private_keys/AuthKey_$(ASC_KEY_ID).p8
@@ -149,7 +175,7 @@ ios-export-options:
 ios-testflight: ios-export-options ## Archive, export, and upload the iOS app to TestFlight (needs ios/.env)
 	@test -n "$(ASC_KEY_ID)" -a -n "$(ASC_ISSUER)" || \
 		{ echo "ASC_KEY_ID and ASC_ISSUER must be set — see the comment above ios-testflight in the Makefile"; exit 1; }
-	cd $(IOS_DIR) && xcodegen generate && \
+	set -o pipefail; cd $(IOS_DIR) && xcodegen generate && \
 	rm -rf ./build/Meals.xcarchive ./build/export && \
 	xcodebuild archive -project Meals.xcodeproj -scheme Meals \
 		-archivePath ./build/Meals.xcarchive -destination 'generic/platform=iOS' \
