@@ -4,6 +4,8 @@ import pytest
 
 from tests.conftest import create_meal, create_plan, create_recipe, get_list, item_by_name
 
+JSON = {"Content-Type": "application/json"}  # for bodies httpx's json= would refuse to encode
+
 
 @pytest.fixture
 async def planned_week(auth_client):
@@ -464,3 +466,60 @@ class TestUnquantifiedLines:
         assert salt["unit"] is None
         assert salt["display"] == ""
         assert salt["sources"][0]["meal_name"] == "Salty dinner"
+
+
+class TestNonFiniteQuantities:
+    """Python's JSON parser reads `Infinity`, `NaN` and an overflowing `1e400`
+    as floats. One of those stored on the list made every read of it a 500,
+    for the whole household, from then on."""
+
+    @pytest.mark.parametrize(
+        "quantity,unit",
+        [
+            ("Infinity", "g"),
+            ("1e400", "g"),  # standard JSON, and still infinity once parsed
+            ('"Infinity"', "g"),  # a string, which validation turns into a float
+            ("1e308", "kg"),  # finite until it is converted to grams
+        ],
+    )
+    async def test_refused_with_the_way_out_and_nothing_stored(self, auth_client, quantity, unit):
+        body = f'{{"name": "rice", "quantity": {quantity}, "unit": "{unit}"}}'
+        response = await auth_client.post("/shopping-list/items", content=body, headers=JSON)
+        assert response.status_code == 422
+        assert "ingredient 'rice': quantity must be a finite number" in response.text
+        assert "leave out both quantity and unit" in response.text
+        assert (await get_list(auth_client))["items"] == []
+
+    @pytest.mark.parametrize("literal", ["NaN", "-Infinity"])
+    async def test_values_refused_all_along_answer_422_rather_than_500(self, auth_client, literal):
+        """`gt=0` always refused these, but a 422 echoes what it was sent and
+        Starlette will not encode a float JSON has no spelling for, so the
+        refusal itself came back as a 500."""
+        body = f'{{"name": "rice", "quantity": {literal}, "unit": "g"}}'
+        response = await auth_client.post("/shopping-list/items", content=body, headers=JSON)
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["input"] == literal
+
+    async def test_a_stored_infinity_costs_its_line_the_amount_not_the_list(self, auth_client, legacy_infinity):
+        rice = await auth_client.post("/shopping-list/items", json={"name": "rice", "quantity": 500, "unit": "g"})
+        await auth_client.post("/shopping-list/items", json={"name": "milk", "quantity": 1, "unit": "l"})
+        await legacy_infinity(rice.json()["id"])
+
+        shopping = await get_list(auth_client)
+        stored = item_by_name(shopping, "rice")
+        assert stored["quantity"] is None
+        assert stored["display"] == ""
+        assert stored["sources"][0]["quantity"] is None
+        assert item_by_name(shopping, "milk")["display"] == "1 l"
+
+    async def test_a_total_that_overflows_costs_its_line_the_amount_not_the_list(self, auth_client):
+        """Every number sent here is finite, so validation has nothing to
+        refuse: the recipe's amount times the meal's scale is what overflows."""
+        recipe = await create_recipe(auth_client, ingredients=[{"name": "rice", "quantity": 1e307, "unit": "g"}])
+        meal = await create_meal(auth_client, recipes=[{"recipe_id": recipe["id"], "scale": 20}])
+        plan = await create_plan(auth_client)
+        await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+
+        rice = item_by_name(await get_list(auth_client), "rice")
+        assert rice["quantity"] is None
+        assert rice["display"] == ""

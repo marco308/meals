@@ -100,11 +100,13 @@ The author's hosted service at `meals.marcuslab.uk` does take payments, since
 - **Card details never reach this server or its author.** Not stored, not
   logged, not seen. Paying means leaving for a page the processor hosts, and
   the most this server ever records about money is that a household is paid up,
-  until when, what it agreed to pay, and which processor said so.
+  until when, what it agreed to pay, which processor said so, which of that
+  processor's subscriptions it is, and which member of the household pays for
+  it.
 - **One thing is sent to the processor when you start a checkout**: the email
-  address of the account doing it, so the receipt has somewhere to go, and an
-  internal id for the household so the payment can be matched back to it. That
-  is the whole of it.
+  address of the account doing it, so the receipt has somewhere to go, and
+  internal ids for the household and for that account, so the payment can be
+  matched back to both. That is the whole of it.
 - **Your recipes and lists have nothing to do with it.** No content of any kind
   is shared with a payment processor, ever.
 

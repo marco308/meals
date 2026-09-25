@@ -34,6 +34,7 @@ from app.schemas.auth import (
     TokenOut,
     UserOut,
 )
+from app.services import entitlements
 from app.services.accounts import (
     delete_user,
     household_has_content,
@@ -334,6 +335,43 @@ async def confirm_password_reset(
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
 
+def _refuse_while_charging(
+    household: Household | None,
+    payer: User,
+    *,
+    you: bool,
+    consequence: str,
+    then: str,
+    where: str = "Manage billing in Settings (POST /billing/portal)",
+    whose: str = "this household's subscription",
+) -> None:
+    """409 if `payer`'s card pays for a subscription on this household that will
+    charge it again.
+
+    Billing belongs to whoever pays (`Household.billing_user_id`). Leaving, being
+    removed, handing on the lead or deleting the account while it renews would
+    leave a card charging for a household its owner can no longer reach, which
+    nobody but the processor could then stop. The way out is the same every
+    time: cancel it, which keeps what has been paid for, and then do this.
+    """
+    if household is None or household.billing_user_id != payer.id or not entitlements.charges_again(household):
+        return
+    paid_until = entitlements.describe(household).paid_until
+    if paid_until is not None and paid_until > datetime.now(UTC):
+        renews = f"it renews on {paid_until:%-d %B %Y}"
+        keeps = f"; the household keeps everything it has paid for until {paid_until:%-d %B %Y}"
+    else:
+        renews = "the payment processor is still trying to renew it"
+        keeps = ""
+    card = "your card" if you else f"{payer.display_name}'s card"
+    cancel = "cancel it" if you else "ask them to cancel it"
+    raise HTTPException(
+        status_code=409,
+        detail=f"{card} pays for {whose} and {renews}, so {consequence}. "
+        f"First {cancel} under {where}, then {then}{keeps}",
+    )
+
+
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
@@ -362,6 +400,24 @@ async def delete_account(
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
     forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
+    # Every household this card pays for, which is almost always just their own.
+    for paid_for in (await db.execute(select(Household).where(Household.billing_user_id == user.id))).scalars():
+        _refuse_while_charging(
+            paid_for,
+            user,
+            you=True,
+            consequence=(
+                "nothing was deleted: an account that no longer exists could not cancel it, and it would go on "
+                "charging you"
+            ),
+            then="delete your account",
+            where="Manage billing in Settings on the web",
+            whose=(
+                "this household's subscription"
+                if paid_for.id == user.household_id
+                else f"the subscription of the household called {paid_for.name}"
+            ),
+        )
     user_id, household_id = user.id, user.household_id  # read before the row is gone
     household_deleted = await delete_user(db, user)
     await db.commit()
@@ -450,8 +506,9 @@ async def update_household(payload: HouseholdUpdateIn, user: CurrentUser, db: Db
 
     Both are the lead's to do. Handing over is immediate and needs no acceptance
     — while the lead only gates a guest list, that is a fair trade for keeping
-    it simple. On the day it also carries a subscription, taking it on becomes
-    something the other person has to agree to, and that is a different endpoint.
+    it simple. A subscription does not move with it: billing belongs to whoever
+    pays, so a lead whose card pays for one that will renew is refused until
+    it is cancelled, rather than left paying for a household somebody else runs.
     """
     household = await _require_lead(db, user, "rename the household or hand the lead on")
 
@@ -463,6 +520,14 @@ async def update_household(payload: HouseholdUpdateIn, user: CurrentUser, db: Db
                 status_code=422,
                 detail="the lead has to be someone in this household — check the id against GET /auth/household",
             )
+        _refuse_while_charging(
+            household,
+            user,
+            you=True,
+            consequence="the lead stays with you until it is cancelled, or it would go on charging you for a "
+            "household somebody else runs",
+            then="hand over",
+        )
         household.lead_user_id = successor.id
         handed_to = successor.id
 
@@ -499,7 +564,15 @@ async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) ->
 
     leaving = target.id == user.id
     if not leaving:
-        await _require_lead(db, user, "remove someone from the household")
+        household = await _require_lead(db, user, "remove someone from the household")
+        _refuse_while_charging(
+            household,
+            target,
+            you=False,
+            consequence="removing them would go on charging them for a household they are no longer in",
+            then="remove them",
+            where="Manage billing in Settings",
+        )
     elif await leads_alongside_others(db, user):
         raise HTTPException(
             status_code=409,
@@ -515,6 +588,15 @@ async def remove_member(user_id: uuid.UUID, user: CurrentUser, db: DbSession) ->
                 "you are the only member, so there is nothing to leave: the household's recipes and "
                 "history would go with you. DELETE /auth/me does that, and asks for your password first"
             ),
+        )
+    else:
+        _refuse_while_charging(
+            await db.get(Household, user.household_id),
+            user,
+            you=True,
+            consequence="leaving now would go on charging you for a household you are no longer in, with no way "
+            "to stop it from outside",
+            then="leave",
         )
 
     # Read before the move: when the caller is the one leaving, `user` and
@@ -628,6 +710,15 @@ async def redeem_invite(payload: InviteRedeemIn, user: CurrentUser, db: DbSessio
                 'PATCH /auth/household with {"lead_user_id": "..."} — and then join theirs'
             ),
         )
+
+    _refuse_while_charging(
+        await db.get(Household, user.household_id),
+        user,
+        you=True,
+        consequence="joining another household now would go on charging you for this one, with no way to stop "
+        "it from there",
+        then="join",
+    )
 
     origin_id = user.household_id
     alone = await household_user_count(db, origin_id) <= 1
