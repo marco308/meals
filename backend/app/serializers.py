@@ -139,9 +139,11 @@ def plan_summary(plan: Plan) -> PlanSummary:
 def list_item_out(item: ListItem) -> ListItemOut:
     sources = [
         SourceOut(
-            ad_hoc=source.plan_meal_id is None,
+            ad_hoc=source.ad_hoc,
             meal_id=source.plan_meal.meal_id if source.plan_meal is not None else None,
-            meal_name=source.plan_meal.meal.name if source.plan_meal is not None else None,
+            # The meal's name as it is now while it is on a plan, and as it was
+            # once its plan-meal has gone (a line on an archived list).
+            meal_name=source.plan_meal.meal.name if source.plan_meal is not None else source.meal_name,
             recipe_id=source.recipe.id if source.recipe is not None else None,
             recipe_title=source.recipe.title if source.recipe is not None else None,
             quantity=source.quantity,

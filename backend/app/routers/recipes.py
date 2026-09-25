@@ -182,6 +182,11 @@ async def update_recipe(recipe_id: uuid.UUID, payload: RecipeUpdate, user: Curre
 
     updates = payload.model_dump(exclude_unset=True, exclude={"ingredients"})
     for field, value in updates.items():
+        # A null clears what may be empty (the photo, the method) and leaves
+        # alone what may not (the title, the tags), as every other PATCH here
+        # does. Written through, it was a NOT NULL violation and a 500.
+        if value is None and not Recipe.__table__.c[field].nullable:
+            continue
         setattr(recipe, field, value)
     ingredients_changed = payload.ingredients is not None
     if payload.ingredients is not None:
