@@ -184,7 +184,8 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     await db.execute(delete(CookedEvent).where(CookedEvent.household_id == household_id))
     # Same shape: its meal/recipe links are SET NULL, so it goes before them too.
     await db.execute(delete(FreezerItem).where(FreezerItem.household_id == household_id))
-    # Lists before plans: list_item_sources point at plan_meals.
+    # Lists before plans: list_item_sources point at plan_meals, SET NULL, so
+    # the other way round would blank them one by one before deleting them.
     await db.execute(delete(ShoppingList).where(ShoppingList.household_id == household_id))
     await db.execute(delete(Plan).where(Plan.household_id == household_id))
     await db.execute(delete(Meal).where(Meal.household_id == household_id))

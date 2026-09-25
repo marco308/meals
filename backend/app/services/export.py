@@ -287,7 +287,9 @@ def _list_item(item: ListItem) -> dict:
         "sources": [
             {
                 "id": source.id,
+                "ad_hoc": source.ad_hoc,
                 "plan_meal_id": source.plan_meal_id,
+                "meal_name": source.meal_name,
                 "recipe_id": source.recipe_id,
                 "quantity": source.quantity,
                 "client_key": source.client_key,
