@@ -52,6 +52,10 @@ filterwarnings = ["error::RuntimeWarning"]
 [tool.coverage.run]
 source = ["app"]
 omit = ["app/seed.py"]
+# SQLAlchemy's asyncio layer runs the ORM in greenlets, and a tracer that
+# doesn't know about them loses the lines after each database await:
+# app/deps.py read 79% covered when it was 96%.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true

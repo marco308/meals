@@ -102,9 +102,12 @@ async def run(db: AsyncSession, *, now: datetime | None = None, dry_run: bool = 
     for notice in notices:
         subject, body = _message(notice, grace_days=settings.entitlement_grace_days)
         try:
-            await send_email(notice.to, subject, body)
+            await send_email(notice.to, subject, body, purpose="dunning", household_id=notice.household_id)
         except EmailSendFailed as exc:
-            log_event("dunning.failed", outcome=notice.kind, household_id=notice.household_id, reason=str(exc)[:200])
+            # The exception's class, never its text: a relay's refusal quotes
+            # the address it refused.
+            reason = type(exc.__cause__ or exc).__name__
+            log_event("dunning.failed", outcome=notice.kind, household_id=notice.household_id, reason=reason)
             continue
         household = await db.get(Household, notice.household_id)
         if household is not None:

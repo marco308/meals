@@ -38,6 +38,37 @@ def enforce_sqlite_foreign_keys(async_engine: AsyncEngine) -> None:
         cursor.close()
 
 
+#: How long a write waits on another connection's lock before failing with
+#: "database is locked". Python's sqlite3 gives up after 5 seconds.
+SQLITE_BUSY_TIMEOUT_MS = 15_000
+
+
+def configure_sqlite_locking(async_engine: AsyncEngine) -> None:
+    """Write-ahead logging and a longer busy timeout, on every SQLite connection.
+
+    In SQLite's default rollback-journal mode, a reader holds a shared lock for
+    as long as its statement is open, and no write can commit until it lets go.
+    The household export streams through an open cursor, so a client that
+    paused mid-download held that lock for as long as it liked, and every write
+    on the server failed with "database is locked" five seconds in. With WAL,
+    readers and the writer stop blocking each other, which leaves only another
+    writer to wait for, and the busy timeout is for that.
+
+    WAL is a property of the database file and persists once set, so it adds
+    `-wal` and `-shm` files beside the database (under /data in the image). An
+    in-memory database has no journal to change and answers "memory".
+    """
+
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _set_pragmas(dbapi_connection, _connection_record):  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        # The timeout first: switching the journal mode needs a lock of its
+        # own, and another connection may be holding one.
+        cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+
 settings = get_settings()
 _prepare_sqlite_path(settings.database_url)
 
@@ -66,9 +97,23 @@ def _pool_options(url: str) -> dict:
     return {"pool_pre_ping": True, "pool_recycle": 300}
 
 
-engine = create_async_engine(settings.database_url, echo=False, **_pool_options(settings.database_url))
-if settings.database_url.startswith("sqlite"):
-    enforce_sqlite_foreign_keys(engine)
+def build_engine(url: str) -> AsyncEngine:
+    """The engine the app runs on, and what a test builds when it needs the
+    real configuration rather than the suite's in-memory engine.
+
+    `hide_parameters` keeps bound values out of SQLAlchemy's error messages.
+    Without it, a failed statement's message lists them, and the last-resort
+    handler in app/observability.py logs that message with its traceback: an
+    email address, a bcrypt hash or a recipe URL, straight into the log.
+    """
+    async_engine = create_async_engine(url, echo=False, hide_parameters=True, **_pool_options(url))
+    if url.startswith("sqlite"):
+        enforce_sqlite_foreign_keys(async_engine)
+        configure_sqlite_locking(async_engine)
+    return async_engine
+
+
+engine = build_engine(settings.database_url)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

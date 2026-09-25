@@ -190,6 +190,16 @@ class TestPublicPages:
         assert "<table>" in response.text
         assert "Keychain" in response.text
 
+    async def test_raw_html_in_the_markdown_is_shown_not_run(self, client, monkeypatch):
+        """The pages render our own files, but a policy page has no business
+        being an HTML passthrough, and the commonmark preset is one."""
+        source = "# Privacy policy\n\n<script>alert(1)</script>\n\nA line with <img src=x onerror=alert(1)> in it.\n"
+        monkeypatch.setattr(pages_router, "_load", lambda _filename: source)
+        text = (await client.get("/privacy")).text
+        assert "<script>alert" not in text
+        assert "<img" not in text
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in text
+
     async def test_headings_get_ids_so_in_document_links_work(self, client):
         """GitHub anchors headings and markdown-it doesn't, so a link that works
         in the repo would be silently dead here."""

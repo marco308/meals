@@ -229,6 +229,32 @@ class TestNothingUnsignedIsActedOn:
         body, headers = paddle_post(paddle_event(await household_id(sessions)))
         assert (await client.post("/billing/webhook", content=body, headers=headers)).status_code == 401
 
+    @pytest.mark.parametrize(
+        ("processor", "header", "value"),
+        [
+            ("paddle", "Paddle-Signature", b"ts=1;h1=\xe9"),
+            ("stripe", "Stripe-Signature", b"t=1,v1=\xe9"),
+            ("lemonsqueezy", "X-Signature", b"\xe9"),
+        ],
+    )
+    async def test_a_signature_with_a_stray_byte_is_refused_and_counted(
+        self, client, settings_override, processor, header, value
+    ):
+        """compare_digest raises on a str holding anything outside ASCII, which
+        made this an unhandled 500: missing from the counter the alert watches,
+        and retried by the processor as though the server were down."""
+        settings_override(BILLING_PROCESSOR=processor, BILLING_WEBHOOK_SECRET=SECRET, METRICS_TOKEN="scrape-secret-1")
+
+        async def bad_signatures() -> float:
+            scraped = (await client.get("/metrics", headers={"Authorization": "Bearer scrape-secret-1"})).text
+            found = re.search(r'meals_billing_webhooks_total\{outcome="bad_signature"\} ([0-9.e+]+)', scraped)
+            return float(found.group(1)) if found else 0.0
+
+        before = await bad_signatures()
+        response = await client.post("/billing/webhook", content=b"{}", headers={header: value})
+        assert response.status_code == 401, response.text
+        assert await bad_signatures() == before + 1
+
     async def test_a_body_that_is_not_json(self, client, paddle):
         body = "not json"
         signature = hmac.new(SECRET.encode(), f"1:{body}".encode(), hashlib.sha256).hexdigest()

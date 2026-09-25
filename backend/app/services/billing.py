@@ -153,7 +153,7 @@ def verify(raw_body: bytes, headers: dict[str, str], *, now: datetime | None = N
         if not timestamp or not provided:
             raise BillingError("missing or malformed Paddle-Signature header", status_code=401, outcome="unsigned")
         expected = hmac.new(secret, f"{timestamp}:".encode() + raw_body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, provided):
+        if not _matches(expected, provided):
             raise BillingError("signature does not match", status_code=401, outcome="bad_signature")
         _check_freshness(timestamp, now=now)
     elif processor == STRIPE:
@@ -174,14 +174,22 @@ def verify(raw_body: bytes, headers: dict[str, str], *, now: datetime | None = N
         expected = hmac.new(secret, f"{timestamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
         # Any match counts: rolling an endpoint secret leaves the old one live
         # for up to 24 hours, and Stripe signs once per active secret.
-        if not any(hmac.compare_digest(expected, candidate) for candidate in offered):
+        if not any(_matches(expected, candidate) for candidate in offered):
             raise BillingError("signature does not match", status_code=401, outcome="bad_signature")
         _check_freshness(timestamp, now=now)
     else:
         provided = lowered.get("x-signature", "")
         expected = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
-        if not provided or not hmac.compare_digest(expected, provided):
+        if not provided or not _matches(expected, provided):
             raise BillingError("signature does not match", status_code=401, outcome="bad_signature")
+
+
+def _matches(expected: str, offered: str) -> bool:
+    """Constant-time, and over bytes. `compare_digest` raises TypeError on a
+    str holding anything outside ASCII, and a header can carry any byte, so a
+    signature with one in it was an unhandled 500. That is uncounted, and it is
+    retried, where a forgery should be a counted 401."""
+    return hmac.compare_digest(expected.encode(), offered.encode())
 
 
 def _check_freshness(timestamp: str, *, now: datetime | None) -> None:

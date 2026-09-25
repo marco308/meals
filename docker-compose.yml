@@ -1,16 +1,28 @@
 name: meals
 
+# The database password is POSTGRES_PASSWORD, from the environment or from a
+# .env beside this file. The default of `meals` is for a laptop and nothing
+# else: on any other machine, set your own before the first `make up`, because
+# Postgres reads it only when it creates the pgdata volume (after that, change
+# it with ALTER ROLE, or start over with `make nuke`). It is spliced into
+# DATABASE_URL below, so pick one that needs no URL-escaping, such as
+# `openssl rand -hex 32`.
 services:
   db:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: meals
-      POSTGRES_PASSWORD: meals
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meals}
       POSTGRES_DB: meals
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Loopback only. It is here for `make db` (an API on the host talking to
+    # this Postgres, see .env.example), and nothing off the machine needs it.
+    # Docker writes its own firewall rules for a published port, so ufw never
+    # sees them: the old "5433:5432" put this superuser on every interface of
+    # any host that ran `make up`.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U meals -d meals"]
       interval: 2s
@@ -25,7 +37,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://meals:meals@db:5432/meals
+      DATABASE_URL: postgresql+asyncpg://meals:${POSTGRES_PASSWORD:-meals}@db:5432/meals
       ENVIRONMENT: development
     ports:
       - "8000:8000"
@@ -43,7 +55,7 @@ services:
     environment:
       PGHOST: db
       PGUSER: meals
-      PGPASSWORD: meals
+      PGPASSWORD: ${POSTGRES_PASSWORD:-meals}
       PGDATABASE: meals
       LOG_FORMAT: text
     volumes:

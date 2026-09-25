@@ -133,6 +133,16 @@ def setup_logging() -> None:
     access = logging.getLogger("uvicorn.access")
     access.handlers = []
     access.propagate = False
+    # Libraries that log what this module promises never to. httpx logs every
+    # request at INFO with its full URL: each recipe page an ingest fetches,
+    # and each loopback call the mounted MCP server makes, query string and
+    # all. The ingest event records the host and never the URL
+    # (routers/recipes.py), and that has to hold for the libraries too.
+    # aiosqlite, at DEBUG, logs every statement with its bound values, so
+    # LOG_LEVEL=DEBUG on a SQLite install wrote out addresses and password
+    # hashes.
+    for name in ("httpx", "httpcore", "aiosqlite"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def log_event(event: str, **fields: Any) -> None:
