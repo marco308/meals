@@ -82,8 +82,9 @@ from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import get_settings
 from app.models import (
@@ -1046,18 +1047,48 @@ async def reserve_ingest(db: AsyncSession, household: Household) -> None:
     if not _has_limit(household, "ingests_per_month"):
         return
 
-    spec = RESOURCES["ingests_per_month"]
     month = _month_start(datetime.now(UTC))
-    assert spec.count is not None
-    used = await spec.count(db, household.id, None)
+    # The check and the charge are one statement. Read-then-write lost updates:
+    # two ingests at once both read 19 of 20, both passed, and both wrote 20
+    # back, so the month's last ingest was spent twice and counted once. A
+    # counter from an earlier month counts as zero, as `_ingests_this_month`
+    # reads it.
+    stale = or_(Household.ingest_period_started_at.is_(None), Household.ingest_period_started_at < month)
+    used_now = case((stale, 0), else_=Household.ingests_used)
+    charged = (
+        await db.execute(
+            update(Household)
+            .where(Household.id == household.id, used_now < _allowance(household, "ingests_per_month"))
+            .values(ingests_used=used_now + 1, ingest_period_started_at=month)
+            .returning(Household.ingests_used)
+            .execution_options(synchronize_session=False)
+        )
+    ).scalar_one_or_none()
+    if charged is not None:
+        await db.commit()
+        set_committed_value(household, "ingests_used", charged)
+        set_committed_value(household, "ingest_period_started_at", month)
+        return
+
+    # Refused, so say so with the numbers as they stand now, which a
+    # concurrent ingest may have moved since this request loaded them.
+    await db.refresh(household, ["ingests_used", "ingest_period_started_at"])
+    spec = RESOURCES["ingests_per_month"]
     # The reset date is the most useful thing an assistant that has just been
     # refused can be told, and it is only knowable here.
     dated = replace(spec, hint=f"The count resets on {_next_month(month).strftime('%-d %B %Y')}. {spec.hint}")
-
+    used = max(_ingests_this_month(household), _allowance(household, "ingests_per_month"))
     refusal = _verdict(household, dated, "ingests_per_month", used=used, adding=1)
-    if refusal is not None:
-        raise refusal
+    assert refusal is not None  # `used` is at least the allowance, so this always refuses
+    raise refusal
 
-    household.ingest_period_started_at = month
-    household.ingests_used = used + 1
-    await db.commit()
+
+def _allowance(household: Household, resource: str) -> int:
+    """The number this household will actually meet: the lower of its tier's
+    cap and the fair-use ceiling. Only called where `_has_limit` said one of
+    them is set."""
+    tier = effective_tier(household)
+    bounds = [
+        bound for bound in (getattr(limits_for(tier), resource), getattr(ceilings(), resource)) if bound is not None
+    ]
+    return min(bounds)
