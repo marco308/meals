@@ -85,10 +85,13 @@ export async function api(path, { method = "GET", body, query } = {}) {
 
   if (!response.ok) {
     // A 401 usually means the session token expired or was revoked → back to
-    // the login screen. But three endpoints answer 401 for a *typed* password
-    // being wrong, which must not sign anyone out.
+    // the login screen. But four endpoints answer 401 for a *typed* password
+    // being wrong or missing, which must not sign anyone out.
     const typedPassword =
-      path === "/auth/login" || path === "/auth/password" || (path === "/auth/me" && method === "DELETE");
+      path === "/auth/login" ||
+      path === "/auth/password" ||
+      path === "/auth/invites/redeem" ||
+      (path === "/auth/me" && method === "DELETE");
     if (response.status === 401 && session.token && !typedPassword) {
       session.clear();
       window.location.hash = "#/login";

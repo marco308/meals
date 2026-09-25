@@ -741,7 +741,8 @@ function handOverDialog(root, household, user) {
     <h2>Hand over the lead</h2>
     <p class="sub">
       They get the invites and the guest list; you become an ordinary member and can then leave if you
-      want to. Everything about the recipes, plan and list is unchanged for both of you.
+      want to. Invites you've sent that nobody has used yet stop working, because they were yours to
+      give. Everything about the recipes, plan and list is unchanged for both of you.
     </p>
     <form data-f>
       <label class="field"><span>New lead</span>
@@ -770,16 +771,26 @@ function handOverDialog(root, household, user) {
 }
 
 function joinHouseholdDialog(root, household) {
+  // The last one out of a household deletes it, so the server asks for the
+  // password here just as it does for deleting the account.
+  const alone = household.members.length <= 1;
   const dialog = openDialog(html`
     <h2>Join another household</h2>
     <p class="sub">
       Paste a code somebody sent you. You keep this account and everything signed in on it — only which
-      household you're in changes. “${household.name}” keeps its recipes unless you're its only member,
-      in which case they go with you.
+      household you're in changes.
+      ${alone
+        ? html`You're the only member of “${household.name}”, so it goes when you do, recipes and all.
+            Type your password to confirm.`
+        : html`“${household.name}” keeps its recipes.`}
     </p>
     <form data-f>
       <label class="field"><span>Invite code</span>
         <input type="text" name="code" required maxlength="64" placeholder="XXXX-XXXX-XXXX" autofocus></label>
+      ${alone
+        ? html`<label class="field"><span>Your password</span>
+            <input type="password" name="password" required autocomplete="current-password"></label>`
+        : ""}
       <div class="dialog-actions">
         <button class="btn ghost" type="button" data-x>Cancel</button>
         <button class="btn" type="submit">Join</button>
@@ -789,9 +800,13 @@ function joinHouseholdDialog(root, household) {
   dialog.querySelector("[data-x]").onclick = () => dialog.close();
   dialog.querySelector("[data-f]").onsubmit = async (event) => {
     event.preventDefault();
-    const code = new FormData(event.target).get("code").trim();
+    const form = new FormData(event.target);
+    const code = form.get("code").trim();
     if (!code) return;
-    const join = async (force) => api("/auth/invites/redeem", { method: "POST", body: { code, force } });
+    // Left out of the JSON entirely (undefined) when nobody was asked for it.
+    const password = alone ? form.get("password") : undefined;
+    const join = async (force) =>
+      api("/auth/invites/redeem", { method: "POST", body: { code, force, password } });
     try {
       let joined;
       try {

@@ -106,8 +106,8 @@ final class Session {
     /// Move this account into another household with an invite code (Q23). The
     /// token is unchanged — only which household it reads — but everything
     /// cached belongs to the household we just left, so the caller clears it.
-    func joinHousehold(code: String, force: Bool = false) async throws {
-        user = try await api.redeemInvite(code: code, force: force)
+    func joinHousehold(code: String, force: Bool = false, password: String? = nil) async throws {
+        user = try await api.redeemInvite(code: code, force: force, password: password)
     }
 
     /// Remove someone from the household, or leave it by passing your own id.
