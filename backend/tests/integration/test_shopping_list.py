@@ -1,7 +1,11 @@
 import uuid
 
 import pytest
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.models import ListItemSource
+from app.schemas.common import MAX_QUANTITY
 from tests.conftest import create_meal, create_plan, create_recipe, get_list, item_by_name
 
 
@@ -177,6 +181,47 @@ class TestAdhocItems:
         response = await auth_client.post("/shopping-list/items", json={"name": "flour", "quantity": 2, "unit": "cups"})
         assert response.status_code == 422
         assert "240 ml" in response.text
+
+    @pytest.mark.parametrize("literal", ["1e309", "Infinity", "-Infinity", "NaN"])
+    async def test_a_quantity_that_is_not_finite_is_a_422(self, auth_client, literal):
+        """Python's JSON parser accepts all four, and 1e309 overflows to
+        infinity. An infinite quantity was stored and every later read of the
+        list was a 500; NaN failed at the refusal itself, because the 422
+        echoes its input and JSON has no NaN."""
+        response = await auth_client.post(
+            "/shopping-list/items",
+            content=f'{{"name": "milk", "quantity": {literal}, "unit": "ml"}}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert "finite number" in response.json()["detail"][0]["msg"]
+        assert (await get_list(auth_client))["items"] == []
+
+    async def test_a_quantity_past_the_ceiling_is_a_422(self, auth_client):
+        """Two 1e308s summed to infinity on the list and failed it the same way."""
+        for _ in range(2):
+            response = await auth_client.post(
+                "/shopping-list/items", json={"name": "flour", "quantity": 1e308, "unit": "g"}
+            )
+            assert response.status_code == 422
+        at_ceiling = await auth_client.post(
+            "/shopping-list/items", json={"name": "flour", "quantity": MAX_QUANTITY, "unit": "g"}
+        )
+        assert at_ceiling.status_code == 201
+        assert item_by_name(await get_list(auth_client), "flour")["display"] == "1000 kg"
+
+    async def test_a_quantity_stored_before_the_ceiling_does_not_break_the_list(self, engine, auth_client):
+        """A household may already hold one. That line without an amount beats
+        a list nobody can read."""
+        await auth_client.post("/shopping-list/items", json={"name": "milk", "quantity": 2, "unit": "l"})
+        await auth_client.post("/shopping-list/items", json={"name": "bread", "quantity": 1, "unit": "item"})
+        async with async_sessionmaker(engine)() as session:
+            await session.execute(update(ListItemSource).values(quantity=float("inf")))
+            await session.commit()
+        shopping = await get_list(auth_client)
+        milk = item_by_name(shopping, "milk")
+        assert (milk["quantity"], milk["display"]) == (None, "")
+        assert item_by_name(shopping, "bread") is not None
 
 
 class TestShoppingMode:

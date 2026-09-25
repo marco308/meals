@@ -1,10 +1,14 @@
 import asyncio
 import contextlib
+import math
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -144,6 +148,34 @@ async def instance_full_handler(_: Request, exc: Exception) -> Response:
     """
     assert isinstance(exc, limits.InstanceFull)
     return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(_: Request, exc: Exception) -> Response:
+    """FastAPI's own 422, in its own shape, made safe to encode.
+
+    Its errors echo the input that failed, and JSON has no NaN or Infinity: a
+    body refused *because* it held one (`"quantity": NaN`) could not be
+    rendered, and the 422 went out as a 500. Half a surrogate pair fails the
+    UTF-8 encode the same way, and a non-JSON body that isn't UTF-8 fails
+    before that."""
+    assert isinstance(exc, RequestValidationError)
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))})
+
+
+def _encodable(value: Any) -> Any:
+    """`value` with anything JSON can't carry spelled out as a string."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, str):
+        return value.encode("utf-8", "replace").decode("utf-8")
+    if isinstance(value, dict):
+        return {_encodable(key): _encodable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_encodable(item) for item in value]
+    return value
 
 
 # Registered last so it is the *outermost* middleware (Starlette builds the

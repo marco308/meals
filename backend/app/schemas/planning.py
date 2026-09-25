@@ -30,7 +30,7 @@ class MealRecipeIn(BaseModel):
     to set it or send `scale`."""
 
     recipe_id: uuid.UUID
-    scale: float = Field(default=1.0, gt=0, le=MAX_SCALE)
+    scale: float = Field(default=1.0, gt=0, le=MAX_SCALE, allow_inf_nan=False)
     servings: int | None = Field(default=None, ge=1, le=100)
 
     @model_validator(mode="after")

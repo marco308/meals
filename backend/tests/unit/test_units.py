@@ -2,6 +2,7 @@ import pytest
 
 from app.services.units import (
     UnitNotAllowedError,
+    format_buy_quantity,
     format_quantity,
     normalize_quantity,
     normalize_unit,
@@ -115,6 +116,15 @@ class TestFormatQuantity:
 
     def test_none_renders_empty(self):
         assert format_quantity(None, None) == ""
+
+    @pytest.mark.parametrize("quantity", [float("inf"), float("-inf"), float("nan")])
+    @pytest.mark.parametrize("unit", ["g", "ml", "item", "tin"])
+    def test_a_quantity_that_is_not_finite_renders_empty(self, quantity, unit):
+        """Only a row stored before quantities were bounded can hold one, and
+        rendering it raised (OverflowError, ValueError), which failed every
+        read of the list or recipe it was on."""
+        assert format_quantity(quantity, unit) == ""
+        assert format_buy_quantity(quantity, unit) == ""
 
 
 class TestSingularize:

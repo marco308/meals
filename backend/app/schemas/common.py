@@ -2,6 +2,14 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.services.units import UnitNotAllowedError, normalize_quantity
 
+# A million of anything, before its unit is applied: far past any real line,
+# and what keeps every stored quantity finite. With only gt=0, 1e309 (which
+# JSON parses as infinity) was stored, and so were two 1e308s that summed to
+# it on the shopping list; either way every later read of that household's
+# list was a 500. Tightening an existing validation is otherwise off limits
+# (see CLAUDE.md), which is why this is a ceiling nobody could meet.
+MAX_QUANTITY = 1_000_000
+
 
 class IngredientLineIn(BaseModel):
     """An ingredient reference in a write payload. AI-ergonomic: ingredients
@@ -10,7 +18,7 @@ class IngredientLineIn(BaseModel):
     conversion hint in the 422 body."""
 
     name: str = Field(min_length=1, max_length=200)
-    quantity: float | None = Field(default=None, gt=0)
+    quantity: float | None = Field(default=None, gt=0, le=MAX_QUANTITY, allow_inf_nan=False)
     unit: str | None = Field(default=None, max_length=50)
     raw: str | None = Field(default=None, max_length=500)
 

@@ -190,8 +190,12 @@ def parse_number(token: str) -> float | None:
 
 
 def format_quantity(quantity: float | None, unit: str | None) -> str:
-    """Human-friendly rendering of a canonical quantity: 1500 g → '1.5 kg'."""
-    if quantity is None or unit is None:
+    """Human-friendly rendering of a canonical quantity: 1500 g → '1.5 kg'.
+
+    A quantity that isn't finite renders as nothing. Inputs are bounded now,
+    but a household may hold one stored before they were, and a line with no
+    amount beats a list that can't be read at all."""
+    if quantity is None or unit is None or not math.isfinite(quantity):
         return ""
     if unit == "g" and quantity >= 1000:
         return f"{_trim(quantity / 1000)} kg"
@@ -213,7 +217,7 @@ def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
     sources, so two meals each needing half a tin still come to one tin, not
     two — which is why this isn't done at contribution time. Mass and volume
     are left alone: 750 g of mince is a real thing to ask for."""
-    if quantity is None or unit is None:
+    if quantity is None or unit is None or not math.isfinite(quantity):
         return ""
     if unit not in ("g", "ml"):
         quantity = float(math.ceil(round(quantity, 3)))

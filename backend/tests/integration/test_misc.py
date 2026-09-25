@@ -400,3 +400,39 @@ class TestValidation:
     async def test_blank_ingredient_name_422(self, auth_client):
         response = await auth_client.post("/recipes", json={"title": "x", "ingredients": [{"name": "   "}]})
         assert response.status_code == 422
+
+    # A 422 echoes the input that failed, so the refusal has to be encodable
+    # whatever that input was; FastAPI's own handler raised while rendering
+    # these, and each went out as a 500 instead.
+
+    async def test_a_refusal_that_echoes_nan_is_still_a_422(self, auth_client):
+        response = await auth_client.post(
+            "/meals",
+            content=f'{{"name": "Curry", "recipes": [{{"recipe_id": "{uuid.uuid4()}", "scale": NaN}}]}}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+        error = response.json()["detail"][0]
+        assert (error["loc"], error["input"]) == (["body", "recipes", 0, "scale"], "NaN")
+
+    async def test_a_body_that_is_not_utf8_is_a_422(self, auth_client):
+        response = await auth_client.post(
+            "/shopping-list/items", content=b"\xff\xfe", headers={"content-type": "text/plain"}
+        )
+        assert response.status_code == 422
+
+    async def test_half_a_surrogate_pair_is_a_422(self, auth_client):
+        response = await auth_client.post(
+            "/shopping-list/items",
+            content=b'{"name": "\\ud800 milk", "quantity": 1, "unit": "l"}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"] == ["body", "name"]
+
+    async def test_every_other_refusal_keeps_fastapis_shape(self, auth_client):
+        response = await auth_client.post("/recipes", json={"servings": 4})
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": [{"type": "missing", "loc": ["body", "title"], "msg": "Field required", "input": {"servings": 4}}]
+        }
