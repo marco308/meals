@@ -143,6 +143,21 @@ class TestTheWholeHousehold:
         ad_hoc = next(item for item in items if item["name"] == "bin bags")
         assert ad_hoc["sources"][0]["plan_meal_id"] is None
 
+    async def test_an_amount_json_cannot_spell_is_written_as_null(self, auth_client, legacy_infinity):
+        """`json.dumps` writes infinity as a bare `Infinity`, a token JSON does
+        not have: a strict parser (a browser's `JSON.parse`, for one) refuses
+        the whole file over one line of it."""
+        rice = await auth_client.post("/shopping-list/items", json={"name": "rice", "quantity": 500, "unit": "g"})
+        await legacy_infinity(rice.json()["id"])
+
+        def refuse(constant: str) -> None:
+            raise ValueError(f"{constant} is not JSON")
+
+        response = await auth_client.get("/household/export")
+        item = json.loads(response.text, parse_constant=refuse)["shopping_lists"][0]["items"][0]
+        assert item["quantity"] is None
+        assert item["sources"][0]["quantity"] is None
+
     async def test_archived_lists_come_too(self, auth_client):
         await furnish(auth_client)
         assert (await auth_client.post("/shopping-list/archive")).status_code == 200
@@ -258,9 +273,15 @@ class TestNothingIsLeftBehind:
         # about. All of it means nothing on the box the household is moving to —
         # and `billing_customer_id` is somebody else's identifier for a
         # relationship with *this* server, which is the clearest case of the lot.
+        # The subscription it follows, what that is doing, when the processor
+        # last said so and whose card it is are the same kind of thing.
         Household: {
             "tier",
             "billing_customer_id",
+            "billing_subscription_id",
+            "billing_subscription_state",
+            "billing_event_at",
+            "billing_user_id",
             "price_pence",
             "price_currency",
             "price_set_at",

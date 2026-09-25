@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -41,8 +42,23 @@ class SubscriptionOut(BaseModel):
     can_checkout: bool = Field(
         description=(
             "Whether a subscription can be started from here right now: false on a server that sells nothing, "
-            "and false for a household that already has one."
+            "and false for a household that already has one running."
         )
+    )
+    payer_user_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The member whose card pays for this household, and the only one POST /billing/portal will open "
+            "a session for. Null when nobody here has paid, or whoever did has since left."
+        ),
+    )
+    renews: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the processor will charge again when paid_until arrives: false once the subscription is "
+            "cancelled to end then. Null where this server has not been told: a comp, a household that never "
+            "paid, or one whose last payment predates this field."
+        ),
     )
 
 

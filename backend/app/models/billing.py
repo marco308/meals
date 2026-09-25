@@ -33,7 +33,7 @@ class BillingEvent(Base):
     event_id: Mapped[str] = mapped_column(String(120))
     #: What the processor called it, kept verbatim for anyone reading this back.
     event_type: Mapped[str] = mapped_column(String(80))
-    #: What this server made of it: granted | renewed | revoked | ignored |
+    #: What this server made of it: granted | unpaid | revoked | ignored |
     #: orphan | refused. Not an enum, for the same reason no other vocabulary
     #: here is one.
     outcome: Mapped[str] = mapped_column(String(20))
