@@ -25,6 +25,19 @@ async def test_metrics_requires_the_exact_bearer(client, settings_override):
     assert "meals_http_requests_total" in response.text
 
 
+async def test_a_stray_byte_in_the_bearer_is_a_401_not_a_500(client, settings_override):
+    """compare_digest raises on a str with anything outside ASCII in it."""
+    settings_override(METRICS_TOKEN="scrape-secret-1")
+    response = await client.get("/metrics", headers={"Authorization": b"Bearer scrape-secret-\xe9"})
+    assert response.status_code == 401
+
+
+async def test_a_token_outside_ascii_still_opens_it(client, settings_override):
+    settings_override(METRICS_TOKEN="scrape-sécret")
+    on_the_wire = "Bearer scrape-sécret".encode()  # UTF-8, as a scraper sends it
+    assert (await client.get("/metrics", headers={"Authorization": on_the_wire})).status_code == 200
+
+
 async def test_requests_are_counted_by_route_template(auth_client, settings_override):
     settings_override(METRICS_TOKEN="scrape-secret-1")
     recipe = await create_recipe(auth_client)

@@ -67,6 +67,12 @@ the run.)
 No Docker? `make run` starts the API locally on SQLite (zero services), and
 `make test` runs the whole suite the same way.
 
+The stack's Postgres listens on `127.0.0.1:5433` only (for `make db`), and its
+password is `meals` unless `POSTGRES_PASSWORD` says otherwise, either in the
+environment or in a `.env` beside `docker-compose.yml`. That default is for a
+laptop. Anywhere else, set your own before the first `make up`, because
+Postgres only reads it when it creates the database volume.
+
 ```
 make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 ```
@@ -86,8 +92,10 @@ Point `DATABASE_URL` at Postgres when you outgrow that
 (`postgresql+asyncpg://user:pass@host:5432/meals`); the schema migrates itself
 on boot either way. With a *bind* mount rather than a named volume, `chown
 1000:1000` the directory first, since Docker only copies ownership into empty
-named volumes. `ghcr.io/marco308/meals-mcp` is the MCP server on its own, for
-deployments that want it on a separate host.
+named volumes. Back up the whole directory rather than `meals.db` alone: the
+database runs in SQLite's WAL mode, so the latest writes can still be sitting
+in `meals.db-wal` beside it. `ghcr.io/marco308/meals-mcp` is the MCP server on
+its own, for deployments that want it on a separate host.
 
 ### Sending email (optional)
 

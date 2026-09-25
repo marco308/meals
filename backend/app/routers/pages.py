@@ -33,9 +33,10 @@ _DOC_DIRS = (
 )
 
 # Tables carry most of the privacy policy's substance, so commonmark alone
-# isn't enough. Raw HTML stays disabled (the default) — the content is ours,
-# but a policy page has no business being an HTML passthrough.
-_markdown = MarkdownIt("commonmark").enable("table")
+# isn't enough. Raw HTML is switched off by hand, because the commonmark
+# preset turns it on: the content is ours, but a policy page has no business
+# being an HTML passthrough.
+_markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
 
 _HEADING = re.compile(r"<h([1-6])>(.*?)</h\1>", re.DOTALL)
 _TAGS = re.compile(r"<[^>]+>")

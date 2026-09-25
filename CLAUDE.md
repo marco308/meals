@@ -64,7 +64,14 @@ lines elsewhere; for the handful of moments worth finding by name
 (registration, deletion, ingest outcome…) call `log_event(...)` with ids and
 enums as fields — never emails, tokens, URLs, or other personal data, which is
 a promise `/privacy` makes. `/healthz` and `/metrics` 2xx/3xx are deliberately
-not logged or counted (they exist to be polled).
+not logged or counted (they exist to be polled). The promise covers what
+libraries log too: `setup_logging` holds `httpx`/`httpcore` (full URLs at INFO)
+and `aiosqlite` (bound values at DEBUG) at WARNING, and the engine is built with
+`hide_parameters`, because the 500 handler logs a failed statement's traceback.
+A caught exception's *text* is not a safe field either (a relay's refusal
+quotes the address it refused): log its class.
+`tests/integration/test_log_privacy.py` renders every record in both formats
+and looks for an address or a URL.
 
 Metrics are the same story's numbers (`app/metrics.py`): `log_event` already
 increments `meals_events_total`, and the request middleware feeds the request
@@ -553,6 +560,16 @@ External HTTP is stubbed with `respx` — tests never hit the network.
 
 Model changes need an Alembic revision (`make migration m="..."`); tests
 create tables from metadata and won't catch a missing migration.
+`tests/unit/test_migrations.py` is the exception: it runs `alembic upgrade
+head` on a SQLite file (what a one-container install boots on) and compares
+every foreign key it leaves, ON DELETE included, with the models'. That is the
+check `alembic check` can't make, because SQLAlchemy's SQLite reflection folds
+two keys on one column into one. A migration that changes a key on SQLite has
+to drop the old one by name, and a reflected rebuild has no name for a key
+declared without one, so it copies the old key along with the new. Either
+rebuild from an explicit definition (`copy_from`, as 67a229a2837f does) or give
+the reflected keys names to drop them by (`naming_convention`, as b9b700d074ec
+does).
 
 `.github/workflows/ci.yml` runs `make lint` and `make test` on every push and
 PR, plus the two things the local suite can't see: `alembic upgrade head` +
@@ -572,7 +589,10 @@ Docker Swarm behind Traefik on `meals.marcuslab.uk` (api + mcp + Postgres).
 machines, so it's deliberately not in the public repo. It's on this machine and
 backed up under `~/meals-local-deploy/`. Don't re-add it to git; if the deploy
 needs changing, change it in place. `docker-compose.yml` is the public reference
-deployment and the one CI boots.
+deployment and the one CI boots. It is also what `make up` runs on strangers'
+servers, so its Postgres is published on `127.0.0.1` only (Docker's published
+ports bypass ufw) and its password is `POSTGRES_PASSWORD`, whose default of
+`meals` is for laptops. Don't publish that port on all interfaces again.
 
 Because it is untracked, `deploy/` is absent from every git worktree. `make
 deploy` falls back to the main worktree's script and hands it the current tree
@@ -678,7 +698,10 @@ depend on either and neither is visible from the API:
 - **It defaults to SQLite under `/data`**, so `docker run` with nothing set
   works. `DATABASE_URL` overrides it, which is what every Postgres deployment
   here does. Migrations run on boot on both engines, so a migration that is
-  Postgres-only breaks the default install rather than just CI.
+  Postgres-only breaks the default install rather than just CI. The SQLite
+  database runs in WAL mode (`database.configure_sqlite_locking`), so `/data`
+  holds `meals.db-wal` and `meals.db-shm` beside it, and a copy of `meals.db`
+  alone can miss the latest writes.
 
 ### Backups
 

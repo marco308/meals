@@ -1,8 +1,10 @@
 # The backend image builds from the repo root (docker build -f backend/Dockerfile .)
 # so skill/ can ship in the image. This file also governs the deploy dir on the
 # swarm manager, where .env (secrets) must never enter a build context.
+# At any depth, not just the root: mcp/, skill/ and web/ are COPYed whole, so
+# an mcp/.env holding somebody's MEALS_API_TOKEN would ship in a public image.
 .git
-.env
+**/.env
 ios
 planning
 deploy

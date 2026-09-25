@@ -26,7 +26,7 @@ def outbox(monkeypatch, settings_override):
     settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
     sent: list[dict] = []
 
-    async def fake_send(to: str, subject: str, body: str) -> None:
+    async def fake_send(to: str, subject: str, body: str, **_log_context) -> None:
         sent.append({"to": to, "subject": subject, "body": body})
 
     monkeypatch.setattr("app.routers.auth.send_email", fake_send)
@@ -254,7 +254,7 @@ class TestTheAnswerNeverWaitsOnTheAccount:
         await register(client)
         events: list[str] = []
 
-        async def patient_send(to: str, subject: str, body: str) -> None:
+        async def patient_send(to: str, subject: str, body: str, **_log_context) -> None:
             # Sent from inside the request, this would wait on a response that
             # cannot finish until it returns, and time out.
             async with asyncio.timeout(5):
@@ -322,4 +322,4 @@ class TestASlowRelayIsGivenUpOn:
         monkeypatch.setattr(mailer.aiosmtplib, "send", never_finishes)
         async with asyncio.timeout(5):  # the bound under test, not this one, must be what ends it
             with pytest.raises(mailer.EmailSendFailed, match="TimeoutError"):
-                await mailer.send_email("someone@example.com", "subject", "body")
+                await mailer.send_email("someone@example.com", "subject", "body", purpose="password_reset")
