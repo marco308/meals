@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 21 September 2026**
+**Last updated: 25 September 2026**
 
 YAMP is a meal planner that runs on a server: your own, or a hosted one. The
 iOS app is a client: it talks to whichever server you point it at, and to
@@ -28,10 +28,10 @@ That shape is the whole privacy story, so it is worth being precise about it.
 
 | What | Where | Why |
 |---|---|---|
-| Your sign-in token | iOS Keychain | So you don't sign in every launch. Removed on sign-out and on account deletion. |
+| Your sign-in token, and the address of the server that issued it | iOS Keychain | So you don't sign in every launch. The token is only ever sent to the server that issued it, whatever the app is later pointed at. Removed on sign-out and on account deletion. |
 | The server URL you chose | App preferences | So the app knows where to connect. |
-| A cached copy of your shopping list, plan and recipes | App container on disk | So the app works in a supermarket with no signal. Cleared on sign-out and on account deletion. |
-| Shopping-list changes made offline | App container on disk | Queued until the server is reachable, then sent and discarded. |
+| A cached copy of your shopping list, plan and recipes | App container on disk | So the app works in a supermarket with no signal. Cleared on sign-out, on account deletion, and when you move to another household. |
+| Shopping-list changes made offline | App container on disk | Queued until the server is reachable, then sent and discarded. Changes not yet sent when you sign out (or someone else signs in) stay on the device, and are only ever sent as the account and household that made them, once that account signs back in. Deleting your account in the app deletes them. |
 
 None of this leaves the device except to reach your server.
 

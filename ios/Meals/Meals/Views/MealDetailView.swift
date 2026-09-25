@@ -18,7 +18,7 @@ struct MealDetailView: View {
     /// batch while the shopping list says otherwise (#32).
     static func scaleBadge(_ scale: Double?) -> String? {
         guard let scale, scale != 1 else { return nil }
-        return "×\(IngredientLineEditor.amountText(scale))"
+        return "×\(MealsUnits.amountText(scale))"
     }
     @State private var showDeleteConfirm = false
 

@@ -20,7 +20,15 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes the next iOS
+  build, which fixes the offline shopping list: deploy it with that build.
 
 ## 2026-09-21 — YAMP on the public pages
 
