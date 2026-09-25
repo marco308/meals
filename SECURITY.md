@@ -19,11 +19,10 @@ you'd like it.
 In scope: the backend API, the MCP server, the published skill and prompt pack,
 the iOS app, and the deployment guidance in this repo.
 
-`https://meals.marcuslab.uk` is a private instance holding one household's real
-data — it isn't a public service, and registration on it is closed. Please
-**don't test against it** — run your own with `make dev` (a full
-stack in Docker) or `make run` (SQLite, no services). Reading the unauthenticated
-`/skill`, `/prompt-pack` and `/healthz` endpoints is fine.
+`https://meals.marcuslab.uk` is the author's hosted service, and it holds real
+households' data. Please **don't test against it** — run your own with
+`make dev` (a full stack in Docker) or `make run` (SQLite, no services). Reading
+the unauthenticated `/skill`, `/prompt-pack` and `/healthz` endpoints is fine.
 
 Out of scope: anything requiring a stolen credential or physical device access,
 and reports that amount to "self-hosting this insecurely is insecure".
@@ -45,6 +44,11 @@ not oversights:
   Leaving is not gated: any member can remove *themselves*
   (`DELETE /auth/household/members/{user_id}` with their own id), which moves
   them to an empty household of their own and deletes nothing.
+- **An invite code admits one person, once, and speaks for the lead who
+  issued it.** Spending one is a single conditional write, so requests racing
+  for the same code get one success between them. A code nobody has used stops
+  working when the member who issued it hands the lead on, leaves, is removed
+  or deletes their account.
 - **Registration creates a *new* household** (decision Q19). An account never
   joins existing data without a valid single-use invite code. Reports that a
   stranger's signup can see somebody else's library are exactly what this policy
@@ -54,7 +58,8 @@ not oversights:
 - **API tokens (PATs) are bearer credentials** stored as SHA-256 hashes, shown
   once, and deliberately survive a password change so that rotating a password
   doesn't silently break every AI client. Revoke them with
-  `DELETE /auth/tokens/{id}`.
+  `DELETE /auth/tokens/{id}`. Only a signed-in session can create one (an API
+  token can't mint another), so revoking a leaked token is the end of it.
 - **The remote MCP server holds no credentials.** In http mode it forwards each
   request's `Authorization` header to the API verbatim. A server-side token
   fallback would be a vulnerability, and there are tests asserting one hasn't
@@ -66,10 +71,16 @@ not oversights:
   it fetches. Recipe ingestion is schema.org JSON-LD extraction only.
 - **Password reset never confirms whether an address has an account.**
   `POST /auth/password-reset` returns 202 for unknown addresses and for failed
-  deliveries alike; that is deliberate, not a bug. Reset codes live in the same
-  table as auth tokens but cannot be used as credentials.
+  deliveries alike; that is deliberate, not a bug. It answers before looking
+  the address up, and a failed login does the same bcrypt work whether or not
+  the address has an account, so neither answer's timing says either. Reset
+  codes live in the same table as auth tokens but cannot be used as
+  credentials, and a password change retires any that are outstanding.
 - **Account deletion is immediate and total.** `DELETE /auth/me` has no grace
   period, and the last member of a household takes its data with them (Q20).
+  Joining another household while you are the only member of yours deletes it
+  the same way, so `POST /auth/invites/redeem` asks for the same password
+  first.
 
 ## Self-hosting: the things that actually bite
 
@@ -80,4 +91,9 @@ not oversights:
   anyway if you put a web frontend in front of it.
 - Terminate TLS at your ingress. The app speaks plain HTTP and assumes something
   in front of it doesn't.
-- Back up Postgres. Nothing in this repo does it for you.
+- Behind that ingress, set `FORWARDED_ALLOW_IPS` to its address or network (see
+  the README, "Behind a reverse proxy"). Without it the app sees every request
+  as coming from the proxy, and the per-client auth rate limit becomes one
+  bucket shared by everybody.
+- Back up Postgres. The reference `docker-compose.yml` runs a nightly
+  `pg_dump` sidecar (`backup/`); a deployment built any other way needs its own.

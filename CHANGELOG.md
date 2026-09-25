@@ -20,7 +20,66 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+Authentication hardening. No migrations. One request changes shape for some
+callers: `POST /auth/invites/redeem` needs the caller's password whenever it
+would delete the household they are leaving (see **Changed**). The web app asks
+for it now and the iPhone app from its next build; builds already installed get
+a sentence saying what is missing.
+
+### Security
+
+- **An invite code admits one person, even when several requests spend it at
+  once.** Spending a code is now one conditional write, in the same transaction
+  as the account or the move it pays for, so requests racing for a code get one
+  success between them and the ordinary "not valid" answer otherwise. A refusal
+  still leaves the code unspent. Password-reset codes are spent the same way.
+- **Joining another household while you are the only member of yours asks for
+  your password.** It deletes that household, as `DELETE /auth/me` does, and now
+  asks for the same confirmation; `force` always comes with it. The endpoint is
+  rate-limited like the other password checks. The move itself refuses to empty
+  a household unless that confirmation was given, so other members leaving at
+  the same moment can't bring it about either, and leaving never deletes
+  anything, even then.
+- **How long an answer takes no longer depends on whether the address has an
+  account.** A failed login does the same bcrypt work either way, and
+  `POST /auth/password-reset` answers before it looks the address up: the code,
+  its row and the email all come after the response.
+- **An API token can't create API tokens.** Only a signed-in session can, so
+  revoking a token that leaked is enough.
+- **An invite speaks for the lead who issued it.** Handing the lead on, leaving,
+  being removed or deleting the account withdraws every code that member issued
+  and nobody has used. Redeemed invites stay, as the record of who let whom in.
+- **Changing a password retires outstanding reset codes**, as well as the
+  sessions it already revoked.
+
+### Fixed
+
+- **bcrypt runs on a worker thread**, so sign-ins no longer hold up every other
+  request in the process, `/healthz` included.
+- **A new password over 72 bytes is a 422 that says so**, where it was a 500.
+  The limit was counted in characters and bcrypt's is in bytes; accented
+  letters and emoji take 2 to 4 each.
+- **Display and household names are trimmed before they are measured**, so one
+  made only of spaces is refused rather than stored empty.
+- **An auth token row must say what kind it is.** `AuthToken.kind` no longer
+  defaults to `session`, so a row written without one fails instead of becoming
+  a credential.
+
+### Changed
+
+- `POST /auth/invites/redeem` takes an optional `password`, and answers 401
+  without it when the caller is the only member of their household or sends
+  `force`. That comes before the `force` 409, so an older client is told what
+  is missing rather than asked to confirm something it then can't finish.
+- Outgoing email gets `SMTP_TIMEOUT_SECONDS` (10 by default) for the whole
+  send, where aiosmtplib allowed 60 seconds per command.
+
+### Added
+
+- **`FORWARDED_ALLOW_IPS` is documented** (README, "Behind a reverse proxy";
+  `.env.example`; `SECURITY.md`) and passed through by `docker-compose.yml`.
+  uvicorn reads it to decide whose `X-Forwarded-For` to believe, and behind a
+  proxy the per-client auth rate limit depends on it.
 
 ## 2026-09-21 — YAMP on the public pages
 

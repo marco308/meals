@@ -295,6 +295,22 @@ and that nobody inside a household outranked anybody. That is still true of the
   household of one that still holds recipes needs `{"force": true}`, the same
   idiom as a re-parse that would discard someone's edits; a household nobody
   ever put anything in doesn't ask.
+- **Amended 2026-09-25: giving up a household asks for the password.** Redeeming
+  out of a household of one deletes it, which is the loss `DELETE /auth/me` asks
+  a password for, and it asked for nothing but a bearer token. It now needs
+  `password` in the body whenever the caller is the only member, empty
+  household or not, and whenever they send `force`. The field is optional, so
+  the request every client already sends is still well-formed, but for those
+  callers it is the second non-additive change here, taken on the same terms as
+  the lead one below: an installed build that joins from a household of one
+  gets a 401 saying what is missing and has nowhere to type it until its next
+  build. The 401 comes before the `force` 409, so that build is not first asked
+  to confirm a loss it then cannot complete.
+- **An invite speaks for the lead who issued it** (2026-09-25). Handing the lead
+  on, leaving, being removed or deleting the account withdraws every unused code
+  that member issued; otherwise a former lead could let themselves, or anyone,
+  back in with a code kept from before. Redeemed invites stay: they are the
+  record of who admitted whom.
 - **A lead who deletes their account leaves one behind.** The role passes to the
   longest-standing remaining member automatically, because nobody is around to
   be asked and a household with a subscription and no lead is a support ticket.

@@ -98,7 +98,16 @@ instrumentation a new feature usually needs.
   one act with two callers. Leaving, removal and `POST /auth/invites/redeem` all
   funnel into `move_user_to_household` in `services/accounts.py`, which moves
   `household_id` and collects the vacated household if nobody is left in it —
-  only redeeming can reach that branch, which is why only it takes `force`.
+  only redeeming can reach that branch, which is why only it takes `force`, and
+  why it asks for the caller's `password` whenever it would collect: that is the
+  deletion `DELETE /auth/me` confirms with one. The move takes `may_collect` and
+  raises `WouldEmptyHousehold` rather than collect without it, because the
+  router's member count can go stale before the move. The move also withdraws the
+  mover's unused invites (`withdraw_invites`), as do handing over and deleting
+  an account, because an invite speaks for the lead who issued it. A code is
+  spent by `_claim_invite`, one conditional `UPDATE … WHERE accepted_at IS NULL`
+  in the same transaction as the account or move it pays for. Never a read
+  followed by a write, which lets every request that read it first through.
 - **Account lifecycle** (Q20, `services/accounts.py`). Deleting the last member
   of a household deletes the household's data; deleting anyone else deletes only
   them. The order of deletes is load-bearing — `household_id` columns carry no
@@ -106,7 +115,13 @@ instrumentation a new feature usually needs.
   it must behave the same on SQLite and Postgres. Password-reset tokens share the
   `auth_tokens` table under `kind="reset"` and **must never authenticate**:
   `deps.AUTHENTICATING_KINDS` is an allow-list, and a reset code hashes to the
-  same value the bearer path computes once its separators are stripped.
+  same value the bearer path computes once its separators are stripped. That
+  is also why `AuthToken.kind` has no default. `hash_password` and
+  `verify_password` are async (bcrypt on a worker thread, off the event loop)
+  and must be awaited: an un-awaited check is a coroutine, which is truthy, and
+  `tests/unit/test_security.py` lints every call for it. A login for an unknown
+  address still pays for a check (`verify_password(pw, None)`), and the reset
+  request answers before it looks anybody up, so neither timing is an oracle.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.
