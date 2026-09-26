@@ -292,7 +292,7 @@ class TestDunning:
         settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
         sent = []
 
-        async def fake_send(to, subject, body):
+        async def fake_send(to, subject, body, **_log_context):
             sent.append((to, subject, body))
 
         monkeypatch.setattr("app.services.dunning.send_email", fake_send)
@@ -362,7 +362,7 @@ class TestDunning:
     ):
         settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
 
-        async def refuse(to, subject, body):
+        async def refuse(to, subject, body, **_log_context):
             raise dunning.EmailSendFailed("relay said no")
 
         monkeypatch.setattr("app.services.dunning.send_email", refuse)

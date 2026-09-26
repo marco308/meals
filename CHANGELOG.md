@@ -30,6 +30,127 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   server that issued it and sent nowhere else. This describes the next iOS
   build, which fixes the offline shopping list: deploy it with that build.
 
+## 2026-09-25 — codes spent once, addresses kept out of the logs
+
+Released as **1.6.5**. One migration, `67a229a2837f`, which rebuilds
+`household_invites` on SQLite and does nothing on Postgres.
+
+Authentication hardening too, and one request changes shape for some
+callers: `POST /auth/invites/redeem` needs the caller's password whenever it
+would delete the household they are leaving (see **Changed**). The web app asks
+for it now and the iPhone app from its next build; builds already installed get
+a sentence saying what is missing.
+
+### Security
+
+- **`make up` no longer puts Postgres on the network.** The reference
+  `docker-compose.yml` published the database's superuser, password `meals`,
+  on port 5433 of every interface, and Docker's published ports go around ufw.
+  It is now on `127.0.0.1:5433` for `make db`, and the password comes from
+  `POSTGRES_PASSWORD`, whose default of `meals` is for laptops only.
+- **Personal data stays out of the logs.** A failed email logged the
+  recipient's address and the relay's reply, which quotes it again, and
+  dunning logged the same reply as its reason. Both now log ids and the
+  exception's class. A failed query no longer carries its bound values into
+  the last-resort handler's traceback (`hide_parameters`), httpx no longer
+  logs the full URL of every page an ingest fetches or every call the mounted
+  MCP server makes, and aiosqlite no longer logs every statement's values
+  under `LOG_LEVEL=DEBUG`.
+- **Raw HTML in `/privacy`, `/support`, `/terms` and `/credits` is escaped.**
+  The commonmark preset switches it on, whatever the comment said. The pages
+  render exactly as before, since none of them used any.
+- **A signature or bearer token with a non-ASCII byte in it is a 401, not a
+  500.** `compare_digest` raises on such a string. On the billing webhook that
+  500 was invisible to the alert and retried by the processor; the comparisons
+  are over bytes now, so it is a counted `bad_signature`.
+- **An invite code admits one person, even when several requests spend it at
+  once.** Spending a code is now one conditional write, in the same transaction
+  as the account or the move it pays for, so requests racing for a code get one
+  success between them and the ordinary "not valid" answer otherwise. A refusal
+  still leaves the code unspent. Password-reset codes are spent the same way.
+- **Joining another household while you are the only member of yours asks for
+  your password.** It deletes that household, as `DELETE /auth/me` does, and now
+  asks for the same confirmation; `force` always comes with it. The endpoint is
+  rate-limited like the other password checks. The move itself refuses to empty
+  a household unless that confirmation was given, so other members leaving at
+  the same moment can't bring it about either, and leaving never deletes
+  anything, even then.
+- **How long an answer takes no longer depends on whether the address has an
+  account.** A failed login does the same bcrypt work either way, and
+  `POST /auth/password-reset` answers before it looks the address up: the code,
+  its row and the email all come after the response.
+- **An API token can't create API tokens.** Only a signed-in session can, so
+  revoking a token that leaked is enough.
+- **An invite speaks for the lead who issued it.** Handing the lead on, leaving,
+  being removed or deleting the account withdraws every code that member issued
+  and nobody has used. Redeemed invites stay, as the record of who let whom in.
+- **Changing a password retires outstanding reset codes**, as well as the
+  sessions it already revoked.
+
+### Fixed
+
+- **Deleting an account on SQLite no longer deletes the invites it issued.**
+  `f3a7c02e5b91` added the new `SET NULL` key beside the old `CASCADE` one
+  instead of replacing it, so on SQLite both applied. `67a229a2837f` rebuilds
+  the table with only the keys the model declares, and the suite now migrates
+  a SQLite file and compares every foreign key with the models'.
+- **A `%` in `DATABASE_URL` no longer stops the container booting.** Alembic
+  handed the URL to ConfigParser, which read a percent-encoded password as
+  interpolation and printed the whole URL, password included, on the way out.
+- **A paused export no longer locks every write out on SQLite.** The export
+  streams through an open cursor, which held SQLite's read lock for as long as
+  the client took to download, so writes failed with "database is locked"
+  after five seconds. SQLite now runs in WAL mode with a 15 second busy
+  timeout.
+- **The iOS targets stay failing when Xcode does.** `ios-testflight` deletes
+  the last archive before it starts, so no failure has a stale build to
+  upload, and `tests/unit/test_makefile.py` runs `ios-build`, `ios-test` and
+  `ios-testflight` against stand-ins for Xcode's tools with whatever make the
+  machine has (3.81 on a Mac, which ignores `.SHELLFLAGS`), so the fix in
+  [#159](https://github.com/marco308/meals/pull/159) cannot quietly regress.
+- **`.env` is kept out of the image's build context at every depth**, not just
+  the root: `mcp/`, `skill/` and `web/` are copied in whole.
+- **Coverage counts the lines after a database await**
+  (`concurrency = ["greenlet", "thread"]`). `app/deps.py` read 79% covered
+  when it was 96%.
+- **bcrypt runs on a worker thread**, so sign-ins no longer hold up every other
+  request in the process, `/healthz` included.
+- **A new password over 72 bytes is a 422 that says so**, where it was a 500.
+  The limit was counted in characters and bcrypt's is in bytes; accented
+  letters and emoji take 2 to 4 each.
+- **Display and household names are trimmed before they are measured**, so one
+  made only of spaces is refused rather than stored empty.
+- **An auth token row must say what kind it is.** `AuthToken.kind` no longer
+  defaults to `session`, so a row written without one fails instead of becoming
+  a credential.
+
+### Changed
+
+- `POST /auth/invites/redeem` takes an optional `password`, and answers 401
+  without it when the caller is the only member of their household or sends
+  `force`. That comes before the `force` 409, so an older client is told what
+  is missing rather than asked to confirm something it then can't finish.
+- Outgoing email gets `SMTP_TIMEOUT_SECONDS` (10 by default) for the whole
+  send, where aiosmtplib allowed 60 seconds per command.
+
+### Added
+
+- **`FORWARDED_ALLOW_IPS` is documented** (README, "Behind a reverse proxy";
+  `.env.example`; `SECURITY.md`) and passed through by `docker-compose.yml`.
+  uvicorn reads it to decide whose `X-Forwarded-For` to believe, and behind a
+  proxy the per-client auth rate limit depends on it.
+
+### Notes for whoever deploys this
+
+- A SQLite install switches to WAL on its first connection, after which
+  `/data` holds `meals.db-wal` and `meals.db-shm` beside `meals.db`. Back up
+  the directory rather than the one file, and keep it on a local disk: WAL
+  does not work on a network filesystem.
+- An existing compose stack keeps the password its volume was created with.
+  Setting `POSTGRES_PASSWORD` later changes what the API and the backup
+  sidecar send, not what Postgres expects, so run `ALTER ROLE meals PASSWORD
+  '…'` first.
+
 ## 2026-09-25 — grant only what was paid for, bound what a request can cost
 
 Released as **1.6.4**. **Two migrations**, both additive, run in this order:

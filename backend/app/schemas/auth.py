@@ -1,13 +1,44 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, model_validator
+from pydantic_core import PydanticCustomError
+
+from app.services.security import PASSWORD_MAX_BYTES
+
+
+def _fits_bcrypt(password: str) -> str:
+    """bcrypt's limit is in bytes, which no character count can express: forty
+    accented letters are forty characters and eighty bytes. Measured here, the
+    answer is a sentence; left to bcrypt, it was a 500."""
+    if len(password.encode("utf-8")) > PASSWORD_MAX_BYTES:
+        raise PydanticCustomError(
+            "password_too_long",
+            f"that password is too long: a password can be at most {PASSWORD_MAX_BYTES} bytes, and accented "
+            "letters, other alphabets and emoji take 2 to 4 bytes each, so they reach it in fewer characters. "
+            "Choose a shorter one.",
+        )
+    return password
+
+
+#: A password being set. The one used to check a login is a plain `str`: a
+#: password this API could never have stored simply doesn't match.
+NewPassword = Annotated[
+    str,
+    Field(min_length=8, description=f"At least 8 characters, and at most {PASSWORD_MAX_BYTES} bytes as UTF-8."),
+    AfterValidator(_fits_bcrypt),
+]
+
+#: A name somebody reads. Stripped before it is measured, so one made of nothing
+#: but spaces is refused rather than stored as an empty string.
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=72)  # bcrypt operates on the first 72 bytes
-    display_name: str = Field(min_length=1, max_length=200)
+    password: NewPassword
+    display_name: Name
     # Both optional, so a client written against the pre-Q19 API still registers
     # (into a household of its own — see the endpoint docstring).
     invite_code: str | None = Field(
@@ -15,10 +46,8 @@ class RegisterIn(BaseModel):
         max_length=64,
         description="A household invite code from POST /auth/invites. Omit to start a new, empty household.",
     )
-    household_name: str | None = Field(
+    household_name: Name | None = Field(
         default=None,
-        min_length=1,
-        max_length=200,
         description="Names the new household. Ignored when invite_code is given. Defaults to 'Home'.",
     )
 
@@ -30,7 +59,7 @@ class LoginIn(BaseModel):
 
 class PasswordChangeIn(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=8, max_length=72)  # bcrypt operates on the first 72 bytes
+    new_password: NewPassword
 
 
 class UserOut(BaseModel):
@@ -108,7 +137,7 @@ class PasswordResetRequestIn(BaseModel):
 
 class PasswordResetConfirmIn(BaseModel):
     code: str = Field(min_length=1, max_length=64, description="The code from the reset email.")
-    new_password: str = Field(min_length=8, max_length=72)  # bcrypt operates on the first 72 bytes
+    new_password: NewPassword
 
 
 class AcceptedOut(BaseModel):
@@ -164,7 +193,7 @@ class HouseholdUpdateIn(BaseModel):
     """Both fields are optional, but sending neither is a mistake worth naming
     rather than a no-op worth pretending succeeded."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: Name | None = None
     lead_user_id: uuid.UUID | None = Field(
         default=None,
         description="Hand the lead to another member of this household. They must already be in it.",
@@ -193,6 +222,18 @@ class InviteRedeemIn(BaseModel):
         default=False,
         description=(
             "Required when you are the only member of your current household: it holds recipes and "
-            "history that nobody will be able to reach once you leave, and this is you saying they may go."
+            "history that nobody will be able to reach once you leave, and this is you saying they may go. "
+            "Send your password with it."
+        ),
+    )
+    # Optional, so the request every client already sends is still well-formed;
+    # the endpoint says when it is needed. In the body, never a query parameter,
+    # for the same reason as AccountDeleteIn.
+    password: str | None = Field(
+        default=None,
+        description=(
+            "Your current password. Needed when you are the only member of your current household, since "
+            "joining another one deletes it, and whenever force is true. It is the same confirmation "
+            "DELETE /auth/me asks for."
         ),
     )

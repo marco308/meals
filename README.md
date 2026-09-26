@@ -67,6 +67,12 @@ the run.)
 No Docker? `make run` starts the API locally on SQLite (zero services), and
 `make test` runs the whole suite the same way.
 
+The stack's Postgres listens on `127.0.0.1:5433` only (for `make db`), and its
+password is `meals` unless `POSTGRES_PASSWORD` says otherwise, either in the
+environment or in a `.env` beside `docker-compose.yml`. That default is for a
+laptop. Anywhere else, set your own before the first `make up`, because
+Postgres only reads it when it creates the database volume.
+
 ```
 make help    # everything else: logs, lint, migrate, fmt, down, nuke…
 ```
@@ -86,8 +92,10 @@ Point `DATABASE_URL` at Postgres when you outgrow that
 (`postgresql+asyncpg://user:pass@host:5432/meals`); the schema migrates itself
 on boot either way. With a *bind* mount rather than a named volume, `chown
 1000:1000` the directory first, since Docker only copies ownership into empty
-named volumes. `ghcr.io/marco308/meals-mcp` is the MCP server on its own, for
-deployments that want it on a separate host.
+named volumes. Back up the whole directory rather than `meals.db` alone: the
+database runs in SQLite's WAL mode, so the latest writes can still be sitting
+in `meals.db-wal` beside it. `ghcr.io/marco308/meals-mcp` is the MCP server on
+its own, for deployments that want it on a separate host.
 
 ### Sending email (optional)
 
@@ -105,6 +113,7 @@ SMTP_USERNAME=...       # if your relay authenticates
 SMTP_PASSWORD=...
 SMTP_START_TLS=true     # default
 PASSWORD_RESET_TTL_MINUTES=30   # default
+SMTP_TIMEOUT_SECONDS=10         # default: the whole send, then it counts as failed
 ```
 
 Two relays that need no server of your own. **Resend** — verify your domain,
@@ -126,6 +135,28 @@ SMTP_USERNAME=you@gmail.com
 SMTP_PASSWORD=<16-character app password>
 SMTP_FROM=you@gmail.com
 ```
+
+### Behind a reverse proxy
+
+The auth endpoints are rate-limited per client address (`AUTH_RATE_LIMIT_PER_MINUTE`,
+10 by default). Behind a proxy, the address the app sees is the proxy's unless
+uvicorn has been told to trust it, and then every caller shares one bucket: one
+client's failed sign-ins count against everybody's. Tell it with
+`FORWARDED_ALLOW_IPS`, which uvicorn reads from the process environment (it is not
+one of the app's settings, so a line in `backend/.env` doesn't reach it):
+
+```bash
+FORWARDED_ALLOW_IPS=172.18.0.2    # the proxy's address, as the container sees it
+FORWARDED_ALLOW_IPS=10.0.0.0/8    # or a network, such as the overlay a swarm proxy is on
+```
+
+uvicorn then takes the client from `X-Forwarded-For`, reading from the right and
+stopping at the first address it doesn't trust, so a caller can't pick their own
+bucket by sending the header themselves. Trust only what can reach the port:
+`*` hands that choice to anyone who can connect directly. With two proxies in a
+row (a CDN in front of your own), the inner one has to be told to trust the outer
+one, or it replaces the header and every client looks like the CDN. If every
+`auth.rate_limited` line in the log names the same `bucket`, this is why.
 
 ### Logs
 

@@ -6,8 +6,14 @@ used to discover who has an account, that a code works exactly once, and that
 holding one is not the same as being logged in.
 """
 
-import pytest
+import asyncio
 
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
+
+from app.main import app
+from app.routers import auth as auth_router
 from app.services import mailer
 from tests.conftest import register
 
@@ -20,7 +26,7 @@ def outbox(monkeypatch, settings_override):
     settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
     sent: list[dict] = []
 
-    async def fake_send(to: str, subject: str, body: str) -> None:
+    async def fake_send(to: str, subject: str, body: str, **_log_context) -> None:
         sent.append({"to": to, "subject": subject, "body": body})
 
     monkeypatch.setattr("app.routers.auth.send_email", fake_send)
@@ -213,3 +219,107 @@ class TestResetCodesAreNotCredentials:
         stored = hash_short_code(code_from(outbox[0]))
         response = await client.get("/auth/me", headers={"Authorization": f"Bearer {stored}"})
         assert response.status_code == 401
+
+
+class TestTheAnswerNeverWaitsOnTheAccount:
+    """The 202 is identical for every address, and so must be the time it
+    takes: anything that depends on whether the address has an account happens
+    after it has been sent."""
+
+    async def test_the_request_itself_never_looks_the_address_up(self, client, engine, outbox, monkeypatch):
+        await register(client)
+        deferred: list[str] = []
+
+        async def later(_bind, email: str) -> None:
+            deferred.append(email)
+
+        monkeypatch.setattr(auth_router, "_send_reset_code", later)
+        queries: list[str] = []
+
+        def record(_conn, _cursor, statement, *_args):
+            queries.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", record)
+        try:
+            for email in ("marcus@example.com", "nobody@example.com"):
+                assert (await request_reset(client, email)).status_code == 202
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", record)
+
+        assert queries == [], "the reset request queried the database before answering"
+        assert deferred == ["marcus@example.com", "nobody@example.com"]
+
+    async def test_the_email_goes_after_the_response(self, client, settings_override, monkeypatch):
+        settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
+        await register(client)
+        events: list[str] = []
+
+        async def patient_send(to: str, subject: str, body: str, **_log_context) -> None:
+            # Sent from inside the request, this would wait on a response that
+            # cannot finish until it returns, and time out.
+            async with asyncio.timeout(5):
+                while "response" not in events:
+                    await asyncio.sleep(0.01)
+            events.append("email")
+
+        monkeypatch.setattr(auth_router, "send_email", patient_send)
+
+        async def recorded(scope, receive, send):
+            async def spy(message):
+                if message["type"] == "http.response.body" and not message.get("more_body", False):
+                    events.append("response")
+                await send(message)
+
+            await app(scope, receive, spy)
+
+        async with AsyncClient(transport=ASGITransport(app=recorded), base_url="http://test") as http:
+            response = await http.post("/auth/password-reset", json={"email": "marcus@example.com"})
+
+        assert response.status_code == 202
+        assert events == ["response", "email"]
+
+
+class TestAPasswordChangeRetiresOutstandingCodes:
+    async def test_a_code_requested_before_the_change_no_longer_works(self, client, outbox):
+        """Otherwise an emailed code from before a password change could undo
+        it afterwards."""
+        auth = await register(client)
+        await request_reset(client)
+        code = code_from(outbox[0])
+
+        changed = await client.post(
+            "/auth/password",
+            json={"current_password": PASSWORD, "new_password": "brand-new-password"},
+            headers={"Authorization": f"Bearer {auth['token']}"},
+        )
+        assert changed.status_code == 200
+        stale = await client.post(
+            "/auth/password/reset-confirm", json={"code": code, "new_password": "another-new-password"}
+        )
+        assert stale.status_code == 400
+        still = await client.post("/auth/login", json={"email": "marcus@example.com", "password": "brand-new-password"})
+        assert still.status_code == 200
+
+    async def test_an_over_long_new_password_is_a_422_that_says_why(self, client, outbox):
+        await register(client)
+        await request_reset(client)
+        response = await client.post(
+            "/auth/password/reset-confirm", json={"code": code_from(outbox[0]), "new_password": "é" * 40}
+        )
+        assert response.status_code == 422
+        assert "72 bytes" in response.json()["detail"][0]["msg"]
+
+
+class TestASlowRelayIsGivenUpOn:
+    async def test_a_send_that_never_finishes_fails_after_the_timeout(self, monkeypatch, settings_override):
+        """The whole send is bounded, not each command in it: a relay that
+        never finishes answering holds nothing past SMTP_TIMEOUT_SECONDS."""
+        settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com", SMTP_TIMEOUT_SECONDS="0.05")
+
+        async def never_finishes(*_args, **_kwargs) -> None:
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(mailer.aiosmtplib, "send", never_finishes)
+        async with asyncio.timeout(5):  # the bound under test, not this one, must be what ends it
+            with pytest.raises(mailer.EmailSendFailed, match="TimeoutError"):
+                await mailer.send_email("someone@example.com", "subject", "body", purpose="password_reset")

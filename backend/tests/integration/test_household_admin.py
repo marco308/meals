@@ -10,8 +10,15 @@ invite are one write with three callers, so most of what is worth testing is
 what the move does *not* touch.
 """
 
-from datetime import timedelta
+import uuid
+from datetime import UTC, datetime, timedelta
 
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.models import HouseholdInvite
+from app.routers import auth as auth_router
+from app.services.security import generate_short_code
 from tests.conftest import create_recipe, register
 
 PASSWORD = "a-strong-password"
@@ -39,6 +46,10 @@ async def a_household_of_two(client) -> tuple[dict, dict]:
     code = (await invite(client, lead))["code"]
     member = await register(client, email="isla@example.com", name="Isla", invite_code=code)
     return lead, member
+
+
+async def redeem(client, auth: dict, code: str, **extra):
+    return await client.post("/auth/invites/redeem", json={"code": code, **extra}, headers=headers(auth))
 
 
 class TestWhoLeads:
@@ -239,7 +250,7 @@ class TestRedeemingWhileSignedIn:
 
         joiner = await register(client, email="rory@example.com", name="Rory")
         code = (await invite(client, lead))["code"]
-        response = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
+        response = await redeem(client, joiner, code, password=PASSWORD)
 
         assert response.status_code == 200
         assert response.json()["household_id"] == lead["user"]["household_id"]
@@ -252,18 +263,26 @@ class TestRedeemingWhileSignedIn:
         await client.delete(f"/auth/household/members/{member['user']['id']}", headers=headers(member))
         code = (await invite(client, lead))["code"]
 
-        back = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(member))
+        back = await redeem(client, member, code, password=PASSWORD)
         assert back.status_code == 200
         assert back.json()["household_id"] == lead["user"]["household_id"]
 
-    async def test_an_empty_household_is_abandoned_without_ceremony(self, client):
+    async def test_an_empty_household_needs_the_password_but_not_force(self, client):
         lead, _ = await a_household_of_two(client)
         joiner = await register(client, email="rory@example.com", name="Rory")
         code = (await invite(client, lead))["code"]
 
-        # Rory has never put anything in his own household, so there is nothing
-        # to confirm the loss of.
-        response = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
+        # Rory has never put anything in his own household, so there is no loss
+        # to confirm with `force`. But it is still deleted when he goes, and
+        # deleting a household is something a bearer token alone can't do.
+        refused = await redeem(client, joiner, code)
+        assert refused.status_code == 401
+        assert '"password"' in refused.json()["detail"]
+        assert (await client.get("/auth/me", headers=headers(joiner))).json()["household_id"] == joiner["user"][
+            "household_id"
+        ]
+
+        response = await redeem(client, joiner, code, password=PASSWORD)
         assert response.status_code == 200
 
     async def test_a_household_with_food_in_it_has_to_be_given_up_deliberately(self, client):
@@ -278,11 +297,11 @@ class TestRedeemingWhileSignedIn:
         del client.headers["Authorization"]
         code = (await invite(client, lead))["code"]
 
-        refused = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
+        refused = await redeem(client, joiner, code, password=PASSWORD)
         assert refused.status_code == 409
         assert "force" in refused.json()["detail"]
 
-        forced = await client.post("/auth/invites/redeem", json={"code": code, "force": True}, headers=headers(joiner))
+        forced = await redeem(client, joiner, code, force=True, password=PASSWORD)
         assert forced.status_code == 200
         assert forced.json()["household_id"] == lead["user"]["household_id"]
 
@@ -321,12 +340,10 @@ class TestRedeemingWhileSignedIn:
         lead, _ = await a_household_of_two(client)
         joiner = await register(client, email="rory@example.com", name="Rory")
         code = (await invite(client, lead))["code"]
-        assert (
-            await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
-        ).status_code == 200
+        assert (await redeem(client, joiner, code, password=PASSWORD)).status_code == 200
 
         latecomer = await register(client, email="mo@example.com", name="Mo")
-        response = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(latecomer))
+        response = await redeem(client, latecomer, code, password=PASSWORD)
         assert response.status_code == 400
 
     async def test_an_expired_code_is_refused(self, client, monkeypatch):
@@ -347,3 +364,212 @@ class TestRedeemingWhileSignedIn:
         monkeypatch.setattr(auth_router, "datetime", Later)
         response = await client.post("/auth/invites/redeem", json={"code": spare["code"]}, headers=headers(joiner))
         assert response.status_code == 400
+
+
+class TestGivingUpAHouseholdAsksForThePassword:
+    """Redeeming out of a household you are alone in deletes it, which is the
+    destruction `DELETE /auth/me` asks a password for. A bearer token on its
+    own (a leaked API token, say) must not be enough to cause it."""
+
+    async def _alone_with_a_recipe(self, client) -> tuple[dict, dict, dict, str]:
+        lead, _ = await a_household_of_two(client)
+        joiner = await register(client, email="rory@example.com", name="Rory")
+        client.headers["Authorization"] = f"Bearer {joiner['token']}"
+        recipe = await create_recipe(client, title="Rory's chilli")
+        del client.headers["Authorization"]
+        return lead, joiner, recipe, (await invite(client, lead))["code"]
+
+    async def _nothing_changed(self, client, lead, joiner, recipe) -> None:
+        me = await client.get("/auth/me", headers=headers(joiner))
+        assert me.json()["household_id"] == joiner["user"]["household_id"]
+        assert (await client.get(f"/recipes/{recipe['id']}", headers=headers(joiner))).status_code == 200
+        # And the code is still good for somebody who has it.
+        assert all(
+            i["accepted_at"] is None for i in (await client.get("/auth/invites", headers=headers(lead))).json()[1:]
+        )
+
+    async def test_force_without_the_password_deletes_nothing(self, client):
+        lead, joiner, recipe, code = await self._alone_with_a_recipe(client)
+        response = await redeem(client, joiner, code, force=True)
+
+        assert response.status_code == 401
+        assert '"password"' in response.json()["detail"]
+        await self._nothing_changed(client, lead, joiner, recipe)
+
+    async def test_a_wrong_password_deletes_nothing(self, client):
+        lead, joiner, recipe, code = await self._alone_with_a_recipe(client)
+        response = await redeem(client, joiner, code, force=True, password="not-my-password")
+
+        assert response.status_code == 401
+        assert "incorrect" in response.json()["detail"]
+        await self._nothing_changed(client, lead, joiner, recipe)
+
+    async def test_the_password_is_asked_for_before_the_loss_is(self, client):
+        """An older app that sends no password must be told what is missing,
+        not shown a "force" confirmation it can only answer with a second
+        refusal."""
+        _, joiner, _, code = await self._alone_with_a_recipe(client)
+        response = await redeem(client, joiner, code)
+        assert response.status_code == 401
+        assert "force" not in response.json()["detail"]
+
+    async def test_a_member_of_a_shared_household_needs_neither(self, client):
+        lead, member = await a_household_of_two(client)
+        elsewhere = await register(client, email="rory@example.com", name="Rory")
+        code = (await invite(client, elsewhere))["code"]
+
+        # Isla leaving deletes nothing, because Marcus is still there, so
+        # nothing beyond her token is asked of her.
+        response = await redeem(client, member, code)
+        assert response.status_code == 200
+        assert len((await household_of(client, lead))["members"]) == 1
+
+    async def test_force_always_comes_with_the_password(self, client):
+        _, member = await a_household_of_two(client)
+        elsewhere = await register(client, email="rory@example.com", name="Rory")
+        code = (await invite(client, elsewhere))["code"]
+
+        response = await redeem(client, member, code, force=True)
+        assert response.status_code == 401
+        assert (await redeem(client, member, code, force=True, password=PASSWORD)).status_code == 200
+
+    async def test_it_is_rate_limited_like_every_password_check(self, client, settings_override):
+        from app.deps import _attempts
+
+        _, joiner, _, code = await self._alone_with_a_recipe(client)
+        settings_override(AUTH_RATE_LIMIT_PER_MINUTE="2")
+        _attempts.clear()
+        try:
+            for _ in range(2):
+                wrong = await redeem(client, joiner, code, force=True, password="not-my-password")
+                assert wrong.status_code == 401
+            limited = await redeem(client, joiner, code, force=True, password=PASSWORD)
+            assert limited.status_code == 429
+        finally:
+            _attempts.clear()
+
+
+class TestAnInviteSpeaksForTheLeadWhoIssuedIt:
+    """Q23 makes the guest list the lead's. An unused code outliving its
+    issuer's lead would let a former lead (or anyone they hand it to) in
+    without the current lead having said yes."""
+
+    async def test_a_removed_former_lead_cannot_come_back_with_a_code_they_kept(self, client):
+        lead, member = await a_household_of_two(client)
+        kept = (await invite(client, lead))["code"]
+        await client.patch("/auth/household", json={"lead_user_id": member["user"]["id"]}, headers=headers(lead))
+        removed = await client.delete(f"/auth/household/members/{lead['user']['id']}", headers=headers(member))
+        assert removed.status_code == 200
+
+        response = await redeem(client, lead, kept, password=PASSWORD)
+        assert response.status_code == 400
+        assert [m["display_name"] for m in (await household_of(client, member))["members"]] == ["Isla"]
+
+    async def test_handing_over_withdraws_unused_codes_and_keeps_the_record(self, client):
+        lead, member = await a_household_of_two(client)
+        unused = await invite(client, lead)
+        await client.patch("/auth/household", json={"lead_user_id": member["user"]["id"]}, headers=headers(lead))
+
+        # Isla's own admission is history and stays; the open code is gone.
+        listed = (await client.get("/auth/invites", headers=headers(member))).json()
+        assert [i["accepted_by_user_id"] for i in listed] == [member["user"]["id"]]
+        stranger = await client.post(
+            "/auth/register",
+            json={
+                "email": "stranger@example.com",
+                "password": PASSWORD,
+                "display_name": "Stranger",
+                "invite_code": unused["code"],
+            },
+        )
+        assert stranger.status_code == 400
+
+    async def test_the_new_lead_s_codes_are_their_own(self, client):
+        lead, member = await a_household_of_two(client)
+        await client.patch("/auth/household", json={"lead_user_id": member["user"]["id"]}, headers=headers(lead))
+        fresh = await invite(client, member)
+        joined = await register(client, email="rory@example.com", name="Rory", invite_code=fresh["code"])
+        assert joined["user"]["household_id"] == member["user"]["household_id"]
+
+    async def test_a_lead_who_deletes_their_account_takes_their_open_codes_with_them(self, client):
+        lead, _ = await a_household_of_two(client)
+        unused = await invite(client, lead)
+        response = await client.request("DELETE", "/auth/me", json={"password": PASSWORD}, headers=headers(lead))
+        assert response.status_code == 200
+
+        stranger = await client.post(
+            "/auth/register",
+            json={
+                "email": "stranger@example.com",
+                "password": PASSWORD,
+                "display_name": "Stranger",
+                "invite_code": unused["code"],
+            },
+        )
+        assert stranger.status_code == 400
+
+    async def test_leaving_withdraws_codes_left_over_from_before_this_rule(self, client, engine):
+        """A former lead who handed over before withdrawal existed can still be
+        holding a live code; leaving is the other moment it must stop working."""
+        lead, member = await a_household_of_two(client)
+        code, code_hash = generate_short_code()
+        async with async_sessionmaker(engine)() as db:
+            db.add(
+                HouseholdInvite(
+                    household_id=uuid.UUID(lead["user"]["household_id"]),
+                    created_by_user_id=uuid.UUID(member["user"]["id"]),
+                    code_hash=code_hash,
+                    expires_at=datetime.now(UTC) + timedelta(days=7),
+                )
+            )
+            await db.commit()
+
+        left = await client.delete(f"/auth/household/members/{member['user']['id']}", headers=headers(member))
+        assert left.status_code == 200
+        response = await redeem(client, member, code, password=PASSWORD)
+        assert response.status_code == 400
+
+
+class TestTheMoveItselfWillNotEmptyAHousehold:
+    """Whether leaving would delete the household is judged from a count taken
+    early in the request, and everyone else can leave before the move happens.
+    The move is where the household is actually emptied, so it checks again.
+    The race is simulated here by a count that still sees the company."""
+
+    @pytest.fixture
+    def company_that_has_just_left(self, monkeypatch):
+        async def two(_db, _household_id) -> int:
+            return 2
+
+        monkeypatch.setattr(auth_router, "household_user_count", two)
+
+    async def _alone_with_a_recipe(self, client) -> tuple[dict, dict]:
+        auth = await register(client, email="rory@example.com", name="Rory")
+        client.headers["Authorization"] = f"Bearer {auth['token']}"
+        recipe = await create_recipe(client, title="Rory's chilli")
+        del client.headers["Authorization"]
+        return auth, recipe
+
+    async def test_a_redeem_without_the_password_deletes_nothing(self, client, company_that_has_just_left):
+        lead, _ = await a_household_of_two(client)
+        joiner, recipe = await self._alone_with_a_recipe(client)
+        code = (await invite(client, lead))["code"]
+
+        response = await redeem(client, joiner, code)
+        assert response.status_code == 409
+        assert '"password"' in response.json()["detail"]
+
+        me = await client.get("/auth/me", headers=headers(joiner))
+        assert me.json()["household_id"] == joiner["user"]["household_id"]
+        assert (await client.get(f"/recipes/{recipe['id']}", headers=headers(joiner))).status_code == 200
+        assert (await client.get("/auth/invites", headers=headers(lead))).json()[-1]["accepted_at"] is None
+
+    async def test_leaving_deletes_nothing(self, client, company_that_has_just_left):
+        alone, recipe = await self._alone_with_a_recipe(client)
+        response = await client.delete(f"/auth/household/members/{alone['user']['id']}", headers=headers(alone))
+
+        assert response.status_code == 409
+        assert "DELETE /auth/me" in response.json()["detail"]
+        me = await client.get("/auth/me", headers=headers(alone))
+        assert me.json()["household_id"] == alone["user"]["household_id"]
+        assert (await client.get(f"/recipes/{recipe['id']}", headers=headers(alone))).status_code == 200

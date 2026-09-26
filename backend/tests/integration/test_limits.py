@@ -462,7 +462,9 @@ class TestMembersAreTheGate:
         await set_tier("free")
 
         joiner = await register(client, email="joiner@example.com", name="Joiner")
-        response = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
+        response = await client.post(
+            "/auth/invites/redeem", json={"code": code, "password": PASSWORD}, headers=headers(joiner)
+        )
         assert response.status_code == 402
         assert response.json()["resource"] == "members"
         # Nobody moved, and the invite is still unredeemed.

@@ -163,7 +163,9 @@ class TestMovingBetweenHouseholdsIsNeverRefused:
         before = await counts(engine)
         settings_override(MAX_HOUSEHOLDS=str(before[0]), MAX_USERS=str(before[1]))
 
-        response = await client.post("/auth/invites/redeem", json={"code": code}, headers=headers(joiner))
+        response = await client.post(
+            "/auth/invites/redeem", json={"code": code, "password": PASSWORD}, headers=headers(joiner)
+        )
         assert response.status_code == 200
         # The vacated household went with them, so the server is emptier.
         assert await counts(engine) == (before[0] - 1, before[1])

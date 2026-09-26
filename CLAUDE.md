@@ -64,7 +64,14 @@ lines elsewhere; for the handful of moments worth finding by name
 (registration, deletion, ingest outcome…) call `log_event(...)` with ids and
 enums as fields — never emails, tokens, URLs, or other personal data, which is
 a promise `/privacy` makes. `/healthz` and `/metrics` 2xx/3xx are deliberately
-not logged or counted (they exist to be polled).
+not logged or counted (they exist to be polled). The promise covers what
+libraries log too: `setup_logging` holds `httpx`/`httpcore` (full URLs at INFO)
+and `aiosqlite` (bound values at DEBUG) at WARNING, and the engine is built with
+`hide_parameters`, because the 500 handler logs a failed statement's traceback.
+A caught exception's *text* is not a safe field either (a relay's refusal
+quotes the address it refused): log its class.
+`tests/integration/test_log_privacy.py` renders every record in both formats
+and looks for an address or a URL.
 
 Metrics are the same story's numbers (`app/metrics.py`): `log_event` already
 increments `meals_events_total`, and the request middleware feeds the request
@@ -102,7 +109,16 @@ instrumentation a new feature usually needs.
   Leaving, removal and `POST /auth/invites/redeem` all
   funnel into `move_user_to_household` in `services/accounts.py`, which moves
   `household_id` and collects the vacated household if nobody is left in it —
-  only redeeming can reach that branch, which is why only it takes `force`.
+  only redeeming can reach that branch, which is why only it takes `force`, and
+  why it asks for the caller's `password` whenever it would collect: that is the
+  deletion `DELETE /auth/me` confirms with one. The move takes `may_collect` and
+  raises `WouldEmptyHousehold` rather than collect without it, because the
+  router's member count can go stale before the move. The move also withdraws the
+  mover's unused invites (`withdraw_invites`), as do handing over and deleting
+  an account, because an invite speaks for the lead who issued it. A code is
+  spent by `_claim_invite`, one conditional `UPDATE … WHERE accepted_at IS NULL`
+  in the same transaction as the account or move it pays for. Never a read
+  followed by a write, which lets every request that read it first through.
 - **Account lifecycle** (Q20, `services/accounts.py`). Deleting the last member
   of a household deletes the household's data; deleting anyone else deletes only
   them. The order of deletes is load-bearing — `household_id` columns carry no
@@ -110,7 +126,13 @@ instrumentation a new feature usually needs.
   it must behave the same on SQLite and Postgres. Password-reset tokens share the
   `auth_tokens` table under `kind="reset"` and **must never authenticate**:
   `deps.AUTHENTICATING_KINDS` is an allow-list, and a reset code hashes to the
-  same value the bearer path computes once its separators are stripped.
+  same value the bearer path computes once its separators are stripped. That
+  is also why `AuthToken.kind` has no default. `hash_password` and
+  `verify_password` are async (bcrypt on a worker thread, off the event loop)
+  and must be awaited: an un-awaited check is a coroutine, which is truthy, and
+  `tests/unit/test_security.py` lints every call for it. A login for an unknown
+  address still pays for a check (`verify_password(pw, None)`), and the reset
+  request answers before it looks anybody up, so neither timing is an oracle.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.
@@ -538,6 +560,16 @@ External HTTP is stubbed with `respx` — tests never hit the network.
 
 Model changes need an Alembic revision (`make migration m="..."`); tests
 create tables from metadata and won't catch a missing migration.
+`tests/unit/test_migrations.py` is the exception: it runs `alembic upgrade
+head` on a SQLite file (what a one-container install boots on) and compares
+every foreign key it leaves, ON DELETE included, with the models'. That is the
+check `alembic check` can't make, because SQLAlchemy's SQLite reflection folds
+two keys on one column into one. A migration that changes a key on SQLite has
+to drop the old one by name, and a reflected rebuild has no name for a key
+declared without one, so it copies the old key along with the new. Either
+rebuild from an explicit definition (`copy_from`, as 67a229a2837f does) or give
+the reflected keys names to drop them by (`naming_convention`, as b9b700d074ec
+does).
 
 `.github/workflows/ci.yml` runs `make lint` and `make test` on every push and
 PR, plus the two things the local suite can't see: `alembic upgrade head` +
@@ -557,7 +589,10 @@ Docker Swarm behind Traefik on `meals.marcuslab.uk` (api + mcp + Postgres).
 machines, so it's deliberately not in the public repo. It's on this machine and
 backed up under `~/meals-local-deploy/`. Don't re-add it to git; if the deploy
 needs changing, change it in place. `docker-compose.yml` is the public reference
-deployment and the one CI boots.
+deployment and the one CI boots. It is also what `make up` runs on strangers'
+servers, so its Postgres is published on `127.0.0.1` only (Docker's published
+ports bypass ufw) and its password is `POSTGRES_PASSWORD`, whose default of
+`meals` is for laptops. Don't publish that port on all interfaces again.
 
 Because it is untracked, `deploy/` is absent from every git worktree. `make
 deploy` falls back to the main worktree's script and hands it the current tree
@@ -663,7 +698,10 @@ depend on either and neither is visible from the API:
 - **It defaults to SQLite under `/data`**, so `docker run` with nothing set
   works. `DATABASE_URL` overrides it, which is what every Postgres deployment
   here does. Migrations run on boot on both engines, so a migration that is
-  Postgres-only breaks the default install rather than just CI.
+  Postgres-only breaks the default install rather than just CI. The SQLite
+  database runs in WAL mode (`database.configure_sqlite_locking`), so `/data`
+  holds `meals.db-wal` and `meals.db-shm` beside it, and a copy of `meals.db`
+  alone can miss the latest writes.
 
 ### Backups
 

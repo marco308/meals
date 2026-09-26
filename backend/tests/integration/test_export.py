@@ -16,9 +16,13 @@ endpoint exists at all:
 import json
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app import database
+from app.database import Base, build_engine, get_db
+from app.main import app
 from app.models import (
     CookedEvent,
     FreezerItem,
@@ -75,6 +79,32 @@ async def exported(client, **kwargs) -> dict:
     response = await client.get("/household/export", **kwargs)
     assert response.status_code == 200, response.text
     return json.loads(response.text)
+
+
+@pytest.fixture
+async def on_a_sqlite_file(tmp_path, monkeypatch):
+    """The app on a SQLite file, configured as it is in production, because
+    that is where locks are real: the suite's in-memory database has a single
+    connection shared by everything. Yields a client and a session factory."""
+    # A lock that is never released should fail the test in a blink rather
+    # than after the production timeout.
+    monkeypatch.setattr(database, "SQLITE_BUSY_TIMEOUT_MS", 250)
+    engine = build_engine(f"sqlite+aiosqlite:///{tmp_path / 'meals.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def override_get_db():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client, sessions
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
 
 
 class TestTheWholeHousehold:
@@ -382,3 +412,31 @@ class TestItIsStreamed:
             assert response.status_code == 200
             assert "content-length" not in response.headers
             await response.aread()
+
+    async def test_a_paused_download_does_not_lock_everyone_else_out(self, on_a_sqlite_file, tiny_batches):
+        """Streaming means a cursor stays open while the client reads. On SQLite
+        without WAL that held a lock for as long as the client took, and every
+        write on the server failed with "database is locked" in the meantime
+        (app/database.py)."""
+        client, sessions = on_a_sqlite_file
+        auth = await register(client)
+        client.headers["Authorization"] = f"Bearer {auth['token']}"
+        for index in range(5):
+            await create_recipe(client, title=f"Recipe {index}")
+
+        async with sessions() as reading:
+            household = (await reading.execute(select(Household))).scalars().one()
+            download = export.stream_household(reading, household, api_version="test")
+            fragments = []
+            async for piece in download:
+                fragments.append(piece)
+                if '"title"' in piece:
+                    break  # one recipe out, the rest still behind the cursor, and the client stops reading
+
+            added = await client.post("/shopping-list/items", json={"name": "bin bags", "quantity": 1, "unit": "item"})
+            assert added.status_code == 201, added.text
+
+            fragments += [piece async for piece in download]
+
+        doc = json.loads("".join(fragments))
+        assert [recipe["title"] for recipe in doc["recipes"]] == [f"Recipe {index}" for index in range(5)]

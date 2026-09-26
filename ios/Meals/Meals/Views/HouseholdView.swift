@@ -45,7 +45,7 @@ struct HouseholdView: View {
             HandOverLeadSheet(members: others) { await refresh() }
         }
         .sheet(isPresented: $showJoin) {
-            JoinHouseholdSheet(currentName: household?.name ?? "this household")
+            JoinHouseholdSheet(currentName: household?.name ?? "this household", needsPassword: others.isEmpty)
         }
         .confirmationDialog(
             removalPrompt,
@@ -280,7 +280,8 @@ private struct HandOverLeadSheet: View {
                 } footer: {
                     Text(
                         "They get the invites and the guest list. You become an ordinary member — still "
-                            + "able to change every recipe, plan and list, as everyone here is."
+                            + "able to change every recipe, plan and list, as everyone here is. Invites you "
+                            + "sent that nobody has used yet stop working."
                     )
                 }
                 if let errorMessage {
@@ -320,14 +321,19 @@ private struct HandOverLeadSheet: View {
 
 /// Joining another household with a code, without deleting anything and
 /// starting again. The one thing it can cost is a library nobody else is in,
-/// which the server refuses to drop until it is asked twice.
+/// which the server refuses to drop until it is asked twice. And since leaving
+/// deletes a household you are alone in, it won't do that without your password.
 private struct JoinHouseholdSheet: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
 
     let currentName: String
+    /// This account is the household's only member, so the server will ask
+    /// for the password; asking up front saves a round trip to be told so.
+    let needsPassword: Bool
 
     @State private var code = ""
+    @State private var password = ""
     @State private var isWorking = false
     @State private var errorMessage: String?
     @State private var confirmAbandon: String?
@@ -347,6 +353,17 @@ private struct JoinHouseholdSheet: View {
                             + "only member, in which case they go with you."
                     )
                 }
+                if needsPassword {
+                    Section {
+                        SecureField("Your password", text: $password)
+                            .textContentType(.password)
+                    } footer: {
+                        Text(
+                            "You're the only member of “\(currentName)”, so it goes when you do. Type "
+                                + "your password to confirm."
+                        )
+                    }
+                }
                 if let errorMessage {
                     Section { Text(errorMessage).foregroundStyle(.red).font(.callout) }
                 }
@@ -359,7 +376,10 @@ private struct JoinHouseholdSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Join") { join(force: false) }
-                        .disabled(isWorking || code.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(
+                            isWorking || code.trimmingCharacters(in: .whitespaces).isEmpty
+                                || (needsPassword && password.isEmpty)
+                        )
                 }
             }
             .confirmationDialog(
@@ -383,7 +403,11 @@ private struct JoinHouseholdSheet: View {
             do {
                 // Everything cached for the household we left goes with it:
                 // the session tells the stores.
-                try await session.joinHousehold(code: code.trimmingCharacters(in: .whitespaces), force: force)
+                try await session.joinHousehold(
+                    code: code.trimmingCharacters(in: .whitespaces),
+                    force: force,
+                    password: needsPassword ? password : nil
+                )
                 dismiss()
             } catch let APIError.server(status, detail) where status == 409 && detail.contains("force") {
                 // The server is saying this would delete a library nobody else

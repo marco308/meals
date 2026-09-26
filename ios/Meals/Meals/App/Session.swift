@@ -182,10 +182,11 @@ final class Session {
 
     /// Move this account into another household with an invite code (Q23). The
     /// token is unchanged, only which household it reads, so everything cached
-    /// for the household we just left goes (`onAccountChange`).
-    func joinHousehold(code: String, force: Bool = false) async throws {
+    /// for the household we just left goes (`onAccountChange`). `password` is
+    /// needed when this account is its household's only member.
+    func joinHousehold(code: String, force: Bool = false, password: String? = nil) async throws {
         let token = self.token
-        let profile = try await api.redeemInvite(code: code, force: force)
+        let profile = try await api.redeemInvite(code: code, force: force, password: password)
         guard self.token == token else { return }
         user = profile
         publishAccountState()

@@ -321,11 +321,14 @@ extension APIClient {
 
     /// Join another household with a code, while already signed in. `force`
     /// answers the 409 you get when your current household is yours alone and
-    /// holds recipes nobody else could ever reach again.
-    func redeemInvite(code: String, force: Bool = false) async throws -> UserProfile {
+    /// holds recipes nobody else could ever reach again. `password` is needed
+    /// whenever you are that household's only member, because leaving deletes
+    /// it: the same confirmation deleting the account asks for. A nil one is
+    /// left out of the request.
+    func redeemInvite(code: String, force: Bool = false, password: String? = nil) async throws -> UserProfile {
         try await send(
             "POST", "/auth/invites/redeem",
-            json: ["code": code, "force": force],
+            json: ["code": code, "force": force, "password": password],
             as: UserProfile.self
         )
     }

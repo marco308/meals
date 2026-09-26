@@ -57,6 +57,9 @@ async def get_current_user(
     # Ids only — they mean nothing off this server, unlike an email.
     request.state.user_id = token.user.id
     request.state.household_id = token.user.household_id
+    # And with what, for the few things only a signed-in person may do
+    # (`get_session_user`).
+    request.state.token_kind = token.kind
     return token.user
 
 
@@ -71,6 +74,29 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
+async def get_session_user(request: Request, user: CurrentUser) -> User:
+    """The current user, provided they signed in rather than presenting an API
+    token.
+
+    For the one thing an API token must not do for itself: mint another. A
+    token that could would outlive its own revocation, because whoever held it
+    could have made a spare first, and revoking a leaked token is the whole
+    remedy SECURITY.md offers for one.
+    """
+    if getattr(request.state, "token_kind", None) != "session":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "an API token can't create API tokens. Sign in with a password (POST /auth/login) and create "
+                "it with that session instead, or from Settings in the app."
+            ),
+        )
+    return user
+
+
+SessionUser = Annotated[User, Depends(get_session_user)]
+
+
 # ---------------------------------------------------------------- rate limiting
 # Minimal in-memory limiter for the public auth endpoints (decision Q12 makes
 # the API internet-facing, so brute-force protection is non-optional). Per
@@ -81,10 +107,10 @@ _attempts: dict[str, deque[float]] = defaultdict(deque)
 
 def _rate_limit_key(request: Request) -> str:
     """Who to charge. `request.client.host` is the real caller only when uvicorn
-    has been told which proxies to trust (`FORWARDED_ALLOW_IPS`). Behind an
-    untrusted proxy it is the *proxy's* address, so every caller in the world
-    collapses into a single bucket and the limit becomes global rather than
-    per-client."""
+    has been told which proxies to trust (`FORWARDED_ALLOW_IPS`, README "Behind
+    a reverse proxy"). Behind an untrusted proxy it is the *proxy's* address, so
+    every caller in the world collapses into a single bucket and the limit
+    becomes global rather than per-client."""
     return request.client.host if request.client else "unknown"
 
 
