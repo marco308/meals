@@ -22,7 +22,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
-## 2026-09-26 — ground cloves and goat's cheese keep their names
+## 2026-09-26 — ground cloves, goat's cheese and pea shoots keep their names
 
 Released as **1.6.9**. No migrations, and nothing in the API changed shape.
 
@@ -41,6 +41,13 @@ Released as **1.6.9**. No migrations, and nothing in the API changed shape.
   ending 's is now left alone, a curly apostrophe folds to a straight one so
   both spellings share an ingredient, and a name the old rule mangled is
   reported under `unfolded` with its s restored, so tidying it is one merge.
+- **Plural-only foods stay singular as modifiers**
+  ([#169](https://github.com/marco308/meals/issues/169)). "pea shoots" was
+  stored as "peas shoot" and "bean sprouts" as "beans sprout", because the
+  plural of foods like peas, beans and noodles was restored on every word.
+  Now only the head noun (the last word) keeps it: "pea shoot",
+  "chickpea flour", "green beans". Names stored the old way are reported
+  under `unfolded`, so tidying them is one merge.
 
 ## 2026-09-26 — heat grades kept in ingredient names
 
