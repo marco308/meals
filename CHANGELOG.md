@@ -22,6 +22,17 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-26 — undo the last tick, on the phone
+
+Released as **1.6.7**. No migrations, and nothing in the API changed: the
+upgrade nudge alone, released with iOS build 29.
+
+### Changed
+
+- **iOS 1.2 build 29** adds an undo button for the last tick on the
+  shopping list, and is on TestFlight; `current_ios_build` moves to 29 so
+  installs are told. Nothing in the API changed.
+
 ## 2026-09-26 — the offline shopping list, on the phone and on /privacy
 
 Released as **1.6.6**. No migrations, and nothing in the API changed: the

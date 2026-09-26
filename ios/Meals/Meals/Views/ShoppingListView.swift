@@ -122,6 +122,28 @@ struct ShoppingListView: View {
             }
             .navigationTitle("Shopping")
             .toolbar {
+                // In the nav bar rather than the list, so it never pushes the
+                // rows down under the thumb that's about to tick the next one.
+                // It names the line it will put back: a fat finger rarely
+                // knows which row it hit.
+                ToolbarItem(placement: .topBarLeading) {
+                    let last = store.lastTicked
+                    Button {
+                        withAnimation { store.undoLastTick() }
+                    } label: {
+                        // A plain HStack: the bar would drop a Label's title.
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.uturn.backward")
+                            if let last {
+                                Text(last.name)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: 140)
+                            }
+                        }
+                    }
+                    .disabled(last == nil)
+                    .accessibilityLabel(last.map { "Undo ticking off \($0.name)" } ?? "Nothing to undo")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Toggle("Show staples", isOn: $store.includeStaples)

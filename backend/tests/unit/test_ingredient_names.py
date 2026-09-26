@@ -27,6 +27,9 @@ class TestFolding:
             # Prep and size adjectives
             ("finely chopped parsley", "parsley"),
             ("large onions", "onion"),
+            ("large fresh onions", "onion"),
+            ("fresh large onion", "onion"),
+            ("medium tomatoes", "tomato"),
             ("ripe avocados", "avocado"),
             ("peeled king prawns", "king prawn"),
             ("   Fresh   Mint  ", "mint"),
@@ -59,6 +62,16 @@ class TestFolding:
             "coconut milk",
             "baby spinach",
             "extra virgin olive oil",
+            # A size word is also a heat or strength grade (#167)
+            "medium curry powder",
+            "hot or medium chilli powder",
+            "medium curry paste",
+            "medium salsa",
+            "medium cheddar",
+            "medium sherry",
+            "medium oatmeal",
+            # ...and only a size when it leads the name
+            "onion large",
             # Foods English only names in the plural
             "hummus",
             "asparagus",

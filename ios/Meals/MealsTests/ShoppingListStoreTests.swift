@@ -516,6 +516,84 @@ final class ShoppingListStoreTests: XCTestCase {
         )
     }
 
+    // MARK: Undo the last tick
+
+    func testUndoPutsBackTheLastTickEvenOffline() async {
+        let onion = TestData.item(name: "onion")
+        let milk = TestData.item(name: "milk")
+        let api = FakeShoppingAPI(list: TestData.payload([onion, milk]))
+        let store = makeStore(api)
+        await store.sync()
+        XCTAssertNil(store.lastTicked, "nothing ticked, nothing to undo")
+
+        api.failWith = .offline
+        store.toggleChecked(onion)
+        store.toggleChecked(store.displayItems.first { $0.name == "milk" }!)
+        XCTAssertEqual(store.lastTicked?.name, "milk")
+
+        store.undoLastTick()
+        XCTAssertEqual(store.displayItems.map(\.name), ["milk"], "the fat-fingered line is back in its aisle")
+        XCTAssertEqual(store.lastTicked?.name, "onion", "and a second undo walks further back")
+
+        store.undoLastTick()
+        XCTAssertTrue(store.checkedItems.isEmpty)
+        XCTAssertNil(store.lastTicked)
+        store.undoLastTick()  // nothing left: a no-op, not a crash
+        XCTAssertEqual(store.pending.count, 4)
+
+        api.failWith = nil
+        await store.sync()
+        XCTAssertEqual(api.patches.map(\.checked), [true, true, false, false], "undo is an ordinary queued un-tick")
+    }
+
+    func testUndoSkipsLinesNoLongerTicked() async {
+        let onion = TestData.item(name: "onion")
+        let milk = TestData.item(name: "milk")
+        let api = FakeShoppingAPI(list: TestData.payload([onion, milk]))
+        let store = makeStore(api)
+        await store.sync()
+
+        api.failWith = .offline
+        store.toggleChecked(onion)
+        store.toggleChecked(store.displayItems.first { $0.name == "milk" }!)
+        // Un-ticked by hand from the basket: undo moves on to the one before.
+        store.toggleChecked(store.checkedItems.first { $0.name == "milk" }!)
+        XCTAssertEqual(store.lastTicked?.name, "onion")
+
+        // Back online, the server's list has the onion un-ticked: somebody
+        // else put it back on their phone after ours landed.
+        api.failWith = nil
+        await store.sync()
+        XCTAssertFalse(api.list.items.contains(where: \.checked))
+        XCTAssertNil(store.lastTicked, "a line the server says isn't ticked is skipped, not re-sent")
+    }
+
+    func testUndoFollowsAnAddTheServerMerged() async {
+        let serverMilkId = UUID()
+        let api = FakeShoppingAPI(list: TestData.payload([]))
+        api.failWith = .offline
+        let store = makeStore(api)
+        store.addAdhoc(name: "milk", quantity: 500, unit: "ml")
+        store.toggleChecked(store.displayItems.first { $0.name == "milk" }!)
+
+        api.failWith = nil
+        api.addItemResult = { _ in TestData.item(id: serverMilkId, name: "milk", quantity: 500, unit: "ml") }
+        api.list.items = [TestData.item(id: serverMilkId, name: "milk", quantity: 500, unit: "ml", checked: true)]
+        await store.sync()
+
+        XCTAssertEqual(store.lastTicked?.id, serverMilkId, "the tick follows its line to the server's id")
+    }
+
+    func testFinishingTheShopForgetsWhatWasTicked() async throws {
+        let onion = TestData.item(name: "onion")
+        let api = FakeShoppingAPI(list: TestData.payload([onion]))
+        let store = makeStore(api)
+        await store.sync()
+        store.toggleChecked(onion)
+        try await store.finishShop()
+        XCTAssertTrue(store.tickHistory.isEmpty)
+    }
+
     // MARK: Ad-hoc delete (Q22)
 
     func testDeleteAdhocWorksOfflineAndReplays() async {
