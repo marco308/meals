@@ -86,6 +86,11 @@ final class ShoppingListStore {
     var includeStaples = false
     var includeExcluded = false
 
+    /// Lines ticked off on this phone, newest last: what "Undo" walks back
+    /// through when a thumb lands on the wrong row in the supermarket. Kept in
+    /// memory only; it is about the last few seconds, not the whole shop.
+    private(set) var tickHistory: [UUID] = []
+
     @ObservationIgnored private var held: [HeldQueue] = []
     /// Only a signed-in store talks to the server. True until told otherwise,
     /// so a store with no session behind it (tests) behaves as it always has.
@@ -259,7 +264,35 @@ final class ShoppingListStore {
     // MARK: - User actions (instant, offline-safe)
 
     func toggleChecked(_ item: ListItem) {
-        enqueue(.setChecked(id: UUID(), itemID: item.id, value: !item.checked))
+        let value = !item.checked
+        tickHistory.removeAll { $0 == item.id }
+        if value {
+            tickHistory.append(item.id)
+            if tickHistory.count > 50 { tickHistory.removeFirst() }
+        }
+        enqueue(.setChecked(id: UUID(), itemID: item.id, value: value))
+    }
+
+    /// The line "Undo" would un-tick: the latest tick made here that is still
+    /// ticked and still on the list. Anything the household has since
+    /// un-ticked, deleted or hidden is skipped rather than resurrected.
+    var lastTicked: ListItem? {
+        let visible = Dictionary(visibleItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in tickHistory.reversed() {
+            if let item = visible[id], item.checked { return item }
+        }
+        return nil
+    }
+
+    /// Put the last line ticked off back in its aisle. Just another queued
+    /// un-tick, so it works offline like any other.
+    func undoLastTick() {
+        guard let item = lastTicked else { return }
+        if let index = tickHistory.lastIndex(of: item.id) {
+            // Anything newer was skipped as stale; it goes too.
+            tickHistory.removeSubrange(index...)
+        }
+        enqueue(.setChecked(id: UUID(), itemID: item.id, value: false))
     }
 
     func markAlreadyHave(_ item: ListItem) {
@@ -426,6 +459,7 @@ final class ShoppingListStore {
 
     /// Nothing in flight may land after the cache and queue change hands.
     private func resetSync() {
+        tickHistory = []
         generation += 1
         retryTask?.cancel()
         retryTask = nil
@@ -647,6 +681,7 @@ final class ShoppingListStore {
                 // Merged into a line the server already had: later ops aimed
                 // at our stand-in id follow it there.
                 pending = pending.map { $0.retargeted(from: op.id, to: item.id) }
+                tickHistory = tickHistory.map { $0 == op.id ? item.id : $0 }
             }
             if let index = cache?.payload.items.firstIndex(where: { $0.id == item.id }) {
                 cache?.payload.items[index] = item
@@ -674,6 +709,7 @@ final class ShoppingListStore {
             cache?.payload.items = []
             persistCache()
         }
+        tickHistory = []
         await sync()
     }
 
