@@ -123,6 +123,36 @@ _FORM_NOUNS: frozenset[str] = frozenset(
     }
 )
 
+# Words that change which product you buy, from the docstring's list. They are
+# never stripped anyway (they are not in `_MODIFIERS`); naming them lets the
+# form-noun strip see when the noun is all that is left of the food: "ground
+# cloves" is the spice, and stripping "cloves" would leave the ingredient
+# called "ground".
+_QUALIFIERS: frozenset[str] = frozenset(
+    {
+        "ground",
+        "dried",
+        "whole",
+        "smoked",
+        "minced",
+        "powdered",
+        "toasted",
+        "roasted",
+        "pickled",
+        "frozen",
+        "tinned",
+        "canned",
+        "salted",
+        "unsalted",
+        "red",
+        "green",
+        "white",
+        "black",
+        "brown",
+        "yellow",
+    }
+)
+
 # Compounds whose modifier changes the product, beyond those the aisle table
 # already names. Write them the way a recipe would — a protected phrase is
 # stored under its own spelling, not folded to the singular.
@@ -248,10 +278,17 @@ def canonical_ingredient_name(name: str) -> str:
     # Carry the original index so the frozen span keeps its meaning after the
     # modifiers have been dropped.
     kept = [(i, word) for i, word in enumerate(words) if not strippable(i, word)]
-    # Form nouns only at the ends, and never all of them: "clove" alone stays.
-    while len(kept) > 1 and kept[-1][1] in _FORM_NOUNS and not is_frozen(kept[-1][0]):
+
+    def form_noun_strippable(index: int, rest: list[tuple[int, str]]) -> bool:
+        # Form nouns only at the ends, and never all of the food: "clove" alone
+        # stays, and so does "ground cloves", where what would be left is only
+        # a qualifier describing the noun rather than a food of its own.
+        i, word = kept[index]
+        return word in _FORM_NOUNS and not is_frozen(i) and any(other not in _QUALIFIERS for _, other in rest)
+
+    while len(kept) > 1 and form_noun_strippable(-1, kept[:-1]):
         kept.pop()
-    while len(kept) > 1 and kept[0][1] in _FORM_NOUNS and not is_frozen(kept[0][0]):
+    while len(kept) > 1 and form_noun_strippable(0, kept[1:]):
         kept.pop(0)
 
     folded = tuple(word for _, word in kept) or tuple(words)

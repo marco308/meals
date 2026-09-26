@@ -261,6 +261,21 @@ class TestDuplicates:
         assert len(body["groups"]) == 1
         assert body["unfolded"] == []
 
+    async def test_ground_cloves_is_not_a_misnamed_ground(self, auth_client, legacy_ingredient):
+        """Production, #165: folding once stored "ground cloves" as "ground",
+        and after the tidy-up merged it the right way round the report
+        advised undoing it. Both rows as they stood then: "ground cloves" is
+        the name to keep, and on its own it is nothing to tidy."""
+        await legacy_ingredient("ground")
+        await legacy_ingredient("ground cloves")
+
+        body = (await auth_client.get("/ingredients/duplicates")).json()
+        assert body["groups"] == []
+        assert [u["ingredient"]["name"] for u in body["unfolded"]] == []
+
+        response = await auth_client.post("/ingredients", json={"name": "ground cloves"})
+        assert response.json()["name"] == "ground cloves"
+
     async def test_duplicates_are_scoped_to_the_household(self, auth_client, client, legacy_ingredient):
         from tests.conftest import register
 
