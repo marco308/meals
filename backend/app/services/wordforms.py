@@ -44,12 +44,22 @@ def singularize_food(word: str) -> str:
 
     Distinct from `units.singularize`, which only ever sees unit words and so
     mangles "tomatoes" into "tomatoe"."""
-    word = word.lower().strip()
+    # One apostrophe, so "goat’s cheese" and "goat's cheese" share a key.
+    word = word.lower().strip().replace("\u2019", "'")
     folded = _singular(word)
     return _ALWAYS_PLURAL.get(folded, folded)
 
 
 def _singular(word: str) -> str:
+    # A possessive is not a plural: "goat's" cheese, "baker's" yeast (#168).
+    if word.endswith("'s"):
+        return word
+    # What the rule below used to make of one, "goat'", is put back. A real
+    # plural possessive always ends "s'" ("goats'"), so this is only ever an
+    # old mangled name, and restoring it lets the duplicates report offer the
+    # rename.
+    if word.endswith("'") and len(word) > 1 and not word[:-1].endswith(("s", "'")):
+        return word + "s"
     if word in _IRREGULAR_PLURALS:
         return _IRREGULAR_PLURALS[word]
     if word in _NEVER_SINGULAR or len(word) <= 3:
