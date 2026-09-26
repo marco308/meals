@@ -90,6 +90,23 @@ class TestFolding:
         assert canonical_ingredient_name(written) == canonical
         assert is_protected_name(canonical)
 
+    @pytest.mark.parametrize(
+        ("written", "canonical"),
+        [
+            # #165: stripping the form noun left only its qualifier, "ground"
+            ("ground cloves", "ground cloves"),
+            ("ground clove", "ground cloves"),
+            ("whole cloves", "whole cloves"),
+            ("fresh ground cloves", "ground cloves"),
+            # A food is still left behind, so the noun still goes
+            ("smoked garlic cloves", "smoked garlic"),
+            ("dried mint leaves", "dried mint"),
+            ("ground ginger root", "ground ginger"),
+        ],
+    )
+    def test_a_form_noun_is_not_stripped_down_to_its_qualifier(self, written, canonical):
+        assert canonical_ingredient_name(written) == canonical
+
     def test_a_name_is_never_folded_away_to_nothing(self):
         # "cloves" the spice, not a count of garlic
         assert canonical_ingredient_name("cloves") == "clove"
@@ -97,7 +114,14 @@ class TestFolding:
         assert canonical_ingredient_name("") == ""
 
     def test_folding_is_idempotent(self):
-        for name in ["garlic cloves", "chopped tomatoes", "large onions", "bay leaf", "fresh root ginger"]:
+        for name in [
+            "garlic cloves",
+            "chopped tomatoes",
+            "large onions",
+            "bay leaf",
+            "fresh root ginger",
+            "ground cloves",
+        ]:
             once = canonical_ingredient_name(name)
             assert canonical_ingredient_name(once) == once
 

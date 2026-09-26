@@ -283,6 +283,8 @@ _KEYWORDS: dict[str, str] = {
     "turmeric": "🌶️",
     "cinnamon": "🌶️",
     "nutmeg": "🌶️",
+    "ground cloves": "🌶️",
+    "whole cloves": "🌶️",
     "oregano": "🌶️",
     "dried oregano": "🌶️",
     "mixed herbs": "🌶️",
