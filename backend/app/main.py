@@ -65,7 +65,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     lifespan=lifespan,
     title="Meals API",
-    version="1.6.5",
+    version="1.6.6",
     description=(
         "A meal *options* planner (not a rigid Mon–Sun grid) with a recipe library and an "
         "aisle-sorted shopping list. Designed to be driven by any AI assistant: every error "

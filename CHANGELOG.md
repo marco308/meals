@@ -22,6 +22,26 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-26 — the offline shopping list, on the phone and on /privacy
+
+Released as **1.6.6**. No migrations, and nothing in the API changed: the
+`/privacy` wording and the upgrade nudge alone, released with iOS build 28.
+
+### Changed
+
+- **`/privacy` says what the app keeps through a sign-out.** The cached
+  shopping list is cleared on sign-out, on account deletion and on moving
+  household, as the page already claimed and build 27 did not do. Offline
+  changes not yet sent are kept through a sign-out and sent only as the
+  account and household that made them. The sign-in token is stored with the
+  server that issued it and sent nowhere else. This describes iOS build 28,
+  below, which fixes the offline shopping list and ships alongside it.
+- **iOS 1.2 build 28** carries the offline shopping-list fixes
+  ([#156](https://github.com/marco308/meals/pull/156)) and the password
+  field for leaving a household of one
+  ([#155](https://github.com/marco308/meals/pull/155)), and is on
+  TestFlight; `current_ios_build` moves to 28 so installs are told.
+
 ## 2026-09-25 — codes spent once, addresses kept out of the logs
 
 Released as **1.6.5**. One migration, `67a229a2837f`, which rebuilds
