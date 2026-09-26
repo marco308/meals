@@ -20,7 +20,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Changed
+
+- **iOS 1.2 build 29** adds an undo button for the last tick on the
+  shopping list, and is on TestFlight; `current_ios_build` moves to 29 so
+  installs are told. Nothing in the API changed.
 
 ## 2026-09-26 — the offline shopping list, on the phone and on /privacy
 
