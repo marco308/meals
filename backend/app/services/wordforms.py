@@ -44,10 +44,28 @@ def singularize_food(word: str) -> str:
 
     Distinct from `units.singularize`, which only ever sees unit words and so
     mangles "tomatoes" into "tomatoe"."""
-    # One apostrophe, so "goat’s cheese" and "goat's cheese" share a key.
-    word = word.lower().strip().replace("\u2019", "'")
-    folded = _singular(word)
+    folded = singular_word(word)
     return _ALWAYS_PLURAL.get(folded, folded)
+
+
+def singular_word(word: str) -> str:
+    """Fold a food word to the singular, `_ALWAYS_PLURAL` or not. For a word
+    that is not the head of its name: "pea shoots", not "peas shoot"."""
+    # One apostrophe, so "goat’s cheese" and "goat's cheese" share a key.
+    return _singular(word.lower().strip().replace("\u2019", "'"))
+
+
+def fold_food_words(words: list[str]) -> tuple[str, ...]:
+    """Fold a name, already split into words, to its canonical number.
+
+    Every word is singularised, but only the head noun — the last word — is
+    pluralised back when it is an `_ALWAYS_PLURAL` food. A plural-only food
+    used as a modifier takes the singular in English: "pea shoots", "bean
+    sprouts", "chickpea flour", "noodle soup"."""
+    folded = [singular_word(word) for word in words]
+    if folded:
+        folded[-1] = _ALWAYS_PLURAL.get(folded[-1], folded[-1])
+    return tuple(folded)
 
 
 def _singular(word: str) -> str:

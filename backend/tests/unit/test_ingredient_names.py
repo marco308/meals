@@ -134,6 +134,37 @@ class TestFolding:
     def test_a_form_noun_is_not_stripped_down_to_its_qualifier(self, written, canonical):
         assert canonical_ingredient_name(written) == canonical
 
+    @pytest.mark.parametrize(
+        ("written", "canonical"),
+        [
+            # A plural-only food as a modifier takes the singular (issue #169)
+            ("pea shoots", "pea shoot"),
+            ("bean sprouts", "bean sprout"),
+            ("chickpea flour", "chickpea flour"),
+            ("chickpeas flour", "chickpea flour"),
+            ("noodle soup", "noodle soup"),
+            ("oat milk", "oat milk"),
+            # ...and keeps its plural as the head noun, whatever came before
+            ("fresh peas", "peas"),
+            ("red lentils", "red lentils"),
+            ("egg noodle", "egg noodles"),
+            ("bean sprouts and peas", "bean sprout and peas"),
+        ],
+    )
+    def test_only_the_head_noun_is_always_plural(self, written, canonical):
+        assert canonical_ingredient_name(written) == canonical
+
+    def test_protected_phrase_ending_in_a_plural_only_food_still_matches(self):
+        # The protected keys must follow the same head-noun rule
+        assert canonical_ingredient_name("fresh green beans") == "green beans"
+        assert canonical_ingredient_name("frozen pea") == "frozen peas"
+        assert is_protected_name("kidney bean")
+
+    def test_old_misfolded_names_fold_onto_the_fixed_ones(self):
+        # Rows stored before #169 must group with, and be renamed to, the fix
+        assert canonical_ingredient_name("peas shoot") == "pea shoot"
+        assert canonical_ingredient_name("beans sprout") == "bean sprout"
+
     def test_a_name_is_never_folded_away_to_nothing(self):
         # "cloves" the spice, not a count of garlic
         assert canonical_ingredient_name("cloves") == "clove"
@@ -148,6 +179,8 @@ class TestFolding:
             "bay leaf",
             "fresh root ginger",
             "ground cloves",
+            "pea shoots",
+            "green beans",
         ]:
             once = canonical_ingredient_name(name)
             assert canonical_ingredient_name(once) == once

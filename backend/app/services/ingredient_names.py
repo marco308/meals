@@ -42,7 +42,7 @@ exactly as the recipe wrote it, which is what the recipe view shows.
 import re
 
 from app.services.aisles import _KEYWORDS
-from app.services.wordforms import singularize_food
+from app.services.wordforms import fold_food_words, singular_word
 
 # Prep state and size. Stripped wherever they appear, unless frozen by a
 # protected phrase. See the module docstring for what is deliberately absent.
@@ -187,9 +187,11 @@ _EXTRA_PROTECTED: frozenset[str] = frozenset(
 
 
 def _normalize_phrase(phrase: str) -> list[str]:
-    """Lowercase, split, and singularise every word — the form protected
-    phrases are stored in and candidate names are matched against."""
-    return [singularize_food(word) for word in phrase.lower().split()]
+    """Lowercase, split, and fold to canonical number — the form protected
+    phrases are stored in and candidate names are matched against. Uses the
+    same head-noun rule as `canonical_ingredient_name`, or "green beans" would
+    stop matching."""
+    return list(fold_food_words(phrase.lower().split()))
 
 
 def _build_protected() -> dict[tuple[str, ...], str]:
@@ -225,7 +227,7 @@ def _protected_span(words: list[str]) -> tuple[int, int] | None:
     best: tuple[int, int] | None = None
     for start in range(len(words)):
         for end in range(len(words), start, -1):
-            span = tuple(words[start:end])
+            span = fold_food_words(words[start:end])
             if span in _PROTECTED and (best is None or end - start > best[1] - best[0]):
                 best = (start, end)
                 break
@@ -253,10 +255,13 @@ def canonical_ingredient_name(name: str) -> str:
     if not cleaned:
         return cleaned
 
-    words = [singularize_food(word) for word in cleaned.split()]
+    # Plain singular for now: which word is the head noun isn't known until the
+    # modifiers and form nouns have gone, and only the head of a name keeps an
+    # `_ALWAYS_PLURAL` plural ("pea shoots", not "peas shoot").
+    words = [singular_word(word) for word in cleaned.split()]
     frozen = _protected_span(words)
     if frozen == (0, len(words)):
-        return _PROTECTED[tuple(words)]
+        return _PROTECTED[fold_food_words(words)]
 
     keep_from, keep_to = frozen if frozen is not None else (len(words), 0)
 
@@ -291,5 +296,5 @@ def canonical_ingredient_name(name: str) -> str:
     while len(kept) > 1 and form_noun_strippable(0, kept[1:]):
         kept.pop(0)
 
-    folded = tuple(word for _, word in kept) or tuple(words)
+    folded = fold_food_words([word for _, word in kept] or words)
     return _PROTECTED.get(folded, " ".join(folded))
