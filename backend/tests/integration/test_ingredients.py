@@ -261,6 +261,21 @@ class TestDuplicates:
         assert len(body["groups"]) == 1
         assert body["unfolded"] == []
 
+    async def test_a_mangled_possessive_is_offered_its_s_back(self, auth_client, legacy_ingredient):
+        """Production, #168: folding stored "soft goat' cheese". The report
+        offers the rename, and a new line in either apostrophe lands on it."""
+        await legacy_ingredient("soft goat' cheese")
+
+        body = (await auth_client.get("/ingredients/duplicates")).json()
+        assert [(u["ingredient"]["name"], u["canonical_name"]) for u in body["unfolded"]] == [
+            ("soft goat' cheese", "soft goat's cheese")
+        ]
+
+        straight = await auth_client.post("/ingredients", json={"name": "soft goat's cheese"})
+        curly = await auth_client.post("/ingredients", json={"name": "soft goat\u2019s cheese"})
+        assert straight.json()["name"] == "soft goat's cheese"
+        assert curly.json()["id"] == straight.json()["id"]
+
     async def test_ground_cloves_is_not_a_misnamed_ground(self, auth_client, legacy_ingredient):
         """Production, #165: folding once stored "ground cloves" as "ground",
         and after the tidy-up merged it the right way round the report

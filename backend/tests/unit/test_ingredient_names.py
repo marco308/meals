@@ -106,6 +106,20 @@ class TestFolding:
     @pytest.mark.parametrize(
         ("written", "canonical"),
         [
+            ("soft goat's cheese", "soft goat's cheese"),
+            ("soft goat\u2019s cheese", "soft goat's cheese"),
+            ("soft goat' cheese", "soft goat's cheese"),
+            ("baker's yeast", "baker's yeast"),
+            ("shepherd's pie mix", "shepherd's pie mix"),
+        ],
+    )
+    def test_possessives_keep_their_s(self, written, canonical):
+        assert canonical_ingredient_name(written) == canonical
+        assert canonical_ingredient_name(canonical) == canonical
+
+    @pytest.mark.parametrize(
+        ("written", "canonical"),
+        [
             # #165: stripping the form noun left only its qualifier, "ground"
             ("ground cloves", "ground cloves"),
             ("ground clove", "ground cloves"),
@@ -158,6 +172,22 @@ class TestSingularizeFood:
     )
     def test_singularizes(self, plural, singular):
         assert singularize_food(plural) == singular
+
+    @pytest.mark.parametrize(
+        ("written", "folded"),
+        [
+            # #168: the 's of a possessive was taken for a plural
+            ("goat's", "goat's"),
+            ("goat\u2019s", "goat's"),
+            ("baker's", "baker's"),
+            # A plural possessive is left as it is
+            ("goats'", "goats'"),
+            # The old mangled form is put back, so the report can offer the rename
+            ("goat'", "goat's"),
+        ],
+    )
+    def test_possessives_are_not_plurals(self, written, folded):
+        assert singularize_food(written) == folded
 
     @pytest.mark.parametrize("word", ["beans", "peas", "lentils", "oats", "chips", "crisps", "chickpeas"])
     def test_plural_only_foods_stay_plural_from_either_spelling(self, word):
