@@ -22,6 +22,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-26 — heat grades kept in ingredient names
+
+Released as **1.6.8**. No migrations, and nothing in the API changed shape.
+
+### Fixed
+
+- **"medium" is kept when it is a heat or strength grade**
+  ([#167](https://github.com/marco308/meals/issues/167)). Ingredient-name
+  folding stripped size words wherever they appeared, so "medium curry
+  powder" merged into "curry powder" and `GET /ingredients/duplicates`
+  suggested renaming "hot or medium chilli powder" to "hot or chilli powder".
+  Size words now go only from the start of a name, and never from a food
+  sold by grade (powders, pastes, sauces, salsa, curry, cheddar, sherry,
+  oatmeal, noodles). Ingredients already folded are not split back apart.
+
 ## 2026-09-26 — undo the last tick, on the phone
 
 Released as **1.6.7**. No migrations, and nothing in the API changed: the
