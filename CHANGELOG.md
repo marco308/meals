@@ -20,6 +20,13 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-09-26 — the offline shopping list, on the phone and on /privacy
+
+Released as **1.6.6**. No migrations, and nothing in the API changed: the
+`/privacy` wording and the upgrade nudge alone, released with iOS build 28.
+
 ### Changed
 
 - **`/privacy` says what the app keeps through a sign-out.** The cached
