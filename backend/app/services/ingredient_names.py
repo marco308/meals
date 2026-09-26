@@ -15,7 +15,10 @@ taste, so folding it automatically is safe.
 Three classes of difference are folded, and only three:
 
 1. **Prep and size adjectives** that don't change what you put in the trolley:
-   "fresh", "grated", "finely chopped", "large".
+   "fresh", "grated", "finely chopped", "large". A size word is only a size
+   when it leads the name and the food is one you pick by size: "medium
+   curry powder" and "hot or medium chilli powder" are heat grades, and
+   "mild, medium or mature" is how cheddar is sold (see `_SIZES`).
 2. **Form nouns** describing how much of the plant you were told to use:
    "mint *leaves*", "garlic *cloves*", "*root* ginger".
 3. **Plurals**: "onions" → "onion".
@@ -77,6 +80,29 @@ _MODIFIERS: frozenset[str] = frozenset(
         "good-quality",
         "best-quality",
         "room-temperature",
+    }
+)
+
+# Size words are also strength and heat grades, which change the jar. They
+# are only stripped from the leading run of modifiers ("2 large fresh onions"),
+# never after another word ("hot or medium chilli powder" would otherwise
+# become "hot or chilli powder"), and never when the food is sold by grade.
+_SIZES: frozenset[str] = frozenset({"large", "small", "medium"})
+
+# Last words of names a size word grades rather than measures: "medium curry
+# powder", "medium curry paste", "medium salsa", "medium cheddar", "medium
+# sherry", "medium oatmeal", "medium egg noodles". Singular, as matched.
+_GRADED: frozenset[str] = frozenset(
+    {
+        "powder",
+        "paste",
+        "sauce",
+        "salsa",
+        "curry",
+        "cheddar",
+        "sherry",
+        "oatmeal",
+        "noodle",
     }
 )
 
@@ -207,9 +233,21 @@ def canonical_ingredient_name(name: str) -> str:
     def is_frozen(index: int) -> bool:
         return keep_from <= index < keep_to
 
+    # A size word may go only while every word before it is a modifier too,
+    # and only when the food is not one sold by grade.
+    lead = 0
+    while lead < len(words) and words[lead] in _MODIFIERS and not is_frozen(lead):
+        lead += 1
+    sizes_strippable = words[-1] not in _GRADED
+
+    def strippable(index: int, word: str) -> bool:
+        if word not in _MODIFIERS or is_frozen(index):
+            return False
+        return word not in _SIZES or (index < lead and sizes_strippable)
+
     # Carry the original index so the frozen span keeps its meaning after the
     # modifiers have been dropped.
-    kept = [(i, word) for i, word in enumerate(words) if word not in _MODIFIERS or is_frozen(i)]
+    kept = [(i, word) for i, word in enumerate(words) if not strippable(i, word)]
     # Form nouns only at the ends, and never all of them: "clove" alone stays.
     while len(kept) > 1 and kept[-1][1] in _FORM_NOUNS and not is_frozen(kept[-1][0]):
         kept.pop()
