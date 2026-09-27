@@ -66,6 +66,15 @@ Explicitly not, and worth being able to say so:
   Browsing History, Sensitive Info, Photos, Audio
 - No third-party SDKs at all, so nothing collects anything on our behalf
 
+**Why Location is "not collected" even though the app asks for it** (build 30,
+decision Q25). With "While Using" permission, the app reads the phone's
+position when the shopping list opens and compares it, on the phone, with the
+household's saved stores, so it can sort the list by the aisles of the store
+you're in. The position is never sent anywhere. A store's own location is set
+only by picking the shop from Apple's place search, so what the server holds is
+the shop's coordinates, not the device's. Apple's definition of collection is
+data sent off the device, and none is.
+
 ### Tracking — **No**
 
 Nothing is combined with data from other companies' apps or sites, and nothing

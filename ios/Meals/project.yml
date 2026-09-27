@@ -44,7 +44,7 @@ targets:
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`. Then add a
         # row to ios/CHANGELOG.md and move current_ios_build in the backend.
-        CFBundleVersion: "29"
+        CFBundleVersion: "30"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -54,6 +54,10 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # Q25: read while the app is open, compared on the phone with the saved
+        # stores, never sent. Saved stores come from place search, not from
+        # this, which is why App Store privacy can keep Location "not collected".
+        NSLocationWhenInUseUsageDescription: "To sort your shopping list by the aisles of the store you're in, and to find stores near you. Your location stays on your phone."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.marcuslab.meals

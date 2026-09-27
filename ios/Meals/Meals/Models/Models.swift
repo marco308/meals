@@ -413,11 +413,28 @@ struct Aisle: Codable, Equatable, Hashable, Sendable {
 /// active one's order is what the shopping list sorts by and what `/aisles`
 /// returns — the rest of the app follows along without knowing supermarkets
 /// exist.
+///
+/// A store can also say where it is (Q25), so a phone standing in it can sort
+/// by its walk for itself. All three are nil on a store with no location and
+/// on a server from before they existed; `radiusM` is the server's effective
+/// radius, its default filled in.
 struct Supermarket: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let name: String
     let aisleOrder: [String]
     let isActive: Bool
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    var radiusM: Int? = nil
+
+    var isLocated: Bool { latitude != nil && longitude != nil }
+}
+
+/// A change to where a store is, for `updateSupermarket`: set it (from place
+/// search, the shop's own coordinates) or forget it.
+enum SupermarketLocationChange: Equatable, Sendable {
+    case set(latitude: Double, longitude: Double)
+    case clear
 }
 
 /// One batch in the freezer (`GET /freezer`, decision Q24): what it is, how

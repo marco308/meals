@@ -19,6 +19,8 @@ struct ShoppingListView: View {
     @State private var markets: [Supermarket] = []
     @State private var marketError: String?
     @State private var showPreviousShops = false
+    @State private var locator = StoreLocator()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var store = store
@@ -38,6 +40,23 @@ struct ShoppingListView: View {
                         )
                         .font(.callout)
                         .foregroundStyle(.orange)
+                    }
+                }
+
+                // Standing in a saved store that isn't the household's pick:
+                // sorted for it on this phone only, and said so, with a way back.
+                if let here = store.storeHere {
+                    Section {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label("At \(here.name), sorted by its aisles", systemImage: "location.fill")
+                                .font(.callout)
+                            Spacer()
+                            Button("Undo") {
+                                withAnimation { store.declineStoreHere() }
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Sort by the household's usual order instead")
+                        }
                     }
                 }
 
@@ -172,7 +191,14 @@ struct ShoppingListView: View {
             }
             .task {
                 await store.sync()
+                await locate()
                 await loadMarkets()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Back from the car park with the phone in a pocket: check again.
+                if phase == .active {
+                    Task { await locate() }
+                }
             }
             .refreshable {
                 await store.sync()
@@ -248,6 +274,16 @@ struct ShoppingListView: View {
                 Task { await switchMarket(from: active, to: picked) }
             }
         )
+    }
+
+    /// Which saved store the phone is in, if any. Only asked when the
+    /// household has a store with a location, so nobody sees a location
+    /// prompt for a feature they aren't using; the position stays on the phone.
+    private func locate() async {
+        guard !store.locatedStores.isEmpty else { return }
+        if let location = await locator.currentLocation(mayAsk: true) {
+            withAnimation { store.noteLocation(location) }
+        }
     }
 
     private func loadMarkets() async {
