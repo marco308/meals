@@ -213,6 +213,12 @@ def _build_protected() -> dict[tuple[str, ...], str]:
 
 _PROTECTED: dict[tuple[str, ...], str] = _build_protected()
 
+# No run of words longer than this can be protected, so `_protected_span`
+# never looks at one. Without the bound it folded every run of a name from
+# scratch, which is cubic: a 200-character name of one-letter words took
+# 30 ms, and a 100-line recipe of them held the event loop for three seconds.
+_MAX_PROTECTED_WORDS = max(len(key) for key in _PROTECTED)
+
 
 def is_protected_name(name: str) -> bool:
     """True when the whole name is a compound whose modifier is load-bearing —
@@ -227,7 +233,7 @@ def _protected_span(words: list[str]) -> tuple[int, int] | None:
     stripped, so "fresh chopped tomatoes" loses "fresh" and keeps the tin."""
     best: tuple[int, int] | None = None
     for start in range(len(words)):
-        for end in range(len(words), start, -1):
+        for end in range(min(len(words), start + _MAX_PROTECTED_WORDS), start, -1):
             span = fold_food_words(words[start:end])
             if span in _PROTECTED and (best is None or end - start > best[1] - best[0]):
                 best = (start, end)
@@ -245,15 +251,16 @@ def canonical_ingredient_name(name: str) -> str:
     # An HTML entity is never part of a food (#170): a page that escaped its
     # JSON-LD, or an AI that copied one, must fold onto the plain spelling.
     cleaned = " ".join(html.unescape(name).lower().split()).strip(" .")
-    # Prep notes after a comma ("onions, finely chopped") — the JSON-LD parser
-    # already drops these, AI- and user-submitted names may not.
-    cleaned = cleaned.split(",")[0].strip()
     # `[^()]*` rather than `.*?`: an unbalanced "(" makes a lazy dot restart
     # its scan at every following character, so a long name of nothing but
     # brackets costs quadratic time on a name a caller chose (CWE-1333). The
-    # whitespace around the brackets is collapsed on the next line instead of
-    # being matched here, for the same reason.
+    # whitespace around the brackets is collapsed below instead of being
+    # matched here, for the same reason. Brackets go before the comma split, or
+    # "butter (unsalted, softened)" is cut to "butter (unsalted".
     cleaned = re.sub(r"\([^()]*\)", " ", cleaned)
+    # Prep notes after a comma ("onions, finely chopped") — the JSON-LD parser
+    # already drops these, AI- and user-submitted names may not.
+    cleaned = cleaned.split(",")[0]
     cleaned = " ".join(cleaned.split()).strip(" .")
     if not cleaned:
         return cleaned

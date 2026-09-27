@@ -171,6 +171,22 @@ class TestParseIngredientLine:
             ("3 sprigs rosemary", "rosemary", 3, "sprig"),
             ("1 leek", "leek", 1, "item"),
             ("2 400g cans of black beans (drained)", "black beans", 800, "g"),
+            # Mixed numbers: the plain-number branch used to win, leaving
+            # "1/2 tbsp olive oil" as the food and one "item" as the amount
+            ("1 1/2 tbsp olive oil", "olive oil", 22.5, "ml"),
+            ("2 1/2 cups flour", "flour", 600, "ml"),
+            ("1 ½ tsp salt", "salt", 7.5, "ml"),
+            ("1½ tsp salt", "salt", 7.5, "ml"),
+            ("2 1/2 lb beef", "beef", 1135, "g"),
+            ("1-2 red chillies", "red chillies", 1, "item"),
+            ("1 - 2 onions", "onions", 1, "item"),
+            # A comma inside a bracket is not a prep note
+            ("200g butter (unsalted, softened)", "butter", 200, "g"),
+            ("2 onions (red, sliced)", "onions", 2, "item"),
+            # A multiplier's unit is a unit this parser knows
+            ("2 x 400 g tins chopped tomatoes", "chopped tomatoes", 800, "g"),
+            ("3 x 1l bottles water", "water", 3000, "ml"),
+            ("2 x 2 cloves garlic", "garlic", 4, "clove"),
         ],
     )
     def test_lines(self, line, name, quantity, unit):
@@ -179,6 +195,19 @@ class TestParseIngredientLine:
         assert parsed.quantity == pytest.approx(quantity)
         assert parsed.unit == unit
         assert parsed.raw == line
+
+    @pytest.mark.parametrize(
+        ("line", "name"),
+        [("4 x 150 salmon fillets", "salmon fillets"), ("2 x 1 large onion", "large onion")],
+    )
+    def test_a_multiplier_without_a_known_unit_guesses_no_amount(self, line, name):
+        """Any word after the inner number used to be the unit: 600 "salmon",
+        2 "large". Whether the bare number is a count or a weight with its unit
+        left off can't be told, so the food is kept and the amount is not."""
+        parsed = parse_ingredient_line(line)
+        assert parsed.name == name
+        assert parsed.quantity is None
+        assert parsed.unit is None
 
     def test_unparseable_line_keeps_everything_in_name(self):
         parsed = parse_ingredient_line("Salt and pepper to taste")

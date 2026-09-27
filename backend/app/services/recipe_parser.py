@@ -606,9 +606,14 @@ _MAX_LINE_CHARS = 500
 # (CWE-1333). Neither changes what matches, because nothing that may follow a
 # digit run in these patterns is itself a digit, and a token that could start
 # mid-run can always start at the run's first digit instead.
+#
+# The longer shapes come first. Alternation takes the first branch that lets
+# the whole line match, and a bare "1" always does, so with the plain number
+# first "1 1/2 tbsp oil" parsed as one item of "1/2 tbsp oil" and the mixed
+# number and range branches were never reached.
 _NUMBER_TOKEN = (
-    r"(?<!\d)(?:\d++(?:[./]\d++)?|[½⅓⅔¼¾⅕⅛]|\d++\s*[½⅓⅔¼¾⅕⅛]|\d++\s+\d/\d"
-    r"|\d++(?:\.\d++)?\s*[-–]\s*\d++(?:\.\d++)?)"
+    r"(?<!\d)(?:\d++(?:\.\d++)?\s*[-–]\s*\d++(?:\.\d++)?|\d++\s+\d++/\d++|\d++\s*[½⅓⅔¼¾⅕⅛]"
+    r"|\d++(?:[./]\d++)?|[½⅓⅔¼¾⅕⅛])"
 )
 
 # Dual-measure lines state the same amount twice around a slash, metric first —
@@ -693,8 +698,11 @@ _LINE_RE = re.compile(
     rf"^\s*(?P<qty>{_NUMBER_TOKEN})?\s*(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})?\.?\s+(?P<rest>.+)$",
     re.IGNORECASE,
 )
+# The unit has to be one this parser knows. Any word used to do, so "4 x 150
+# salmon fillets" came out as 600 of the unit "salmon".
 _MULTIPLIER_RE = re.compile(
-    rf"^\s*(?P<count>\d+)\s*x\s*(?P<qty>{_NUMBER_TOKEN})\s*(?P<unit>[a-zA-Z]+)?\.?\s+(?P<rest>.+)$",
+    rf"^\s*(?P<count>\d+)\s*x\s*(?P<qty>{_NUMBER_TOKEN})\s*"
+    rf"(?:(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})\b)?\.?\s+(?P<rest>.+)$",
     re.IGNORECASE,
 )
 # "2 400g cans of black beans" — count + glued metric amount + container word, no 'x'
@@ -736,6 +744,11 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
                 r"^(?:tins?|cans?|jars?|packs?|packets?|bottles?)\s+(?:of\s+)?", "", rest, flags=re.IGNORECASE
             )
             return ParsedIngredient(raw=raw, name=_clean_name(rest), quantity=quantity, unit=unit)
+        # "2 x 1 large onion", "4 x 150 salmon fillets": the inner number is a
+        # count in one and a weight with its unit left off in the other, and
+        # nothing here says which. Keep the food and leave the amount unknown
+        # rather than guess, and never let "x 150" into the name.
+        return ParsedIngredient(raw=raw, name=_clean_name(rest), quantity=None, unit=None)
 
     counted = _COUNT_CONTAINER_RE.match(cleaned)
     if counted:
@@ -816,12 +829,15 @@ def _is_prep_segment(segment: str) -> bool:
 def _clean_name(name: str) -> str:
     name = name.strip()
     name = re.sub(r"^(of|de)\s+", "", name, flags=re.IGNORECASE)
+    # Brackets go before the comma split: a comma inside them ("butter
+    # (unsalted, softened)") otherwise cuts the bracket in half and leaves
+    # "butter (unsalted" as the food. Kept non-backtracking, as in
+    # canonical_ingredient_name.
+    name = re.sub(r"\([^()]*\)", " ", name)
     # Drop prep notes around the food. Usually they trail ("onions, finely
     # chopped" → "onions"), but they lead too ("cooked, peeled king prawns"),
     # so the name is the first comma segment that isn't purely preparation
     # words — not blindly the first one.
     segments = [segment.strip() for segment in name.split(",")]
     name = next((segment for segment in segments if segment and not _is_prep_segment(segment)), segments[0])
-    # Bracket-matching kept non-backtracking, as in canonical_ingredient_name.
-    name = re.sub(r"\([^()]*\)", " ", name)
     return " ".join(name.split()).lower().strip(" .")
