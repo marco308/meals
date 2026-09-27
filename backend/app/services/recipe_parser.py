@@ -8,6 +8,7 @@ recipe via POST /recipes instead.
 
 import asyncio
 import codecs
+import html
 import ipaddress
 import json
 import re
@@ -494,7 +495,7 @@ def _node_to_recipe(node: dict, url: str | None) -> ParsedRecipe:
 
 def _as_text(value: object) -> str | None:
     if isinstance(value, str):
-        return value
+        return html.unescape(value)
     if isinstance(value, list) and value:
         return _as_text(value[0])
     if isinstance(value, dict):
@@ -535,6 +536,7 @@ def _parse_instructions(value: object) -> str | None:
 
 def _collect_instruction_steps(value: object) -> list[str]:
     if isinstance(value, str):
+        value = html.unescape(value)
         return [value.strip()] if value.strip() else []
     if isinstance(value, list):
         steps: list[str] = []
@@ -555,9 +557,9 @@ def _parse_tags(node: dict) -> list[str]:
     for key in ("recipeCuisine", "recipeCategory", "keywords"):
         value = node.get(key)
         if isinstance(value, str):
-            tags.extend(part.strip() for part in value.split(",") if part.strip())
+            tags.extend(part.strip() for part in html.unescape(value).split(",") if part.strip())
         elif isinstance(value, list):
-            tags.extend(str(part).strip() for part in value if str(part).strip())
+            tags.extend(html.unescape(str(part)).strip() for part in value if str(part).strip())
     seen: set[str] = set()
     unique = []
     for tag in tags:
@@ -709,8 +711,13 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
     Conservative by design: anything unparseable keeps quantity=None and the
     full line as the name; the raw line is always preserved, up to the
     _MAX_LINE_CHARS a recipe line can store.
+
+    Entities are decoded first (#170): some sites HTML-escape the strings
+    inside their JSON-LD, and an undecoded "&nbsp;" became part of the food,
+    so "dijon mustard&nbsp;" sat on the list beside "dijon mustard". A decoded
+    one is a U+00A0, which the whitespace handling below already strips.
     """
-    raw = raw[:_MAX_LINE_CHARS]
+    raw = html.unescape(raw)[:_MAX_LINE_CHARS]
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
     cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
