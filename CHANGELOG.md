@@ -22,6 +22,20 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-27 — the server announces iOS build 30
+
+Released as **1.7.1**. No migrations, and nothing in the API changed shape.
+
+### Changed
+
+- **`current_ios_build` is 30**
+  ([#184](https://github.com/marco308/meals/pull/184)), so `GET /client-config`
+  tells older installs that a newer build exists. Build 30 is the one that sorts
+  the shopping list by the store you're standing in
+  ([#182](https://github.com/marco308/meals/issues/182)), matching against the
+  store locations 1.7.0 added. It is on TestFlight; see
+  [ios/CHANGELOG.md](ios/CHANGELOG.md). `min_ios_build` stays 0.
+
 ## 2026-09-27 — supermarkets know where they are
 
 Released as **1.7.0**. **One migration** (`c4e7a2d91b30`), additive only: three
