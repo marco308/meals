@@ -22,6 +22,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-27 — a recipe's ingredients say what you think of them
+
+Released as **1.7.5**. No migrations, and nothing in the API changed shape:
+recipe lines already carried `is_staple`, `value_tier` and `value_note`.
+
+### Added
+
+- **The web app's recipe page shows each ingredient's staple flag and
+  premium/budget verdict** as chips, with the household's "why" note beneath.
+- **Clicking an ingredient on a recipe edits it in place**: aisle, staple,
+  verdict and note, saved to the ingredient itself, so the change holds for
+  every recipe, meal and list that uses it. Amounts stay in the recipe editor
+  and renaming stays on Ingredients, where a rename that is really a merge is
+  handled.
+
 ## 2026-09-27 — cooked meals sink
 
 Released as **1.7.4**. No migrations, and nothing in the API changed shape.
