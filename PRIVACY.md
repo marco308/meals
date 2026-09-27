@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 25 September 2026**
+**Last updated: 27 September 2026**
 
 YAMP is a meal planner that runs on a server: your own, or a hosted one. The
 iOS app is a client: it talks to whichever server you point it at, and to
@@ -47,7 +47,15 @@ The server holds an account and a household:
   invited whom, so the household knows who has access. The code itself is
   stored hashed.
 - **Your household's content** — recipes, meals, plans, shopping lists,
-  ingredient notes, and which meals you have cooked.
+  ingredient notes, which meals you have cooked, and the supermarkets you
+  saved: each one's aisle order and, if you gave it one, where the store is.
+
+**Where you are is never stored.** A supermarket's location is the shop's, and
+the server has no field that could hold yours. The iPhone app only ever sets it
+from a search for the store itself; the web app can also use "Set to where I am
+now", which asks your browser for your position once and saves it as the
+store's. Any check of whether you are standing in a saved store happens on your
+phone, and your position goes nowhere.
 
 A household is the entire privacy boundary. Everyone in your household can see
 and edit all of its content; nobody outside it can see any of it. There are no

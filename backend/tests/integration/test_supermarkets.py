@@ -5,11 +5,13 @@ learns it) and the GET /shopping-list sort."""
 import time
 
 from app.services.aisles import AISLE_EMOJIS
-from app.services.supermarkets import invalid_aisle_order_detail
+from app.services.supermarkets import DEFAULT_RADIUS_M, HALF_LOCATION_DETAIL, invalid_aisle_order_detail
 from tests.conftest import create_meal, create_plan, create_recipe, get_list, register
 
 # The built-in walk starts 🥬 🍞 🥩; this store meets frozen and drinks first.
 BACKWARDS = ["🧊", "🥤", "🥫", "🥛", "🥩", "🍞", "🥬"]
+# Sainsbury's Hove, give or take.
+HOVE = {"latitude": 50.8305, "longitude": -0.1712}
 
 
 async def create_market(client, name="Big Tesco", **overrides):
@@ -104,6 +106,70 @@ def test_the_duplicate_check_is_linear():
         assert (await auth_client.delete(f"/supermarkets/{market['id']}")).status_code == 204
         listed = (await auth_client.get("/supermarkets")).json()
         assert listed == []
+
+
+class TestLocation:
+    """Where a store is (Q25): the store's coordinates, for a phone to match on-device."""
+
+    async def test_a_market_without_a_location_says_so(self, auth_client):
+        market = await create_market(auth_client)
+        assert (market["latitude"], market["longitude"], market["radius_m"]) == (None, None, None)
+
+    async def test_create_with_a_location_fills_in_the_default_radius(self, auth_client):
+        market = await create_market(auth_client, **HOVE)
+        assert market["latitude"] == HOVE["latitude"] and market["longitude"] == HOVE["longitude"]
+        assert market["radius_m"] == DEFAULT_RADIUS_M
+        listed = (await auth_client.get("/supermarkets")).json()
+        assert listed[0]["latitude"] == HOVE["latitude"]
+
+    async def test_create_with_a_radius(self, auth_client):
+        market = await create_market(auth_client, **HOVE, radius_m=400)
+        assert market["radius_m"] == 400
+
+    async def test_half_a_location_is_refused_on_create(self, auth_client):
+        response = await auth_client.post("/supermarkets", json={"name": "Aldi", "latitude": 50.8})
+        assert response.status_code == 422
+        assert response.json()["detail"] == HALF_LOCATION_DETAIL
+
+    async def test_out_of_range_values_are_refused(self, auth_client):
+        for bad in (
+            {"latitude": 91, "longitude": 0},
+            {"latitude": 0, "longitude": -181},
+            {**HOVE, "radius_m": 10},
+            {**HOVE, "radius_m": 5000},
+        ):
+            response = await auth_client.post("/supermarkets", json={"name": "Aldi", **bad})
+            assert response.status_code == 422, bad
+
+    async def test_patch_sets_moves_and_clears_a_location(self, auth_client):
+        market = await create_market(auth_client)
+        url = f"/supermarkets/{market['id']}"
+        moved = (await auth_client.patch(url, json={**HOVE, "radius_m": 300})).json()
+        assert (moved["latitude"], moved["radius_m"]) == (HOVE["latitude"], 300)
+        # A patch that doesn't mention the location leaves it alone.
+        renamed = (await auth_client.patch(url, json={"name": "Hove Sainsbury's"})).json()
+        assert (renamed["latitude"], renamed["radius_m"]) == (HOVE["latitude"], 300)
+        default = (await auth_client.patch(url, json={"radius_m": None})).json()
+        assert default["radius_m"] == DEFAULT_RADIUS_M
+        cleared = (await auth_client.patch(url, json={"latitude": None, "longitude": None})).json()
+        assert (cleared["latitude"], cleared["longitude"], cleared["radius_m"]) == (None, None, None)
+
+    async def test_clearing_a_location_forgets_its_radius(self, auth_client):
+        market = await create_market(auth_client, **HOVE, radius_m=600)
+        url = f"/supermarkets/{market['id']}"
+        await auth_client.patch(url, json={"latitude": None, "longitude": None})
+        again = (await auth_client.patch(url, json=HOVE)).json()
+        assert again["radius_m"] == DEFAULT_RADIUS_M
+
+    async def test_half_a_location_is_refused_on_patch_and_changes_nothing(self, auth_client):
+        market = await create_market(auth_client, **HOVE)
+        url = f"/supermarkets/{market['id']}"
+        for half in ({"latitude": 51.5}, {"latitude": 51.5, "longitude": None}, {"longitude": None}):
+            response = await auth_client.patch(url, json=half)
+            assert response.status_code == 422, half
+            assert response.json()["detail"] == HALF_LOCATION_DETAIL
+        listed = (await auth_client.get("/supermarkets")).json()
+        assert listed[0]["latitude"] == HOVE["latitude"]
 
 
 class TestActivation:

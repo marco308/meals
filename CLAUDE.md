@@ -197,7 +197,10 @@ instrumentation a new feature usually needs.
   via `/supermarkets` (`services/supermarkets.py`): the active supermarket's
   order drives the list sort and `GET /aisles`, which is how iOS learns it
   without an app change. Orders saved before a new aisle existed gain it at
-  the end — adding an aisle must never invalidate a saved supermarket.
+  the end — adding an aisle must never invalidate a saved supermarket. A
+  supermarket may also say where the *store* is (Q25) so a phone can match it
+  on-device; the server never holds a user's position, and iOS sets a store's
+  location only from place search.
 - **The freezer is a tab of batches** (`services/freezer.py`, Q24). One
   `freezer_items` row per batch — a denormalised `label`, the portions *left*,
   `frozen_on` — with `meal_id`/`recipe_id` as `SET NULL` courtesies, so deleting

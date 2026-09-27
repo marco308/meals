@@ -5,6 +5,10 @@ save one order per supermarket and mark one *active*; the active order drives
 the shopping-list sort and `GET /aisles`. That endpoint is also how the iOS
 app learns the order (it refetches on every list load and sorts locally), so
 no client needs to know supermarkets exist to honour one.
+
+A supermarket may also say where it is (Q25), so a phone can notice it is
+standing in one and sort by that store's walk for itself. The match happens
+on the device; the server only ever holds the store's coordinates.
 """
 
 import uuid
@@ -15,6 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Supermarket
 from app.services.aisles import AISLE_EMOJIS, AISLE_ORDER
+
+# How close counts as "in the store" when a household hasn't said: a big
+# supermarket's car park, not the next street. The bounds keep a typo from
+# claiming a whole town, or a radius smaller than a phone's GPS error.
+DEFAULT_RADIUS_M = 150
+MIN_RADIUS_M = 50
+MAX_RADIUS_M = 1000
 
 
 async def get_active_supermarket(db: AsyncSession, household_id: uuid.UUID) -> Supermarket | None:
@@ -56,3 +67,19 @@ def invalid_aisle_order_detail(order: list[str]) -> str | None:
     if duplicates:
         return f"aisle(s) {' '.join(duplicates)} listed more than once; each aisle appears at most once"
     return None
+
+
+def effective_radius(market: Supermarket) -> int | None:
+    """The radius a client should match with; None when the store has no location."""
+    if market.latitude is None or market.longitude is None:
+        return None
+    return market.radius_m if market.radius_m is not None else DEFAULT_RADIUS_M
+
+
+HALF_LOCATION_DETAIL = (
+    "send latitude and longitude together: a store's location needs both. To forget where it is, send both as null"
+)
+
+
+def is_half_location(latitude: float | None, longitude: float | None) -> bool:
+    return (latitude is None) != (longitude is None)

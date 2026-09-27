@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,7 +18,12 @@ class Supermarket(Base):
     (which is also how the iOS app learns it — it refetches /aisles and sorts
     locally). No active supermarket means the built-in order in
     `services/aisles.py`. An order saved before a new aisle joined the
-    vocabulary simply gains it at the end (`effective_aisle_order`)."""
+    vocabulary simply gains it at the end (`effective_aisle_order`).
+
+    `latitude`/`longitude` say where the *store* is, so a phone can tell it
+    is standing in one and sort by its walk (Q25). Both or neither; a null
+    `radius_m` means `DEFAULT_RADIUS_M` in `services/supermarkets.py`. The
+    server never learns where a *user* is: matching happens on the device."""
 
     __tablename__ = "supermarkets"
     __table_args__ = (UniqueConstraint("household_id", "name", name="uq_supermarket_household_name"),)
@@ -28,6 +33,9 @@ class Supermarket(Base):
     name: Mapped[str] = mapped_column(String(120))
     aisle_order: Mapped[list] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    radius_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
