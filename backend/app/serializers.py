@@ -7,6 +7,7 @@ from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, P
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
 from app.services.scaling import scaled_servings
+from app.services.slots import meal_slots
 from app.services.units import format_buy_quantity, format_quantity
 from app.services.values import value_tier_label
 
@@ -87,7 +88,8 @@ def meal_out(meal: Meal) -> MealOut:
     return MealOut(
         id=meal.id,
         name=meal.name,
-        slot=meal.slot,
+        slot=slots[0] if (slots := meal_slots(meal)) else None,
+        slots=slots,
         recipes=[
             MealRecipeOut(
                 **recipe_summary(link.recipe).model_dump(),

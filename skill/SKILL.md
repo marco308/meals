@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 17 -->
+<!-- playbook-version: 18 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v17, and this file is a snapshot** — once installed it never
+**This is playbook v18, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -49,7 +49,9 @@ conversation, and tell the user to replace their installed copy.
    the server will fetch: read the page yourself, extract the fields in **the
    parsing contract** below, and `submit_recipe(...)`.
 4. Create a meal per recipe (`create_meal`) — ask about sides ("anything with
-   it?") and attach them as loose ingredients, not fake recipes.
+   it?") and attach them as loose ingredients, not fake recipes. A meal can
+   fill more than one slot: `slots=["breakfast", "lunch"]` for one that works
+   as either (breakfast, lunch, dinner, snack, other).
 5. Add the meals to the current plan (`add_meal_to_plan`); create the plan if
    none exists (label like "w/c 27 July").
 6. Confirm with a one-line summary and offer the shopping list.
@@ -116,7 +118,8 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
 
 - **Changing a meal** — `update_meal(meal_name, add_recipes=[...],
   remove_recipes=[...], add_loose_ingredients=[...],
-  remove_loose_ingredients=[...], new_name=..., slot=...)`. Recipes can be
+  remove_loose_ingredients=[...], new_name=..., slots=[...])`. `slots`
+  replaces the whole list, so send the ones it keeps too. Recipes can be
   named, not just id'd. If the meal is on the active plan the shopping list
   re-syncs itself: added ingredients appear, removed ones come off. Prefer
   this over delete-and-recreate — recreating loses the meal's place on the

@@ -121,7 +121,7 @@ struct PlanView: View {
                 }
             }
             ForEach(plan.slots, id: \.slot) { group in
-                Section(group.slot.capitalized) {
+                Section(group.slot.capitalizedFirst) {
                     ForEach(group.meals) { planMeal in
                         PlanMealRow(planMeal: planMeal)
                     }
@@ -285,7 +285,7 @@ struct PastPlanDetailView: View {
                         }
                     }
                     ForEach(plan.slots, id: \.slot) { group in
-                        Section(group.slot.capitalized) {
+                        Section(group.slot.capitalizedFirst) {
                             ForEach(group.meals) { planMeal in
                                 HStack {
                                     Text(planMeal.meal.name)
@@ -469,8 +469,8 @@ struct AddMealSheet: View {
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(meal.name).foregroundStyle(.primary)
-                                if let slot = meal.slot {
-                                    Text(slot.capitalized).font(.caption).foregroundStyle(.secondary)
+                                if let slots = meal.slotsLabel {
+                                    Text(slots).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }

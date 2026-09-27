@@ -125,3 +125,65 @@ class TestUpdateMeal:
         current = await auth_client.get("/plans/current")
         assert current.status_code == 200, current.text
         assert [m["meal"]["name"] for m in current.json()["meals"]] == ["Spag bol"]
+
+
+class TestMealSlots:
+    """A meal can fill more than one slot ("breakfast or lunch"). `slot` stays
+    the first of them for clients older than the list."""
+
+    async def test_create_with_slots_normalised_and_ordered(self, auth_client):
+        meal = await create_meal(auth_client, name="Omelette", slot=None, slots=["Lunch ", "breakfast", "lunch", ""])
+        assert meal["slots"] == ["breakfast", "lunch"]
+        assert meal["slot"] == "breakfast"
+
+    async def test_unsuggested_slots_follow_the_suggested_ones(self, auth_client):
+        meal = await create_meal(auth_client, slot=None, slots=["picnic", "dinner", "snack"])
+        assert meal["slots"] == ["dinner", "snack", "picnic"]
+
+    async def test_slot_alone_still_makes_a_one_slot_list(self, auth_client):
+        meal = await create_meal(auth_client, slot="dinner")
+        assert meal["slots"] == ["dinner"]
+        bare = (await auth_client.post("/meals", json={"name": "Toast"})).json()
+        assert bare["slot"] is None
+        assert bare["slots"] == []
+
+    async def test_slots_wins_over_slot(self, auth_client):
+        meal = await create_meal(auth_client, slot="dinner", slots=["lunch"])
+        assert meal["slots"] == ["lunch"]
+        assert meal["slot"] == "lunch"
+
+    async def test_filter_matches_any_slot(self, auth_client):
+        await create_meal(auth_client, name="Soup", slot=None, slots=["lunch", "dinner"])
+        await create_meal(auth_client, name="Porridge", slot=None, slots=["breakfast"])
+        dinners = (await auth_client.get("/meals", params={"slot": "Dinner"})).json()
+        lunches = (await auth_client.get("/meals", params={"slot": "lunch"})).json()
+        assert [m["name"] for m in dinners] == ["Soup"]
+        assert [m["name"] for m in lunches] == ["Soup"]
+
+    async def test_patch_slots_replaces_the_list(self, auth_client):
+        meal = await create_meal(auth_client, slot=None, slots=["lunch", "dinner"])
+        response = await auth_client.patch(f"/meals/{meal['id']}", json={"slots": ["snack"]})
+        assert response.json()["slots"] == ["snack"]
+        cleared = await auth_client.patch(f"/meals/{meal['id']}", json={"slots": []})
+        assert cleared.json()["slots"] == []
+        assert cleared.json()["slot"] is None
+
+    async def test_older_client_resending_its_slot_keeps_the_others(self, auth_client):
+        """A phone that only knows `slot` re-sends it on every save; that must
+        not quietly narrow "lunch or dinner" down to lunch."""
+        meal = await create_meal(auth_client, slot=None, slots=["lunch", "dinner"])
+        response = await auth_client.patch(f"/meals/{meal['id']}", json={"name": "Soup", "slot": "lunch"})
+        assert response.json()["slots"] == ["lunch", "dinner"]
+
+    async def test_older_client_choosing_a_new_slot_replaces_the_list(self, auth_client):
+        meal = await create_meal(auth_client, slot=None, slots=["lunch", "dinner"])
+        response = await auth_client.patch(f"/meals/{meal['id']}", json={"slot": "breakfast"})
+        assert response.json()["slots"] == ["breakfast"]
+        cleared = await auth_client.patch(f"/meals/{meal['id']}", json={"slot": None})
+        assert cleared.json()["slots"] == []
+
+    async def test_too_many_or_too_long_slots_422(self, auth_client):
+        long = await auth_client.post("/meals", json={"name": "x", "slots": ["y" * 31]})
+        many = await auth_client.post("/meals", json={"name": "x", "slots": [f"s{i}" for i in range(11)]})
+        assert long.status_code == 422
+        assert many.status_code == 422
