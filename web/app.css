@@ -610,6 +610,29 @@ fieldset.slot-picker legend { padding: 0; width: 100%; }
 }
 .ing-list li:last-child { border-bottom: 0; }
 .ing-list .qty { font-family: var(--mono); font-size: .82rem; color: var(--ink-soft); min-width: 4.5rem; text-align: right; flex: none; font-variant-numeric: tabular-nums; }
+.ing-list li { flex-direction: column; align-items: stretch; gap: .1rem; padding: 0; }
+.ing-line {
+  display: flex;
+  flex-wrap: wrap; /* on a phone the chips take their own row, not the name's room */
+  gap: .25rem .6rem;
+  align-items: baseline;
+  width: 100%;
+  padding: .45rem .35rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ing-line:hover, .ing-line:focus-visible { background: var(--cream-2); }
+.ing-line .ing-name { flex: 1 1 9rem; min-width: 0; }
+.ing-line .ing-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-left: auto; }
+.ing-note { font-size: .8rem; color: var(--ink-soft); padding: 0 .35rem .45rem 5.45rem; font-style: italic; }
+.ing-hint { margin: .6rem 0 0; font-size: .78rem; }
+.staple-check { margin-bottom: .9rem; align-items: flex-start; }
+.staple-check input { margin-top: .2rem; }
 
 .prose { line-height: 1.7; }
 .prose p { margin: 0 0 .9rem; }

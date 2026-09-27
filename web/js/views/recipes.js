@@ -3,7 +3,7 @@
 // the recipe lands in the library with its lines already on the unit
 // convention. Pages without usable JSON-LD 422 with advice we show verbatim.
 
-import { api } from "../api.js";
+import { aisles, api } from "../api.js";
 import { confirmDialog, debounce, emptyState, fmtRel, html, openDialog, render, skeleton, toast } from "../dom.js";
 import { linesEditor } from "./lines.js";
 
@@ -218,16 +218,8 @@ export async function renderRecipeDetail(root, recipeId) {
       <div class="detail-cols">
         <div class="card">
           <h2>Ingredients</h2>
-          <ul class="ing-list">
-            ${recipe.ingredients.map(
-              (line) => html`
-                <li>
-                  <span class="qty">${line.display}</span>
-                  <span>${line.aisle} ${line.name}${line.value_tier === "premium" ? html` <span class="value-badge" title="${line.value_note || "worth paying up"}">⭐</span>` : ""}${line.value_tier === "budget" ? html` <span class="value-badge" title="${line.value_note || "own-brand is fine"}">💷</span>` : ""}</span>
-                </li>
-              `,
-            )}
-          </ul>
+          <ul class="ing-list" data-ings></ul>
+          <p class="sub ing-hint">Tap an ingredient to set its aisle, staple flag or verdict.</p>
         </div>
         <div>
           ${recipe.source_url &&
@@ -237,6 +229,9 @@ export async function renderRecipeDetail(root, recipeId) {
       </div>
     </div>
   `);
+
+  const ingList = root.querySelector("[data-ings]");
+  renderIngredientLines(ingList, recipe);
 
   root.querySelector("[data-del]").onclick = async () => {
     const ok = await confirmDialog({
@@ -259,6 +254,102 @@ export async function renderRecipeDetail(root, recipeId) {
   if (reparseButton) reparseButton.onclick = () => reparse(recipe, root);
 
   root.querySelector("[data-plan-it]").onclick = () => planIt(recipe);
+}
+
+// Each line says what the household thinks of the food as well as how much:
+// a staple is usually in the cupboard already, and the verdict (Q17) is the
+// same one the shopping list carries to the shelf.
+function renderIngredientLines(list, recipe) {
+  render(list, html`${recipe.ingredients.map(
+    (line, index) => html`
+      <li>
+        <button type="button" class="ing-line" data-line="${index}" title="Edit ${line.name}: aisle, staple, verdict">
+          <span class="qty">${line.display}</span>
+          <span class="ing-name">${line.aisle} ${line.name}</span>
+          <span class="ing-tags">
+            ${line.is_staple && html`<span class="chip" title="Usually in the cupboard: it waits in the staples check until you're low">staple</span>`}
+            ${line.value_tier === "premium" && html`<span class="chip butter" title="${line.value_note || "worth paying up"}">⭐ premium</span>`}
+            ${line.value_tier === "budget" && html`<span class="chip green" title="${line.value_note || "own-brand is fine"}">💷 budget</span>`}
+          </span>
+        </button>
+        ${line.value_note && line.value_tier !== "any" && html`<span class="ing-note">${line.value_note}</span>`}
+      </li>
+    `,
+  )}`);
+  for (const button of list.querySelectorAll("[data-line]")) {
+    button.onclick = () => editIngredientDialog(recipe, recipe.ingredients[Number(button.dataset.line)], (saved) => {
+      // An ingredient can sit on more than one line (garlic in the sauce and
+      // the dressing), and they are all the same food.
+      for (const line of recipe.ingredients) {
+        if (line.ingredient_id !== saved.id) continue;
+        Object.assign(line, {
+          aisle: saved.aisle,
+          is_staple: saved.is_staple,
+          value_tier: saved.value_tier,
+          value_note: saved.value_note,
+        });
+      }
+      renderIngredientLines(list, recipe);
+    });
+  }
+}
+
+// The ingredient's own curation, edited in place. It is the household-wide
+// ingredient, not this recipe's line: amounts belong to the recipe editor,
+// and a rename (a merge in disguise, Q21) to the Ingredients screen.
+async function editIngredientDialog(recipe, line, onSaved) {
+  const aisleList = await aisles();
+  const dialog = openDialog(html`
+    <h2>${line.name}</h2>
+    <p class="sub">Applies everywhere “${line.name}” is used: every recipe, meal and shopping list. Amounts live in <a href="#/recipes/${recipe.id}/edit" data-edit-recipe>the recipe editor</a>, renaming on <a href="#/ingredients" data-ingredients>Ingredients</a>.</p>
+    <form data-f>
+      <label class="field"><span>Aisle</span>
+        <select name="aisle">
+          ${aisleList.map((a) => html`<option value="${a.emoji}" ${a.emoji === line.aisle ? "selected" : ""}>${a.emoji} ${a.label}</option>`)}
+        </select></label>
+      <label class="check-line staple-check">
+        <input type="checkbox" name="is_staple" ${line.is_staple ? "checked" : ""}>
+        Staple: kept at home, it waits in the staples check until you're low
+      </label>
+      <label class="field"><span>Verdict</span>
+        <select name="value_tier">
+          <option value="any" ${line.value_tier === "any" ? "selected" : ""}>no opinion</option>
+          <option value="premium" ${line.value_tier === "premium" ? "selected" : ""}>⭐ premium: worth paying up</option>
+          <option value="budget" ${line.value_tier === "budget" ? "selected" : ""}>💷 budget: own-brand is fine</option>
+        </select></label>
+      <label class="field"><span>Why (shows at the shelf)</span>
+        <input type="text" name="value_note" maxlength="200" value="${line.value_note ?? ""}" placeholder="cheap ones go bitter"></label>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-x>Cancel</button>
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+  `);
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  for (const link of dialog.querySelectorAll("a")) link.onclick = () => dialog.close();
+  dialog.querySelector("[data-f]").onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const saved = await api(`/ingredients/${line.ingredient_id}`, {
+        method: "PATCH",
+        body: {
+          aisle: form.aisle.value,
+          is_staple: form.is_staple.checked,
+          value_tier: form.value_tier.value,
+          value_note: form.value_note.value.trim() || null,
+        },
+      });
+      dialog.close();
+      toast(`Saved “${saved.name}”.`, "ok");
+      onSaved(saved);
+    } catch (error) {
+      button.disabled = false;
+      toast(error.detail || error.message, "error");
+    }
+  };
 }
 
 // Parse once, reuse forever (Q3) means nothing ever re-fetches a recipe. This
