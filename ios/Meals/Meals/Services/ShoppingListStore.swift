@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import Observation
 
@@ -45,6 +46,9 @@ struct ShoppingCache: Codable, Equatable {
     var aisles: [Aisle]
     /// Whose list this is. nil in a cache written before owners were recorded.
     var owner: DataOwner? = nil
+    /// The household's stores, kept so the phone can tell which one it is
+    /// standing in with no signal (Q25). nil in a cache from before.
+    var supermarkets: [Supermarket]? = nil
 }
 
 /// Ops queued by somebody other than whoever is signed in now, set aside until
@@ -90,6 +94,15 @@ final class ShoppingListStore {
     /// through when a thumb lands on the wrong row in the supermarket. Kept in
     /// memory only; it is about the last few seconds, not the whole shop.
     private(set) var tickHistory: [UUID] = []
+
+    /// The saved store this phone was last found standing in (Q25). It sorts
+    /// the list here and nowhere else: the household's active store is one
+    /// setting for everybody, and flipping it would re-sort the list under
+    /// somebody shopping at another shop.
+    private(set) var matchedStoreID: UUID?
+    /// A match somebody said no to, which stays said until the phone is
+    /// found somewhere else.
+    private var declinedStoreID: UUID?
 
     @ObservationIgnored private var held: [HeldQueue] = []
     /// Only a signed-in store talks to the server. True until told otherwise,
@@ -198,8 +211,51 @@ final class ShoppingListStore {
     }
 
     private var aisleOrder: [String: Int] {
-        let emojis = cache?.aisles.isEmpty == false ? cache!.aisles.map(\.emoji) : AisleOrder.fallback
-        return Dictionary(uniqueKeysWithValues: emojis.enumerated().map { ($1, $0) })
+        let emojis: [String]
+        if let here = storeHere {
+            emojis = here.aisleOrder
+        } else if let aisles = cache?.aisles, !aisles.isEmpty {
+            emojis = aisles.map(\.emoji)
+        } else {
+            emojis = AisleOrder.fallback
+        }
+        // Unique by construction on the server; not trusted to be here.
+        return Dictionary(emojis.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    // MARK: - The store you're standing in (Q25)
+
+    /// Stores with a location, so there is something to match against.
+    var locatedStores: [Supermarket] {
+        (cache?.supermarkets ?? []).filter(\.isLocated)
+    }
+
+    /// The store the list is sorted for on this phone alone, because it is
+    /// standing in it. nil when there is no match, when it was declined, or
+    /// when it is the household's active store anyway (already sorted for).
+    var storeHere: Supermarket? {
+        guard let id = matchedStoreID, id != declinedStoreID,
+              let market = cache?.supermarkets?.first(where: { $0.id == id }),
+              !market.isActive, !market.aisleOrder.isEmpty
+        else { return nil }
+        return market
+    }
+
+    /// Where the phone is now. Only compared with the cached stores, never
+    /// kept or sent. A fix too vague to tell one shop from another changes
+    /// nothing, so a bad reading by the freezers doesn't unsort the list.
+    func noteLocation(_ location: CLLocation) {
+        guard StoreMatcher.isUsable(location) else { return }
+        let match = StoreMatcher.store(at: location, in: locatedStores)?.id
+        if match != declinedStoreID {
+            declinedStoreID = nil  // somewhere else now: the "no" was about there
+        }
+        matchedStoreID = match
+    }
+
+    /// "Undo" on the banner: back to the household's order for this visit.
+    func declineStoreHere() {
+        declinedStoreID = matchedStoreID
     }
 
     private func apply(_ op: PendingOp, to items: inout [ListItem]) {
@@ -460,6 +516,8 @@ final class ShoppingListStore {
     /// Nothing in flight may land after the cache and queue change hands.
     private func resetSync() {
         tickHistory = []
+        matchedStoreID = nil
+        declinedStoreID = nil
         generation += 1
         retryTask?.cancel()
         retryTask = nil
@@ -555,7 +613,9 @@ final class ShoppingListStore {
             guard generation == self.generation else { return .stopped }
             let aisles = (try? await client.fetchAisles()) ?? cache?.aisles ?? []
             guard generation == self.generation else { return .stopped }
-            cache = ShoppingCache(payload: payload, aisles: aisles, owner: owner)
+            let supermarkets = (try? await client.fetchSupermarkets()) ?? cache?.supermarkets
+            guard generation == self.generation else { return .stopped }
+            cache = ShoppingCache(payload: payload, aisles: aisles, owner: owner, supermarkets: supermarkets)
             persistCache()
             isOffline = false
             isServerUnavailable = false

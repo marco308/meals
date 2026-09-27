@@ -699,13 +699,26 @@ extension APIClient {
 
     /// A true PATCH: only the arguments passed are sent. `isActive: true` is
     /// "we're at this store today"; `false` goes back to the built-in order.
+    /// `location` moves the store or forgets where it is; the server takes
+    /// latitude and longitude together, so they always travel as a pair.
     func updateSupermarket(
-        id: UUID, name: String? = nil, aisleOrder: [String]? = nil, isActive: Bool? = nil
+        id: UUID, name: String? = nil, aisleOrder: [String]? = nil, isActive: Bool? = nil,
+        location: SupermarketLocationChange? = nil
     ) async throws -> Supermarket {
         var payload: [String: Any?] = [:]
         if let name { payload["name"] = name }
         if let aisleOrder { payload["aisle_order"] = aisleOrder }
         if let isActive { payload["is_active"] = isActive }
+        switch location {
+        case .set(let latitude, let longitude):
+            payload["latitude"] = latitude
+            payload["longitude"] = longitude
+        case .clear:
+            payload["latitude"] = NSNull()
+            payload["longitude"] = NSNull()
+        case nil:
+            break
+        }
         return try await send(
             "PATCH", "/supermarkets/\(id.uuidString.lowercased())", json: payload, as: Supermarket.self
         )
@@ -734,6 +747,7 @@ struct AdhocPayload: Codable, Equatable, Sendable {
 protocol ShoppingAPI: Sendable {
     func fetchList() async throws -> ShoppingListPayload
     func fetchAisles() async throws -> [Aisle]
+    func fetchSupermarkets() async throws -> [Supermarket]
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem
     func addItem(_ payload: AdhocPayload) async throws -> ListItem
     func deleteItem(id: UUID) async throws
@@ -756,6 +770,10 @@ extension APIClient: ShoppingAPI {
 
     func fetchAisles() async throws -> [Aisle] {
         try await send("GET", "/aisles", as: [Aisle].self)
+    }
+
+    func fetchSupermarkets() async throws -> [Supermarket] {
+        try await supermarkets()
     }
 
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem {

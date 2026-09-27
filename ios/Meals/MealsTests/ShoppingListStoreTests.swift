@@ -7,6 +7,7 @@ import XCTest
 final class FakeShoppingAPI: ShoppingAPI {
     var list: ShoppingListPayload
     var aisles: [Aisle] = [Aisle(emoji: "🥬", label: "Fruit & veg"), Aisle(emoji: "🥩", label: "Meat & fish"), Aisle(emoji: "❓", label: "Unknown")]
+    var supermarkets: [Supermarket] = []
     var failWith: APIError?
     /// Thrown by every call: for failures that aren't an `APIError` at all,
     /// like a 200 whose body won't decode.
@@ -49,6 +50,12 @@ final class FakeShoppingAPI: ShoppingAPI {
         try failIfTold()
         calls.append("aisles")
         return aisles
+    }
+
+    func fetchSupermarkets() async throws -> [Supermarket] {
+        try failIfTold()
+        calls.append("supermarkets")
+        return supermarkets
     }
 
     func patchItem(id: UUID, checked: Bool?, excluded: Bool?, stapleNeeded: Bool?) async throws -> ListItem {
@@ -1092,7 +1099,7 @@ final class ShoppingListStoreTests: XCTestCase {
             api.calls[..<archived].filter { $0 == "patch" || $0 == "add" }, ["patch", "add"],
             "the tick and the add land on the list they were made on, before it's archived"
         )
-        XCTAssertEqual(api.calls.suffix(2), ["fetch", "aisles"], "then the fresh list is fetched")
+        XCTAssertEqual(api.calls.suffix(3), ["fetch", "aisles", "supermarkets"], "then the fresh list is fetched")
         XCTAssertTrue(store.pending.isEmpty)
         XCTAssertTrue(store.displayItems.isEmpty && store.checkedItems.isEmpty, "and it starts empty")
     }
