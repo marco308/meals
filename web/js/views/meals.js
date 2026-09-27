@@ -28,6 +28,19 @@ function timesLabel(entry) {
   return scale === 1 ? "" : `×${Number(scale.toFixed(2))}`;
 }
 
+// Up to four of the meal's recipe photos as one square tile, so a row reads
+// as the food rather than its name. A meal with no photographed recipe keeps
+// the emoji, in a tile the same size so the titles still line up.
+function mealPhotos(meal) {
+  const urls = meal.recipes.map((r) => r.image_url).filter(Boolean).slice(0, 4);
+  if (urls.length === 0) return html`<span class="rc-photos" data-n="0" aria-hidden="true">${foodEmoji(meal.name)}</span>`;
+  return html`
+    <span class="rc-photos" data-n="${urls.length}" aria-hidden="true">
+      ${urls.map((url) => html`<img src="${url}" alt="" loading="lazy">`)}
+    </span>
+  `;
+}
+
 export async function renderMeals(root) {
   render(root, html`
     <div class="page narrow">
@@ -80,7 +93,7 @@ export async function renderMeals(root) {
               ${meals.map(
                 (meal) => html`
                   <a class="row-card" href="#/meals/${meal.id}">
-                    <span class="rc-emoji" aria-hidden="true">${foodEmoji(meal.name)}</span>
+                    ${mealPhotos(meal)}
                     <div class="rc-main">
                       <div class="rc-title">${meal.name}</div>
                       <div class="rc-sub">
