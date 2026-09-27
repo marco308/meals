@@ -20,6 +20,28 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-09-27 — one meal per meal, shown as cards
+
+Released as **1.7.3**. No migrations, and nothing in the API changed shape.
+
+### Changed
+
+- **The web app's Meals page is a grid of cards**, the same as Recipes. Each
+  card's picture is up to four of the meal's recipe photos, laid out as in
+  1.7.2's row tiles, and a meal with no photos shows its emoji there.
+
+### Added
+
+- **`python -m app.merge_meals`** folds identical meals into the oldest of
+  them (same name ignoring case, slot, recipes, scales and extras). Plan
+  entries, cooked events and freezer batches move to the meal kept, and cooked
+  counts are recomputed from the events. When two copies sit on one plan, the
+  copy's entry goes, its cooking stays on the kept entry, and on the active
+  plan its double share leaves the shopping list. Reports only unless given
+  `--apply`.
+
 ### Fixed
 
 - **Planning a recipe again no longer makes another meal.** The iPhone app's
@@ -30,7 +52,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   and scales, and no loose ingredients. That fixes every build already
   installed, and assistants too, without an app update. A reuse is checked
   before the meals cap, since it adds nothing. Duplicates made before this
-  stay until they are merged or deleted.
+  are what `app.merge_meals` is for.
 
 ## 2026-09-27 — email verification, and meals show their food
 
