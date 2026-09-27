@@ -20,7 +20,18 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+One migration, additive only: `a1c5e9d3b7f2` adds `meals.slots`, backfilled
+from `slot`.
+
+### Added
+
+- **A meal can fill more than one slot.** `slots` on `POST`/`PATCH /meals`
+  and in every meal read back, so an omelette can be breakfast *or* lunch.
+  `slot` is kept and reads as the first of them; an older client re-sending the
+  slot a meal already has leaves the others alone. `GET /meals?slot=` matches
+  any of them. The web and iOS editors swap the one-slot field for toggles
+  (breakfast, lunch, dinner, snack, other), and the MCP tools take `slots`.
+  Guidance changed, so this is **playbook v18**.
 
 ## 2026-09-27 — email verification, and meals show their food
 
