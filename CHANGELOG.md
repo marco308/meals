@@ -20,7 +20,17 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Fixed
+
+- **Planning a recipe again no longer makes another meal.** The iPhone app's
+  "Add to plan" on a recipe posts a new meal named after it every time, so a
+  recipe planned five times became five identical meals in the library.
+  `POST /meals` now returns the meal the household already has, with 200, when
+  the one posted is an exact repeat: same name (ignoring case), slot, recipes
+  and scales, and no loose ingredients. That fixes every build already
+  installed, and assistants too, without an app update. A reuse is checked
+  before the meals cap, since it adds nothing. Duplicates made before this
+  stay until they are merged or deleted.
 
 ## 2026-09-27 — email verification, and meals show their food
 

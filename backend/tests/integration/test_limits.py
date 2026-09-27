@@ -295,6 +295,15 @@ class TestEveryResourceHasABoundary:
         assert response.status_code == 402
         assert response.json()["resource"] == "meals"
 
+    async def test_reusing_a_meal_at_the_cap_is_not_refused(self, client, hosted):
+        """Planning an old favourite again adds nothing, so the cap has no say."""
+        hosted(free={"meals": 1})
+        await signed_in(client)
+        meal = await create_meal(client, name="Spag bol")
+        response = await client.post("/meals", json={"name": "Spag bol", "slot": "dinner"})
+        assert response.status_code == 200
+        assert response.json()["id"] == meal["id"]
+
     async def test_lines_in_one_meal(self, client, hosted):
         """The same in both tiers, so it is a sanity bound rather than a cap."""
         hosted(free={"meal_lines": 2, "ingredients": None}, paid={"meal_lines": 2}, ceiling={"meal_lines": 2})
