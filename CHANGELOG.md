@@ -22,7 +22,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
-## 2026-09-27 — meals fill more than one slot, show as cards, and stop multiplying
+## 2026-09-27 — meals fill more than one slot, show as cards, and stop multiplying; cooked sinks
 
 Released as **1.7.3**. One migration, additive only: `a1c5e9d3b7f2` adds
 `meals.slots`, backfilled from `slot`. Guidance changed, so this is
@@ -33,6 +33,11 @@ Released as **1.7.3**. One migration, additive only: `a1c5e9d3b7f2` adds
 - **The web app's Meals page is a grid of cards**, the same as Recipes. Each
   card's picture is up to four of the meal's recipe photos, laid out as in
   1.7.2's row tiles, and a meal with no photos shows its emoji there.
+- **Cooked meals drop to the bottom of the plan.** A plan's `meals` come back
+  with what is still to cook first, in the order it was added, then what has
+  been cooked, most recent last; un-cooking one moves it back up. The server
+  orders them, so the web app and every iPhone build already installed follow
+  without an update.
 
 ### Added
 
