@@ -385,6 +385,20 @@ existing one; `REGISTRATION_ENABLED=false` additionally stops new households
 being created while still honouring invite codes, so closing a server doesn't
 lock out your own family.
 
+Leaving registration open is safer with three things this server does for you
+(decision Q26). On a server with SMTP configured, a new account is emailed a
+code to confirm its address, and until it does it can use its household freely
+but cannot invite anyone or import a recipe from a URL, the two things that
+reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Starting a
+household is limited per client address per hour (`SIGNUP_RATE_LIMIT_PER_HOUR`,
+5 by default, 0 for off), which joining one with an invite never is. And
+`python -m app.reaping` from cron can clear out households that were made and
+never used: set `REAP_ABANDONED_AFTER_DAYS` and it emails a household with one
+member, nothing in it, no payment and no sign-in for that long, then deletes it
+`REAP_WARNING_DAYS` (14) after the email unless somebody signs in. It is off
+unless you set that, it never touches a household that has held anything, and
+with no mail relay it warns nobody and so reaps nobody.
+
 `GET /household/export` returns everything a household owns — recipes,
 ingredients, meals, plans, cooked history, supermarkets and every shopping list
 including archived ones — as one streamed JSON document. It is free on every

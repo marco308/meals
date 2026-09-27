@@ -78,6 +78,10 @@ class UserOut(BaseModel):
     # decide whether to offer the invite and remove controls at all, rather than
     # offering them and letting the server refuse.
     household_lead_user_id: uuid.UUID | None = None
+    # Q26: true while this account has yet to confirm its address with the code
+    # emailed to it, which is when inviting and URL ingest are refused. Always
+    # false on a server that cannot send email, which verifies nobody.
+    email_verification_pending: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -138,6 +142,10 @@ class PasswordResetRequestIn(BaseModel):
 class PasswordResetConfirmIn(BaseModel):
     code: str = Field(min_length=1, max_length=64, description="The code from the reset email.")
     new_password: NewPassword
+
+
+class EmailVerifyIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64, description="The code from the verification email.")
 
 
 class AcceptedOut(BaseModel):

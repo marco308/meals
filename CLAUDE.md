@@ -133,6 +133,23 @@ instrumentation a new feature usually needs.
   `tests/unit/test_security.py` lints every call for it. A login for an unknown
   address still pays for a check (`verify_password(pw, None)`), and the reset
   request answers before it looks anybody up, so neither timing is an oracle.
+- **Opening registration** (Q26, #122). Three guards, all worth having on any
+  server that leaves registration open. **Verification**: where SMTP is
+  configured, registering emails a `kind="verify"` code; it is redeemed signed
+  in (`POST /auth/verify-email`), counts only for its own account, and is not
+  in `AUTHENTICATING_KINDS`. `User.email_verification_pending` is false on a
+  server that cannot send, because nobody there could ever verify. An
+  unverified account is refused (`deps.require_verified_email`, 403) only for
+  what reaches outward, inviting and fetching a URL; don't gate anything that
+  stays in the household on it. **Signup rate**: `deps.charge_signup`, per IP per
+  hour, charged after every other refusal and only for a registration that
+  starts a household, never an invited one. **Reaping**
+  (`services/reaping.py`, `python -m app.reaping` from cron): off unless
+  `REAP_ABANDONED_AFTER_DAYS` is set, only a one-member household with nothing
+  anybody made in it and no money ever involved, only after a warning email
+  that actually went (marked once, never on a relay failure), and a sign-in
+  clears it. Keep the emptiness test stricter than `household_has_content`: an
+  empty active list is made by merely opening the app.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.

@@ -22,12 +22,15 @@ PASSWORD = "a-strong-password"
 
 @pytest.fixture
 def outbox(monkeypatch, settings_override):
-    """Capture would-be emails and pretend SMTP is configured."""
+    """Capture would-be reset emails and pretend SMTP is configured. Registering
+    on a server with SMTP also sends a verification code (Q26); that one is
+    test_email_verification.py's, and left out here."""
     settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
     sent: list[dict] = []
 
-    async def fake_send(to: str, subject: str, body: str, **_log_context) -> None:
-        sent.append({"to": to, "subject": subject, "body": body})
+    async def fake_send(to: str, subject: str, body: str, *, purpose: str, **_ids) -> None:
+        if purpose == "password_reset":
+            sent.append({"to": to, "subject": subject, "body": body})
 
     monkeypatch.setattr("app.routers.auth.send_email", fake_send)
     return sent

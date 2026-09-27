@@ -11,6 +11,10 @@
 // The lead is the only member who can invite, remove or rename (Q23), so those
 // controls are hidden rather than shown-and-refused for everyone else. Leaving
 // is nobody's business but your own, so that button is always there.
+//
+// An account that has not confirmed its email address (Q26) gets a card at the
+// top for the code, because inviting and importing from a link both wait on it.
+// On a server that sends no email the card never appears: nothing waits there.
 
 import { aisles, api, download, invalidateAisles, session } from "../api.js";
 import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
@@ -40,6 +44,8 @@ export async function renderSettings(root) {
           <p class="sub">${user.household_name || "Home"} · signed in as ${user.display_name}</p>
         </div>
       </div>
+
+      ${user.email_verification_pending ? verifySection(user) : ""}
 
       <div class="section card">
         <h2>Household</h2>
@@ -238,6 +244,26 @@ export async function renderSettings(root) {
     </div>
   `);
 
+  root.querySelector("[data-verify]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const code = new FormData(event.target).get("code").trim();
+      session.saveUser(await api("/auth/verify-email", { method: "POST", body: { code } }));
+      toast("Email address confirmed.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  });
+  root.querySelector("[data-resend]")?.addEventListener("click", async () => {
+    try {
+      const accepted = await api("/auth/verify-email/resend", { method: "POST" });
+      toast(accepted.detail, "ok");
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  });
+
   root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household);
   root.querySelector("[data-rename-household]")?.addEventListener("click", () =>
     renameHouseholdDialog(root, household),
@@ -274,7 +300,13 @@ export async function renderSettings(root) {
   }
 
   root.querySelector("[data-invite]")?.addEventListener("click", async () => {
-    const invite = await api("/auth/invites", { method: "POST", body: { expires_in_days: 7 } });
+    let invite;
+    try {
+      invite = await api("/auth/invites", { method: "POST", body: { expires_in_days: 7 } });
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+      return;
+    }
     revealDialog(
       "Invite code",
       invite.code,
@@ -693,7 +725,7 @@ async function orderDialog(root, market) {
   };
 }
 
-// Where the store is (Q25), so a phone standing in it can sort by its walk.
+// Where the store is (Q26), so a phone standing in it can sort by its walk.
 // The browser's position is read once, here, and saved as the *store's*;
 // nothing else in the web app ever asks for it. Geolocation needs a secure
 // context, which a self-hosted server on plain http over the LAN isn't.
@@ -977,6 +1009,28 @@ function tokenDialog(root) {
       toast(error.detail || error.message, "error");
     }
   };
+}
+
+function verifySection(user) {
+  return html`
+    <div class="section card">
+      <h2>Confirm your email address</h2>
+      <p class="sub">
+        We sent a code to ${user.email}. Until it's entered, everything works except inviting people
+        and importing recipes from a link, since those reach beyond this server.
+      </p>
+      <form data-verify>
+        <div class="form-row">
+          <label class="field"><span>Code</span>
+            <input name="code" required autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX"></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn ghost" type="button" data-resend>Send a new code</button>
+          <button class="btn" type="submit">Confirm</button>
+        </div>
+      </form>
+    </div>
+  `;
 }
 
 function deleteAccountDialog() {

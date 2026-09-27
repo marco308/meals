@@ -9,7 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app import limits
 from app.config import get_settings
-from app.deps import CurrentUser, DbSession, SessionUser, as_aware, auth_rate_limit, forgive_auth_attempt
+from app.deps import (
+    CurrentUser,
+    DbSession,
+    SessionUser,
+    as_aware,
+    auth_rate_limit,
+    charge_signup,
+    forgive_auth_attempt,
+    refund_signup,
+    require_verified_email,
+)
 from app.models import AuthToken, Household, HouseholdInvite, User
 from app.observability import log_event
 from app.schemas.auth import (
@@ -17,6 +27,7 @@ from app.schemas.auth import (
     AccountDeletedOut,
     AccountDeleteIn,
     AuthOut,
+    EmailVerifyIn,
     HouseholdMemberOut,
     HouseholdOut,
     HouseholdUpdateIn,
@@ -46,7 +57,13 @@ from app.services.accounts import (
     move_user_to_household,
     withdraw_invites,
 )
-from app.services.mailer import EmailNotConfigured, EmailSendFailed, password_reset_body, send_email
+from app.services.mailer import (
+    EmailNotConfigured,
+    EmailSendFailed,
+    email_verification_body,
+    password_reset_body,
+    send_email,
+)
 from app.services.security import (
     generate_short_code,
     generate_token,
@@ -78,6 +95,16 @@ INVITE_INVALID = (
     "Ask whoever invited you for a fresh one from POST /auth/invites, or omit "
     "invite_code to start a household of your own."
 )
+
+VERIFY_CODE_INVALID = (
+    "that code is not valid — it may have expired, or a newer one may have replaced it. "
+    "POST /auth/verify-email/resend sends a fresh one"
+)
+
+#: How soon a verification code may be sent again. The address is one somebody
+#: typed at signup and may not be theirs, so resending must not be a way to
+#: fill a stranger's inbox.
+VERIFY_RESEND_COOLDOWN = timedelta(seconds=60)
 
 RESET_CODE_INVALID = (
     "that reset code is not valid — it may have been used already or expired. "
@@ -142,7 +169,13 @@ def _session_token(user: User) -> AuthToken:
 
 
 @router.post("/register", response_model=AuthOut, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_rate_limit)) -> AuthOut:
+async def register(
+    payload: RegisterIn,
+    request: Request,
+    background: BackgroundTasks,
+    db: DbSession,
+    _: None = Depends(auth_rate_limit),
+) -> AuthOut:
     """Create an account.
 
     **With no `invite_code`** you get a brand-new, empty household of your own —
@@ -163,6 +196,12 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
     refusal from `REGISTRATION_ENABLED=false`: the server is full rather than
     closed, so the answer is a waitlist rather than an invite code, and an
     invite gets past the closed door but not past a full one.
+
+    Starting a household is also limited per caller per hour (429), which
+    joining one with an invite never is. On a server that sends email, a code
+    goes to the address to confirm it (`POST /auth/verify-email`); until then
+    the account can do everything but invite people and fetch recipe URLs, and
+    `user.email_verification_pending` says so.
     """
     email = payload.email.lower()
     invite = await _find_invite(db, payload.invite_code) if payload.invite_code else None
@@ -185,6 +224,10 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
         # An invite can outlive the headroom that justified it, so the check is
         # here as well as at POST /auth/invites.
         await limits.enforce(db, invite.household, "members")
+    else:
+        # Charged last among the refusals, so a request that was going to be
+        # turned away anyway does not use up somebody's hour.
+        charge_signup(request)
 
     # The slow part, placed after every refusal so none of them pays for it,
     # and before the first write so no transaction is held open across it.
@@ -228,11 +271,130 @@ async def register(payload: RegisterIn, db: DbSession, _: None = Depends(auth_ra
         # half-made household included, which is why the ceilings are checked
         # before any of it.
         await db.rollback()
+        if invite is None:
+            refund_signup(request)  # no household was made, so none is counted
         if await _find_user(db, email) is None:
             raise  # some other constraint, and guessing at it would hide it
         raise HTTPException(status_code=409, detail=EMAIL_TAKEN) from None
     log_event("user.registered", user_id=user.id, household_id=household.id, joined_existing=invite is not None)
+    if get_settings().email_configured:
+        # After the response, like a reset code: a slow relay must not hold up
+        # the signup, and a failed send leaves a resend to fall back on.
+        background.add_task(_send_verification_code, db.bind, user.id)
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
+
+
+async def _send_verification_code(bind: AsyncEngine | AsyncConnection | None, user_id: uuid.UUID) -> bool:
+    """Mint a verification code for this account and email it. Returns whether
+    the relay took it.
+
+    Any earlier code is superseded. Committed before sending for the same reason
+    a reset code is: a code that exists but was not delivered can be resent,
+    and a delivered one with no row behind it cannot be used."""
+    settings = get_settings()
+    async with AsyncSession(bind, expire_on_commit=False) as db:
+        user = await db.get(User, user_id)
+        if user is None or user.email_verified_at is not None:
+            return False
+        await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "verify"))
+        code, code_hash = generate_short_code()
+        db.add(
+            AuthToken(
+                user_id=user.id,
+                token_hash=code_hash,
+                kind="verify",
+                expires_at=datetime.now(UTC) + timedelta(hours=settings.email_verification_ttl_hours),
+            )
+        )
+        await db.commit()
+        to, name = user.email, user.display_name
+    try:
+        await send_email(
+            to=to,
+            subject="Confirm your email for Meals",
+            body=email_verification_body(name, code, settings.email_verification_ttl_hours),
+            purpose="email_verification",
+            user_id=user_id,
+        )
+    except (EmailNotConfigured, EmailSendFailed):
+        return False  # mailer.py has logged it, by id
+    log_event("email_verification.sent", user_id=user_id)
+    return True
+
+
+@router.post("/verify-email", response_model=UserOut)
+async def verify_email(
+    payload: EmailVerifyIn, request: Request, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
+) -> UserOut:
+    """Confirm your email address with the code emailed to it at signup
+    (decision Q26). Until you do, inviting people and importing recipes from a
+    URL are refused; everything else already works.
+
+    The code only counts for the account it was sent to, so it has to be
+    redeemed signed in as that account. Asking again once confirmed changes
+    nothing and answers the same."""
+    if user.email_verified_at is not None:
+        return UserOut.model_validate(user)
+    result = await db.execute(
+        select(AuthToken).where(
+            AuthToken.token_hash == hash_short_code(payload.code),
+            AuthToken.kind == "verify",
+            AuthToken.user_id == user.id,
+        )
+    )
+    code = result.scalar_one_or_none()
+    if code is None or (code.expires_at is not None and as_aware(code.expires_at) <= datetime.now(UTC)):
+        raise HTTPException(status_code=400, detail=VERIFY_CODE_INVALID)
+    forgive_auth_attempt(request)  # right code; not a guess
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "verify"))
+    user.email_verified_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(user)
+    log_event("user.email_verified", user_id=user.id)
+    return UserOut.model_validate(user)
+
+
+@router.post("/verify-email/resend", response_model=AcceptedOut, status_code=status.HTTP_202_ACCEPTED)
+async def resend_verification(user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)) -> AcceptedOut:
+    """Send a fresh verification code to your address, replacing any earlier
+    one. At most once a minute, since the address is whatever was typed at
+    signup and may belong to somebody else."""
+    if user.email_verified_at is not None:
+        raise HTTPException(status_code=409, detail="your email address is already confirmed; there is nothing to send")
+    if not get_settings().email_configured:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "this server isn't set up to send email, so there is no code to send and nothing waits on one: "
+                "every account here can already do everything"
+            ),
+        )
+    latest = (
+        await db.execute(
+            select(AuthToken.created_at)
+            .where(AuthToken.user_id == user.id, AuthToken.kind == "verify")
+            .order_by(AuthToken.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest is not None and datetime.now(UTC) - as_aware(latest) < VERIFY_RESEND_COOLDOWN:
+        raise HTTPException(
+            status_code=429,
+            detail="a code was sent less than a minute ago; give it a moment to arrive, then check your spam folder",
+        )
+    user_id, email = user.id, user.email
+    await db.commit()  # hand the pooled connection back before talking to the relay
+    if not await _send_verification_code(db.bind, user_id):
+        raise HTTPException(
+            status_code=503,
+            detail="the code couldn't be sent just now; try again in a few minutes",
+        )
+    return AcceptedOut(
+        detail=(
+            f"a new code is on its way to {email}; it expires in "
+            f"{get_settings().email_verification_ttl_hours} hours and replaces any earlier one"
+        )
+    )
 
 
 @router.post("/login", response_model=AuthOut)
@@ -720,6 +882,7 @@ async def create_invite(payload: InviteCreateIn, user: CurrentUser, db: DbSessio
     it with `DELETE /auth/invites/{id}` and issue another. Anyone holding it can
     join, so send it the way you'd send a password."""
     await _require_lead(db, user, "invite people")
+    require_verified_email(user, "an invite")
     # The friendly place to say no: refusing here beats minting a code that
     # fails on redemption, when a second person is already waiting for it.
     await limits.enforce(db, user.household, "members")
