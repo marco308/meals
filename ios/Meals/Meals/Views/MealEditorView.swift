@@ -32,7 +32,7 @@ struct MealEditorView: View {
     var onCancel: (() -> Void)? = nil
 
     @State private var name = ""
-    @State private var slot = "dinner"
+    @State private var chosenSlots: Set<String> = ["dinner"]
     @State private var selectedRecipes: Set<UUID> = []
     @State private var looseLines: [LooseLine] = []
     @State private var looseEntry = ""
@@ -51,7 +51,7 @@ struct MealEditorView: View {
     /// Everything the save button would send, in a comparable shape.
     private struct Snapshot: Equatable {
         var name: String
-        var slot: String
+        var slots: Set<String>
         var recipes: Set<UUID>
         var scales: [UUID: Double]
         var lines: [String]
@@ -60,7 +60,7 @@ struct MealEditorView: View {
     private var snapshot: Snapshot {
         Snapshot(
             name: name,
-            slot: slot,
+            slots: chosenSlots,
             recipes: selectedRecipes,
             scales: scales.filter { selectedRecipes.contains($0.key) },
             lines: looseLines.map { line in
@@ -75,7 +75,18 @@ struct MealEditorView: View {
         return snapshot != baseline
     }
 
-    private let slots = ["dinner", "lunch", "breakfast", "other"]
+    /// Offered in meal-of-the-day order, the order the server stores them in.
+    /// A meal can fill any number: "breakfast or lunch" is one meal.
+    private static let suggestedSlots = ["breakfast", "lunch", "dinner", "snack", "other"]
+
+    /// The suggested slots plus any the meal already has that aren't among
+    /// them, so saving never drops one unasked.
+    private var slotOptions: [String] {
+        Self.suggestedSlots + chosenSlots.subtracting(Self.suggestedSlots).sorted()
+    }
+
+    /// What is sent: the chosen slots in the order they are offered.
+    private var orderedSlots: [String] { slotOptions.filter(chosenSlots.contains) }
 
     private var isEditing: Bool { mode.meal != nil }
 
@@ -97,9 +108,31 @@ struct MealEditorView: View {
         Form {
             Section {
                 TextField(namePlaceholder, text: $name)
-                Picker("Slot", selection: $slot) {
-                    ForEach(slots, id: \.self) { Text($0.capitalized) }
+            }
+
+            Section {
+                ForEach(slotOptions, id: \.self) { slot in
+                    Button {
+                        if chosenSlots.contains(slot) {
+                            chosenSlots.remove(slot)
+                        } else {
+                            chosenSlots.insert(slot)
+                        }
+                    } label: {
+                        HStack {
+                            Text(slot.capitalized).foregroundStyle(.primary)
+                            Spacer()
+                            if chosenSlots.contains(slot) {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .accessibilityAddTraits(chosenSlots.contains(slot) ? .isSelected : [])
                 }
+            } header: {
+                Text("When")
+            } footer: {
+                Text("Pick any — a meal can be breakfast or lunch.")
             }
 
             Section {
@@ -263,7 +296,7 @@ struct MealEditorView: View {
             loaded = true
             if let meal = mode.meal {
                 name = meal.name
-                slot = meal.slot ?? "other"
+                chosenSlots = Set(meal.allSlots)
                 selectedRecipes = Set(meal.recipes.map(\.id))
                 scales = Dictionary(uniqueKeysWithValues: meal.recipes.map { ($0.id, $0.scale ?? 1) })
                 looseLines = meal.looseIngredients.map {
@@ -337,7 +370,7 @@ struct MealEditorView: View {
                 saved = await planStore.updateMeal(
                     existing,
                     name: resolvedName,
-                    slot: slot,
+                    slots: orderedSlots,
                     recipeIds: Array(selectedRecipes),
                     scales: scales,
                     looseIngredients: looseLines
@@ -349,7 +382,7 @@ struct MealEditorView: View {
             } else {
                 saved = await planStore.createMeal(
                     name: resolvedName,
-                    slot: slot,
+                    slots: orderedSlots,
                     recipeIds: Array(selectedRecipes),
                     scales: scales,
                     looseIngredients: looseLines

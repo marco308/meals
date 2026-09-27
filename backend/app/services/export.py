@@ -53,6 +53,7 @@ from app.models import (
     Supermarket,
     User,
 )
+from app.services.slots import meal_slots
 
 #: The export document's own version, so an importer written later can tell
 #: what it is holding. Bump it when the shape changes in a way a reader would
@@ -173,6 +174,7 @@ def _meal(meal: Meal) -> dict:
         "id": meal.id,
         "name": meal.name,
         "slot": meal.slot,
+        "slots": meal_slots(meal),
         "times_cooked": meal.times_cooked,
         "last_cooked_at": meal.last_cooked_at,
         "created_at": meal.created_at,

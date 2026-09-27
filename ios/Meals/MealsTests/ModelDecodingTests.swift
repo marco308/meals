@@ -52,6 +52,24 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(dinner.cookedAt)
     }
 
+    func testMealWithSeveralSlotsGroupsUnderAllOfThem() throws {
+        let json = #"""
+        {"id": "d5b40ce8-6050-42b0-a0e1-3adbe39f9503", "label": "w/c", "status": "active", "meals": [
+          {"id": "1048215f-7316-4e52-a382-c08fdfb6140e", "cooked_at": null, "meal": {
+            "id": "dbc7c862-b8db-428f-97cd-09b7f5a63783", "name": "Soup", "slot": "lunch",
+            "slots": ["lunch", "dinner"], "recipes": [], "loose_ingredients": []}}]}
+        """#
+        let plan = try APIClient.decoder().decode(Plan.self, from: Data(json.utf8))
+        XCTAssertEqual(plan.meals.first?.meal.allSlots, ["lunch", "dinner"])
+        XCTAssertEqual(plan.meals.first?.meal.slotsLabel, "Lunch or dinner")
+        XCTAssertEqual(plan.slots.map(\.slot), ["lunch or dinner"])
+    }
+
+    func testMealFromAnOlderServerReadsItsOneSlot() throws {
+        let meals = try APIClient.decoder().decode([Meal].self, from: fixture("meals"))
+        XCTAssertEqual(meals.first { $0.name == "Caesar wraps" }?.allSlots, ["lunch"])
+    }
+
     func testDecodesRecipes() throws {
         let recipes = try APIClient.decoder().decode([RecipeSummary].self, from: fixture("recipes"))
         XCTAssertEqual(recipes.count, 3)

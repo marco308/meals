@@ -13,6 +13,7 @@ from app.serializers import meal_out
 from app.services.catalog import get_or_create_ingredient, get_recipe
 from app.services.scaling import ScalingError, scale_for_servings
 from app.services.shopping import get_active_list, remove_meal_contributions, resync_meal_contributions
+from app.services.slots import apply_single_slot, clean_slot, clean_slots, meal_slots, set_meal_slots
 
 router = APIRouter(prefix="/meals", tags=["meals"])
 
@@ -78,7 +79,11 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
     `{recipe_id, servings}` says the same thing in portions — 6 servings of a
     recipe that serves 4 is stored as scale 1.5 — and needs the recipe to say
     how many it serves. Send one or the other, never both. Each recipe comes
-    back with its `scale` and the `scaled_servings` that follows from it."""
+    back with its `scale` and the `scaled_servings` that follows from it.
+
+    `slots` is every time of day the meal can fill — `["breakfast", "lunch"]`
+    for a meal that works as either; `slot` is the one-slot spelling and
+    comes back as the first of them."""
     await limits.enforce(db, user.household, "meals")
     # The lines are in the payload in front of us, so this needs no query.
     await limits.enforce(
@@ -88,7 +93,8 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
         used=len(payload.resolved_recipes) + len(payload.loose_ingredients),
         adding=0,
     )
-    meal = Meal(household_id=user.household_id, name=payload.name.strip(), slot=_clean_slot(payload.slot))
+    meal = Meal(household_id=user.household_id, name=payload.name.strip())
+    set_meal_slots(meal, clean_slots(payload.slots if payload.slots is not None else [payload.slot or ""]))
     db.add(meal)
     await db.flush()
     await _set_recipes(db, user.household_id, meal, payload.resolved_recipes)
@@ -106,13 +112,17 @@ async def list_meals(
     search: str | None = Query(default=None, max_length=300),
     slot: str | None = Query(default=None, max_length=30),
 ) -> list[MealOut]:
+    """`slot` keeps the meals that can fill it, whichever of their slots it is."""
     query = select(Meal).where(Meal.household_id == user.household_id).order_by(Meal.name)
     if search:
         query = query.where(Meal.name.ilike(f"%{search}%"))
-    if slot:
-        query = query.where(Meal.slot == slot.lower())
     result = await db.execute(query)
-    return [meal_out(meal) for meal in result.scalars()]
+    meals = list(result.scalars())
+    # Filtered here rather than in SQL, like recipe tags: JSON membership is
+    # spelt differently on SQLite and Postgres, and a household's meals are few.
+    if wanted := clean_slot(slot):
+        meals = [meal for meal in meals if wanted in meal_slots(meal)]
+    return [meal_out(meal) for meal in meals]
 
 
 @router.get("/{meal_id}", response_model=MealOut)
@@ -125,7 +135,9 @@ async def get_meal_detail(meal_id: uuid.UUID, user: CurrentUser, db: DbSession) 
 
 @router.patch("/{meal_id}", response_model=MealOut)
 async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser, db: DbSession) -> MealOut:
-    """Rename, re-slot, or change composition. Composition changes re-sync
+    """Rename, re-slot, or change composition. `slots` replaces the whole list
+    (`[]` clears it); `slot` alone, re-sending one the meal already has,
+    leaves the others where they are. Composition changes re-sync
     the meal's contributions on the active shopping list.
 
     Changing a recipe's `scale` is a composition change: send the whole
@@ -137,8 +149,10 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
         raise HTTPException(status_code=404, detail="meal not found; list meals via GET /meals")
     if payload.name is not None:
         meal.name = payload.name.strip()
-    if "slot" in payload.model_fields_set:
-        meal.slot = _clean_slot(payload.slot)
+    if "slots" in payload.model_fields_set:
+        set_meal_slots(meal, clean_slots(payload.slots))
+    elif "slot" in payload.model_fields_set:
+        apply_single_slot(meal, payload.slot)
     recipes = payload.resolved_recipes
     composition_changed = recipes is not None or payload.loose_ingredients is not None
     if composition_changed:
@@ -190,10 +204,3 @@ async def delete_meal(meal_id: uuid.UUID, user: CurrentUser, db: DbSession) -> N
     await db.flush()
     await db.delete(meal)
     await db.commit()
-
-
-def _clean_slot(slot: str | None) -> str | None:
-    if slot is None:
-        return None
-    cleaned = slot.strip().lower()
-    return cleaned or None

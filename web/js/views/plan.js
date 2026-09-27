@@ -132,7 +132,7 @@ function planMeal(pm, plan, isActive) {
       <div class="m-main">
         <a class="m-name" href="#/meals/${meal.id}">${meal.name}</a>
         <div class="m-meta">
-          ${meal.slot && html`<span class="chip">${meal.slot}</span>`}
+          ${meal.slots.map((slot) => html`<span class="chip">${slot}</span>`)}
           ${cookedChip(pm, meal)}
         </div>
       </div>

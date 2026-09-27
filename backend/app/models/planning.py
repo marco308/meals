@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -22,15 +23,18 @@ from app.models.users import utcnow
 
 class Meal(Base):
     """The unit of planning: zero or more recipes plus loose ingredients
-    (the cottage-pie-with-peas-and-carrots case). Slot groups meals in the
-    plan view but is never tied to a specific day."""
+    (the cottage-pie-with-peas-and-carrots case). Slots say when it can be
+    eaten ("breakfast or lunch") but never tie it to a specific day.
+    `slot` is the first of `slots`, kept for clients older than the list —
+    see services/slots.py."""
 
     __tablename__ = "meals"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id"))
     name: Mapped[str] = mapped_column(String(300), index=True)
-    slot: Mapped[str | None] = mapped_column(String(30), default=None)  # dinner | lunch | breakfast | ...
+    slot: Mapped[str | None] = mapped_column(String(30), default=None)  # slots[0], or None
+    slots: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Denormalised read model over cooked_events — see CookedEvent.
     times_cooked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

@@ -1,11 +1,13 @@
 import uuid
 from datetime import date, datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.catalog import RecipeLineOut, RecipeSummary
 from app.schemas.common import IngredientLineIn
 from app.services.scaling import MAX_SCALE
+from app.services.slots import MAX_SLOTS
 
 _BOTH_RECIPE_FIELDS = (
     "send either recipe_ids or recipes, not both — recipes is the same list "
@@ -53,9 +55,15 @@ def _resolve_recipes(
     return None
 
 
+SlotName = Annotated[str, Field(max_length=30)]
+
+
 class MealCreate(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     slot: str | None = Field(default=None, max_length=30)
+    # When both are sent, `slots` wins: `slot` is the one-slot spelling older
+    # clients know.
+    slots: list[SlotName] | None = Field(default=None, max_length=MAX_SLOTS)
     recipe_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
     recipes: list[MealRecipeIn] | None = Field(default=None, max_length=20)
     loose_ingredients: list[IngredientLineIn] = Field(default_factory=list, max_length=50)
@@ -74,6 +82,7 @@ class MealCreate(BaseModel):
 class MealUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=300)
     slot: str | None = Field(default=None, max_length=30)
+    slots: list[SlotName] | None = Field(default=None, max_length=MAX_SLOTS)
     recipe_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
     recipes: list[MealRecipeIn] | None = Field(default=None, max_length=20)
     loose_ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=50)
@@ -107,7 +116,8 @@ class MealRecipeOut(RecipeSummary):
 class MealOut(BaseModel):
     id: uuid.UUID
     name: str
-    slot: str | None
+    slot: str | None  # the first of `slots`, for clients older than the list
+    slots: list[str] = Field(default_factory=list)
     recipes: list[MealRecipeOut]
     loose_ingredients: list[RecipeLineOut]
     created_at: datetime

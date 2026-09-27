@@ -627,6 +627,42 @@ class TestMealEditing:
         assert body == {"name": "Cottage pie with peas", "slot": "lunch"}
 
     @respx.mock
+    async def test_slots_are_sent_whole_and_read_back(self):
+        import json
+
+        self._mock_meal_library()
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "m1",
+                    "name": "Cottage pie",
+                    "slot": "lunch",
+                    "slots": ["lunch", "dinner"],
+                    "recipes": [],
+                    "loose_ingredients": [],
+                },
+            )
+        )
+        result = await server.update_meal("Cottage pie", slots=["lunch", "dinner"], slot="breakfast")
+        assert json.loads(route.calls.last.request.content) == {"slots": ["lunch", "dinner"]}
+        assert "(lunch or dinner)" in result
+
+    @respx.mock
+    async def test_create_meal_with_slots_sends_no_slot(self):
+        import json
+
+        route = respx.post(f"{API}/meals").mock(
+            return_value=httpx.Response(
+                201, json={"id": "m2", "name": "Omelette", "slot": "breakfast", "slots": ["breakfast", "lunch"]}
+            )
+        )
+        result = await server.create_meal("Omelette", slots=["breakfast", "lunch"])
+        body = json.loads(route.calls.last.request.content)
+        assert body["slots"] == ["breakfast", "lunch"] and "slot" not in body
+        assert "Omelette (breakfast or lunch)" in result
+
+    @respx.mock
     async def test_no_changes_is_explained_not_sent(self):
         self._mock_meal_library()
         patch = respx.patch(f"{API}/meals/m1")
@@ -674,6 +710,11 @@ class TestPlan:
                             "cooked_at": "2026-07-21T19:00:00Z",
                             "meal": {"name": "Caesar wraps", "slot": "lunch", "recipes": []},
                         },
+                        {
+                            "id": "pm3",
+                            "cooked_at": None,
+                            "meal": {"name": "Soup", "slot": "lunch", "slots": ["lunch", "dinner"], "recipes": []},
+                        },
                     ],
                 },
             )
@@ -683,6 +724,7 @@ class TestPlan:
         assert "Dinner:" in result and "Lunch:" in result
         assert "Spag bol (Spaghetti Bolognese, 60 min)" in result  # options with cook times
         assert "Caesar wraps ✔ cooked" in result
+        assert "Lunch or dinner:\n  - Soup" in result
 
     @respx.mock
     async def test_remove_meal_by_name_suggests_on_miss(self):

@@ -496,7 +496,7 @@ extension APIClient {
 
     func createMeal(
         name: String,
-        slot: String?,
+        slots: [String],
         recipeIds: [UUID],
         scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine] = []
@@ -505,7 +505,9 @@ extension APIClient {
             "POST", "/meals",
             json: [
                 "name": name,
-                "slot": slot,
+                // `slot` too, for a self-hosted server older than the list.
+                "slot": slots.first,
+                "slots": slots,
                 "recipes": Self.recipePayload(recipeIds, scales),
                 "loose_ingredients": Self.linePayload(looseIngredients),
             ],
@@ -520,14 +522,17 @@ extension APIClient {
     func updateMeal(
         id: UUID,
         name: String? = nil,
-        slot: String? = nil,
+        slots: [String]? = nil,
         recipeIds: [UUID]? = nil,
         scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine]? = nil
     ) async throws -> Meal {
         var payload: [String: Any?] = [:]
         if let name { payload["name"] = name }
-        if let slot { payload["slot"] = slot }
+        if let slots {
+            payload["slot"] = Self.nullable(slots.first)
+            payload["slots"] = slots
+        }
         if let recipeIds { payload["recipes"] = Self.recipePayload(recipeIds, scales) }
         if let looseIngredients { payload["loose_ingredients"] = Self.linePayload(looseIngredients) }
         return try await send("PATCH", "/meals/\(id.uuidString.lowercased())", json: payload, as: Meal.self)

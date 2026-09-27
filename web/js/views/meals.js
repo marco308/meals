@@ -7,6 +7,20 @@ import { linesEditor } from "./lines.js";
 
 let query = { search: "", slot: "" };
 
+// The slots every meal editor offers, in meal-of-the-day order — the same
+// list and order the API stores them in (services/slots.py). A meal can fill
+// any number of them: "breakfast or lunch" is one meal, not two.
+const SUGGESTED_SLOTS = ["breakfast", "lunch", "dinner", "snack", "other"];
+
+function bySlotOrder(slots) {
+  const known = SUGGESTED_SLOTS.filter((slot) => slots.includes(slot));
+  return [...known, ...slots.filter((slot) => !SUGGESTED_SLOTS.includes(slot)).sort()];
+}
+
+function slotChips(meal) {
+  return meal.slots.map((slot) => html`<span class="chip">${slot}</span>`);
+}
+
 // The multiplier behind a portion count, shown next to it because the
 // shopping list works in multiples and "×1.5" is how batch cooking is said.
 function timesLabel(entry) {
@@ -50,7 +64,7 @@ export async function renderMeals(root) {
       if (ticket !== seq) return; // a newer filter overtook this fetch
       count.textContent = `${meals.length} to choose from`;
 
-      const slots = [...new Set(meals.map((m) => m.slot).filter(Boolean))].sort();
+      const slots = bySlotOrder([...new Set(meals.flatMap((m) => m.slots))]);
       render(slotsBox, html`${slots.map((slot) => html`<button class="chip click ${query.slot === slot ? "on" : ""}" data-slot="${slot}">${slot}</button>`)}`);
       for (const chip of slotsBox.querySelectorAll("[data-slot]")) {
         chip.onclick = () => {
@@ -75,7 +89,7 @@ export async function renderMeals(root) {
                       </div>
                     </div>
                     <div class="rc-side">
-                      ${meal.slot && html`<span class="chip">${meal.slot}</span>`}
+                      ${slotChips(meal)}
                       ${meal.times_cooked > 0
                         ? html`<span class="chip red">cooked ${meal.times_cooked}×</span>`
                         : html`<span class="chip green">new</span>`}
@@ -110,7 +124,7 @@ export async function renderMealDetail(root, mealId) {
         <div>
           <h1>${foodEmoji(meal.name)} ${meal.name}</h1>
           <div class="meta-chips">
-            ${meal.slot && html`<span class="chip">${meal.slot}</span>`}
+            ${slotChips(meal)}
             ${meal.times_cooked > 0
               ? html`<span class="chip red">cooked ${meal.times_cooked}× · last ${fmtRel(meal.last_cooked_at)}</span>`
               : html`<span class="chip green">never cooked</span>`}
@@ -207,6 +221,11 @@ export async function renderMealEditor(root, mealId) {
       }))
     : [];
 
+  // A slot typed in before the picker existed ("batch-cook") stays on offer,
+  // so saving the meal never drops it unasked.
+  const chosen = meal?.slots ?? [];
+  const slotOptions = bySlotOrder([...new Set([...SUGGESTED_SLOTS, ...chosen])]);
+
   render(root, html`
     <div class="page narrow">
       <div class="crumb"><a href="${meal ? `#/meals/${meal.id}` : "#/meals"}">← ${meal ? meal.name : "Meals"}</a></div>
@@ -215,10 +234,14 @@ export async function renderMealEditor(root, mealId) {
         <div class="form-row">
           <label class="field"><span>Name</span>
             <input type="text" name="name" required value="${meal?.name ?? ""}" placeholder="Cottage pie with peas"></label>
-          <label class="field"><span>Slot (optional)</span>
-            <input type="text" name="slot" value="${meal?.slot ?? ""}" list="slot-suggestions" placeholder="dinner">
-            <datalist id="slot-suggestions"><option value="dinner"><option value="lunch"><option value="breakfast"></datalist></label>
         </div>
+
+        <fieldset class="field slot-picker">
+          <legend class="field-label">When (pick any)</legend>
+          ${slotOptions.map(
+            (slot) => html`<label class="chip click"><input type="checkbox" name="slots" value="${slot}" ${chosen.includes(slot) ? "checked" : ""}>${slot}</label>`,
+          )}
+        </fieldset>
 
         <div class="field-label">Recipes</div>
         <div data-picked></div>
@@ -329,10 +352,10 @@ export async function renderMealEditor(root, mealId) {
 
   root.querySelector("[data-f]").onsubmit = async (event) => {
     event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
+    const form = new FormData(event.target);
     const body = {
-      name: data.name.trim(),
-      slot: data.slot.trim() || null,
+      name: form.get("name").trim(),
+      slots: form.getAll("slots"),
       // One key or the other per recipe — the API refuses both together.
       recipes: picked.map(({ recipe_id, servings, scale, wanted }) =>
         servings ? { recipe_id, servings: wanted ?? servings } : { recipe_id, scale },

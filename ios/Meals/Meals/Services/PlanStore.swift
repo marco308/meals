@@ -140,7 +140,7 @@ final class PlanStore {
     func addRecipe(_ recipe: Recipe) async -> Meal? {
         do {
             let target = try await planForWriting()
-            guard let meal = await createMeal(name: recipe.title, slot: "dinner", recipeIds: [recipe.id]) else {
+            guard let meal = await createMeal(name: recipe.title, slots: ["dinner"], recipeIds: [recipe.id]) else {
                 return nil
             }
             try await put(meal, on: target)
@@ -203,14 +203,14 @@ final class PlanStore {
 
     func createMeal(
         name: String,
-        slot: String?,
+        slots: [String],
         recipeIds: [UUID],
         scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine] = []
     ) async -> Meal? {
         do {
             let meal = try await api().createMeal(
-                name: name, slot: slot, recipeIds: recipeIds, scales: scales, looseIngredients: looseIngredients
+                name: name, slots: slots, recipeIds: recipeIds, scales: scales, looseIngredients: looseIngredients
             )
             mealLibrary.append(meal)
             return meal
@@ -226,7 +226,7 @@ final class PlanStore {
     func updateMeal(
         _ meal: Meal,
         name: String? = nil,
-        slot: String? = nil,
+        slots: [String]? = nil,
         recipeIds: [UUID]? = nil,
         scales: [UUID: Double] = [:],
         looseIngredients: [LooseLine]? = nil
@@ -235,7 +235,7 @@ final class PlanStore {
             let updated = try await api().updateMeal(
                 id: meal.id,
                 name: name,
-                slot: slot,
+                slots: slots,
                 recipeIds: recipeIds,
                 scales: scales,
                 looseIngredients: looseIngredients

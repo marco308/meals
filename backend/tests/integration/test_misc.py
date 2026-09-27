@@ -259,8 +259,8 @@ class TestPublicPages:
 # Without this, guidance can ship under an unchanged number — which is exactly
 # what happened when the premium/budget tools landed on v1: a stale v1 copy
 # compared v1 to v1, found no drift, and never learned the tools existed.
-PINNED_PLAYBOOK_VERSION = 17
-PINNED_PLAYBOOK_DIGEST = "c41c0cf8ad52f8de1e19b18a3f2e948dcb5efd1157029d59ff69d55e2abb7508"
+PINNED_PLAYBOOK_VERSION = 18
+PINNED_PLAYBOOK_DIGEST = "0b662976665e98d64622f237956a0e01ffb0819fc6acdf5cdd18522ce2c0b6cb"
 
 _VERSION_STAMP = re.compile(r"<!--\s*playbook-version:\s*\d+\s*-->\n?")
 _VERSION_PROSE = re.compile(r"playbook v\d+", re.IGNORECASE)
