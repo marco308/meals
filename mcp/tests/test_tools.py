@@ -324,6 +324,9 @@ class TestValueTier:
     @respx.mock
     async def test_a_name_the_ingredient_is_filed_under_resolves(self):
         """Names are stored folded, so 'mint leaves' has to find 'mint'."""
+        respx.get(f"{API}/ingredients", params={"search": "mint leaves"}).mock(
+            return_value=httpx.Response(200, json=[])
+        )
         respx.get(f"{API}/ingredients", params={"name": "mint leaves"}).mock(
             return_value=httpx.Response(200, json=[self._ingredient(name="mint")])
         )
@@ -777,10 +780,15 @@ class TestDuplicateIngredients:
 
     @respx.mock
     async def test_merge_resolves_names_then_folds(self):
+        """The API folds a `name=` lookup, so "garlic cloves" resolves to the
+        keeper there; the stored row is found by its exact name first."""
         keeper = self._ingredient("garlic", "1" * 32)
         respx.post(f"{API}/ingredients").mock(return_value=httpx.Response(201, json=keeper))
-        respx.get(f"{API}/ingredients", params={"name": "garlic cloves"}).mock(
+        respx.get(f"{API}/ingredients", params={"search": "garlic cloves"}).mock(
             return_value=httpx.Response(200, json=[self._ingredient("garlic cloves", "2" * 32)])
+        )
+        folded = respx.get(f"{API}/ingredients", params={"name": "garlic cloves"}).mock(
+            return_value=httpx.Response(200, json=[keeper])
         )
         merge = respx.post(f"{API}/ingredients/{'1' * 32}/merge").mock(
             return_value=httpx.Response(200, json={"ingredient": keeper, "merged": 1})
@@ -788,11 +796,35 @@ class TestDuplicateIngredients:
         result = await server.merge_ingredients("garlic", ["garlic cloves"])
         assert json.loads(merge.calls.last.request.content) == {"duplicate_ids": ["2" * 32]}
         assert "Merged 1 into 'garlic'" in result
+        assert not folded.called
+
+    @respx.mock
+    async def test_renames_a_row_the_report_calls_unfolded(self):
+        """Production, after #168: "soft goat' cheese" folds to the name it is
+        being renamed to, so the folded lookup alone found only the keeper and
+        answered "Nothing to merge"."""
+        keeper = self._ingredient("soft goat's cheese", "1" * 32)
+        respx.post(f"{API}/ingredients").mock(return_value=httpx.Response(201, json=keeper))
+        respx.get(f"{API}/ingredients", params={"search": "soft goat' cheese"}).mock(
+            return_value=httpx.Response(200, json=[self._ingredient("soft goat' cheese", "2" * 32)])
+        )
+        respx.get(f"{API}/ingredients", params={"name": "soft goat' cheese"}).mock(
+            return_value=httpx.Response(200, json=[keeper])
+        )
+        merge = respx.post(f"{API}/ingredients/{'1' * 32}/merge").mock(
+            return_value=httpx.Response(200, json={"ingredient": keeper, "merged": 1})
+        )
+        result = await server.merge_ingredients("soft goat's cheese", ["soft goat' cheese"])
+        assert json.loads(merge.calls.last.request.content) == {"duplicate_ids": ["2" * 32]}
+        assert "Merged 1" in result
 
     @respx.mock
     async def test_merging_a_name_into_itself_says_so_without_calling_merge(self):
         keeper = self._ingredient("garlic", "1" * 32)
         respx.post(f"{API}/ingredients").mock(return_value=httpx.Response(201, json=keeper))
+        respx.get(f"{API}/ingredients", params={"search": "garlic cloves"}).mock(
+            return_value=httpx.Response(200, json=[])
+        )
         respx.get(f"{API}/ingredients", params={"name": "garlic cloves"}).mock(
             return_value=httpx.Response(200, json=[keeper])
         )
@@ -807,7 +839,7 @@ class TestDeleteIngredient:
 
     @respx.mock
     async def test_deletes_by_name(self):
-        respx.get(f"{API}/ingredients", params={"name": self._junk["name"]}).mock(
+        respx.get(f"{API}/ingredients", params={"search": self._junk["name"]}).mock(
             return_value=httpx.Response(200, json=[self._junk])
         )
         delete = respx.delete(f"{API}/ingredients/{self._junk['id']}").mock(return_value=httpx.Response(204))
@@ -817,7 +849,7 @@ class TestDeleteIngredient:
 
     @respx.mock
     async def test_still_referenced_passes_the_409_back(self):
-        respx.get(f"{API}/ingredients", params={"name": self._junk["name"]}).mock(
+        respx.get(f"{API}/ingredients", params={"search": self._junk["name"]}).mock(
             return_value=httpx.Response(200, json=[self._junk])
         )
         respx.delete(f"{API}/ingredients/{self._junk['id']}").mock(
