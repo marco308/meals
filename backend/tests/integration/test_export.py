@@ -66,7 +66,10 @@ async def furnish(client, *, extra: dict | None = None) -> dict:
     plan_meal = added.json()["meals"][0]  # the response is the whole plan; the link id is in it
     cooked = await client.post(f"/plans/{plan['id']}/meals/{plan_meal['id']}/cooked")
     assert cooked.status_code == 200
-    market = await client.post("/supermarkets", json={"name": "Aldi", "aisle_order": ["🧊", "🥬"], "is_active": True})
+    market = await client.post(
+        "/supermarkets",
+        json={"name": "Aldi", "aisle_order": ["🧊", "🥬"], "is_active": True, "latitude": 50.83, "longitude": -0.17},
+    )
     assert market.status_code == 201
     added_item = await client.post("/shopping-list/items", json={"name": "bin bags", "quantity": 1, "unit": "item"})
     assert added_item.status_code == 201
@@ -133,6 +136,12 @@ class TestTheWholeHousehold:
         meal = (await exported(auth_client))["meals"][0]
         assert [link["title"] for link in meal["recipes"]] == ["Spaghetti Bolognese"]
         assert [line["name"] for line in meal["loose_ingredients"]] == ["peas"]
+
+    async def test_a_supermarket_carries_where_it_is(self, auth_client):
+        await furnish(auth_client)
+        market = (await exported(auth_client))["supermarkets"][0]
+        assert (market["latitude"], market["longitude"]) == (50.83, -0.17)
+        assert market["radius_m"] is None  # the stored value: null means the default, which may change
 
     async def test_a_list_carries_its_items_and_why_each_is_on_it(self, auth_client):
         await furnish(auth_client)

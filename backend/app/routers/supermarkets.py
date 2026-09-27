@@ -5,6 +5,11 @@ shops at and mark one *active*. The active order is what `GET /shopping-list`
 sorts by and what `GET /aisles` returns — clients (including iOS, which
 refetches `/aisles` every list load) follow along without knowing
 supermarkets exist. No active supermarket = the built-in order.
+
+A supermarket can also carry where it is (`latitude`, `longitude`,
+`radius_m`), which lets a phone standing in it sort by its walk without
+changing the household's active store. That is the store's location, never
+a user's (Q25).
 """
 
 import uuid
@@ -16,7 +21,13 @@ from app import limits
 from app.deps import CurrentUser, DbSession
 from app.models import Supermarket
 from app.schemas.shopping import SupermarketCreate, SupermarketOut, SupermarketUpdate
-from app.services.supermarkets import effective_aisle_order, invalid_aisle_order_detail
+from app.services.supermarkets import (
+    HALF_LOCATION_DETAIL,
+    effective_aisle_order,
+    effective_radius,
+    invalid_aisle_order_detail,
+    is_half_location,
+)
 
 router = APIRouter(prefix="/supermarkets", tags=["supermarkets"])
 
@@ -28,6 +39,9 @@ def _out(market: Supermarket) -> SupermarketOut:
         aisle_order=effective_aisle_order(market.aisle_order),
         is_active=market.is_active,
         created_at=market.created_at,
+        latitude=market.latitude,
+        longitude=market.longitude,
+        radius_m=effective_radius(market),
     )
 
 
@@ -51,7 +65,9 @@ async def create_supermarket(payload: SupermarketCreate, user: CurrentUser, db: 
     `aisle_order` is aisle emojis first-to-last as you walk that store; any
     you leave out keep their usual place at the end, and omitting it entirely
     starts from the built-in order. `is_active: true` makes it the order the
-    shopping list sorts in right away."""
+    shopping list sorts in right away. `latitude` and `longitude` (together)
+    say where the store is, for the apps to use; leave them out if you only
+    know the store's name, since the apps set them from a map."""
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="supermarket name cannot be blank")
@@ -68,12 +84,17 @@ async def create_supermarket(payload: SupermarketCreate, user: CurrentUser, db: 
         problem = invalid_aisle_order_detail(payload.aisle_order)
         if problem is not None:
             raise HTTPException(status_code=422, detail=problem)
+    if is_half_location(payload.latitude, payload.longitude):
+        raise HTTPException(status_code=422, detail=HALF_LOCATION_DETAIL)
     await limits.enforce(db, user.household, "supermarkets")
     market = Supermarket(
         household_id=user.household_id,
         name=name,
         aisle_order=payload.aisle_order or [],
         is_active=payload.is_active,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        radius_m=payload.radius_m,
     )
     if payload.is_active:
         await _deactivate_all(db, user.household_id)
@@ -89,7 +110,8 @@ async def update_supermarket(
     """Rename a supermarket, replace its aisle walking order, or switch the
     active store: `{"is_active": true}` sorts the shopping list for this one
     ("we're at Aldi today"), `{"is_active": false}` goes back to the built-in
-    order."""
+    order. `latitude` and `longitude` move the store (send both), both null
+    forgets where it is."""
     market = await _get(db, user.household_id, supermarket_id)
     if payload.name is not None:
         name = payload.name.strip()
@@ -106,6 +128,18 @@ async def update_supermarket(
         if problem is not None:
             raise HTTPException(status_code=422, detail=problem)
         market.aisle_order = payload.aisle_order
+    sent = payload.model_fields_set
+    if "latitude" in sent or "longitude" in sent:
+        # Both must be present, as numbers or as nulls: one field left out is
+        # as much half a location as one field set to null.
+        if not {"latitude", "longitude"} <= sent or is_half_location(payload.latitude, payload.longitude):
+            raise HTTPException(status_code=422, detail=HALF_LOCATION_DETAIL)
+        market.latitude = payload.latitude
+        market.longitude = payload.longitude
+        if payload.latitude is None:
+            market.radius_m = None  # a radius around nowhere means nothing
+    if "radius_m" in sent:
+        market.radius_m = payload.radius_m  # null goes back to the default
     if payload.is_active is not None:
         if payload.is_active:
             # keep= skips this row: bulk-updating it while its ORM attribute

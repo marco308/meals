@@ -830,7 +830,10 @@ async def finish_shop() -> str:
 
 def _fmt_market(market: dict) -> str:
     active = "  ← active (the list sorts for this store)" if market["is_active"] else ""
-    return f"{market['name']}: {' '.join(market['aisle_order'])}{active}"
+    # Where the store is gets set in the apps (a map search, or the web's
+    # "where I am now"); an assistant only needs to know one is saved.
+    located = "  📍" if market.get("latitude") is not None else ""
+    return f"{market['name']}: {' '.join(market['aisle_order'])}{located}{active}"
 
 
 @mcp.tool()

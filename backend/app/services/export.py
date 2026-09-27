@@ -255,6 +255,9 @@ def _supermarket(market: Supermarket) -> dict:
         "name": market.name,
         "aisle_order": list(market.aisle_order or []),
         "is_active": market.is_active,
+        "latitude": market.latitude,
+        "longitude": market.longitude,
+        "radius_m": market.radius_m,
         "created_at": market.created_at,
     }
 
