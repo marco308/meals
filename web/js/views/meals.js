@@ -14,22 +14,22 @@ function timesLabel(entry) {
   return scale === 1 ? "" : `×${Number(scale.toFixed(2))}`;
 }
 
-// Up to four of the meal's recipe photos as one square tile, so a row reads
-// as the food rather than its name. A meal with no photographed recipe keeps
-// the emoji, in a tile the same size so the titles still line up.
+// Up to four of the meal's recipe photos as the card's picture, so a meal
+// looks like its food the way a recipe card does. A meal with no
+// photographed recipe shows its emoji where the photo would be.
 function mealPhotos(meal) {
   const urls = meal.recipes.map((r) => r.image_url).filter(Boolean).slice(0, 4);
-  if (urls.length === 0) return html`<span class="rc-photos" data-n="0" aria-hidden="true">${foodEmoji(meal.name)}</span>`;
+  if (urls.length === 0) return html`<div class="r-img" aria-hidden="true">${foodEmoji(meal.name)}</div>`;
   return html`
-    <span class="rc-photos" data-n="${urls.length}" aria-hidden="true">
+    <div class="r-img photo-mosaic" data-n="${urls.length}" aria-hidden="true">
       ${urls.map((url) => html`<img src="${url}" alt="" loading="lazy">`)}
-    </span>
+    </div>
   `;
 }
 
 export async function renderMeals(root) {
   render(root, html`
-    <div class="page narrow">
+    <div class="page">
       <div class="page-head">
         <div>
           <h1>Meals</h1>
@@ -75,28 +75,28 @@ export async function renderMeals(root) {
       render(results, meals.length === 0
         ? emptyState("🍽️", "No meals yet", "A meal is a recipe (or a few) with any extras — make one and it becomes a plan option.", html`<a class="btn" href="#/meals/new">＋ New meal</a>`)
         : html`
-            <ul class="row-list">
+            <div class="recipe-grid">
               ${meals.map(
                 (meal) => html`
-                  <a class="row-card" href="#/meals/${meal.id}">
+                  <a class="recipe-card" href="#/meals/${meal.id}">
                     ${mealPhotos(meal)}
-                    <div class="rc-main">
-                      <div class="rc-title">${meal.name}</div>
-                      <div class="rc-sub">
+                    <div class="r-body">
+                      <div class="r-title">${meal.name}</div>
+                      <div class="r-sub">
                         ${meal.recipes.map((r) => r.title).join(" + ") || "loose ingredients"}
                         ${meal.loose_ingredients.length > 0 && meal.recipes.length > 0 ? " + extras" : ""}
                       </div>
-                    </div>
-                    <div class="rc-side">
-                      ${meal.slot && html`<span class="chip">${meal.slot}</span>`}
-                      ${meal.times_cooked > 0
-                        ? html`<span class="chip red">cooked ${meal.times_cooked}×</span>`
-                        : html`<span class="chip green">new</span>`}
+                      <div class="r-meta">
+                        ${meal.slot && html`<span class="chip">${meal.slot}</span>`}
+                        ${meal.times_cooked > 0
+                          ? html`<span class="chip red">cooked ${meal.times_cooked}×</span>`
+                          : html`<span class="chip green">new</span>`}
+                      </div>
                     </div>
                   </a>
                 `,
               )}
-            </ul>
+            </div>
           `);
     } catch (error) {
       if (ticket === seq) toast(error.detail || error.message, "error");
