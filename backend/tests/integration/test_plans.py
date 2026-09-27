@@ -119,3 +119,28 @@ class TestListPlans:
         archived = await auth_client.get("/plans", params={"status": "archived"})
         assert archived.json()[0]["label"] == "one"
         assert archived.json()[0]["meal_count"] == 1
+
+
+class TestMenuOrder:
+    """Cooked meals drop to the bottom of the plan, so what is left to cook
+    is what you see first."""
+
+    async def test_cooked_meals_follow_the_rest_most_recent_last(self, auth_client):
+        plan = await create_plan(auth_client)
+        entries = {}
+        for name in ("Aubergine", "Burgers", "Chilli"):
+            meal = await create_meal(auth_client, name=name)
+            added = await auth_client.post(f"/plans/{plan['id']}/meals", json={"meal_id": meal["id"]})
+            entries[name] = next(pm["id"] for pm in added.json()["meals"] if pm["meal"]["id"] == meal["id"])
+
+        async def order(response) -> list[str]:
+            assert response.status_code == 200, response.text
+            return [pm["meal"]["name"] for pm in response.json()["meals"]]
+
+        await auth_client.post(f"/plans/{plan['id']}/meals/{entries['Burgers']}/cooked")
+        cooked = await auth_client.post(f"/plans/{plan['id']}/meals/{entries['Aubergine']}/cooked")
+        assert await order(cooked) == ["Chilli", "Burgers", "Aubergine"]
+        assert await order(await auth_client.get(f"/plans/{plan['id']}")) == ["Chilli", "Burgers", "Aubergine"]
+
+        uncooked = await auth_client.delete(f"/plans/{plan['id']}/meals/{entries['Burgers']}/cooked")
+        assert await order(uncooked) == ["Burgers", "Chilli", "Aubergine"]

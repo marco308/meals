@@ -22,6 +22,18 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-27 — cooked meals sink
+
+Released as **1.7.4**. No migrations, and nothing in the API changed shape.
+
+### Changed
+
+- **Cooked meals drop to the bottom of the plan.** A plan's `meals` come back
+  with what is still to cook first, in the order it was added, then what has
+  been cooked, most recent last; un-cooking one moves it back up. The server
+  orders them, so the web app and every iPhone build already installed follow
+  without an update.
+
 ## 2026-09-27 — meals fill more than one slot, show as cards, and stop multiplying
 
 Released as **1.7.3**. One migration, additive only: `a1c5e9d3b7f2` adds
