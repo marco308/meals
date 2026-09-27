@@ -20,6 +20,13 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-09-27 — email verification, and meals show their food
+
+Released as **1.7.2**. One migration, additive only: `c4e8a1f2d9b3` adds
+`users.email_verified_at` and `households.reap_warned_at`, both nullable.
+
 ### Added
 
 - **Email verification** (#122, Q26). On a server with SMTP, registering emails
@@ -33,9 +40,19 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - **Reaping households that never began**, after warning them:
   `python -m app.reaping` from cron, off unless `REAP_ABANDONED_AFTER_DAYS` is
   set. See Q26 for exactly what counts.
+- **The web app's Meals list shows the food.** Each row's emoji is now a
+  square tile of up to four of the meal's recipe photos (one fills it, two
+  split it, three are one tall and two stacked, four are a 2×2). A meal with no
+  photographed recipe keeps its emoji. Nothing changed in the API: meal
+  recipes already carried `image_url`.
 
-Migration `c4e8a1f2d9b3` adds `users.email_verified_at` and
-`households.reap_warned_at`, both nullable.
+### Fixed
+
+- **Ingredient parsing** ([#191](https://github.com/marco308/meals/pull/191)):
+  mixed numbers ("1 1/2 tbsp") parse whole, a "2 x" line only takes a unit the
+  parser knows, brackets are stripped before the comma split ("butter
+  (unsalted, softened)"), and the protected-phrase fold is no longer cubic in
+  a recipe's name lengths, which could hold the event loop for seconds.
 
 ## 2026-09-27 — the server announces iOS build 30
 
