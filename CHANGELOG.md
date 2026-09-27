@@ -22,6 +22,45 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-27 — supermarkets know where they are
+
+Released as **1.7.0**. **One migration** (`c4e7a2d91b30`), additive only: three
+nullable columns on `supermarkets`, safe while the old task is still serving.
+Nothing in the API changed shape except new optional fields.
+
+### Added
+
+- **A supermarket can say where the store is**
+  ([#181](https://github.com/marco308/meals/issues/181), decision Q25).
+  `latitude`, `longitude` and `radius_m` are optional on `POST` and
+  `PATCH /supermarkets` and returned by `GET /supermarkets`. Latitude and
+  longitude travel together (half a location is a 422 saying so), both null
+  forgets the location, and `radius_m` defaults to 150 m (50 to 1000). It is the
+  store's location, never a user's: the server has no field that could hold
+  where a person is. The web app's Settings gains "Set to where I am now" and
+  "Forget location" on each store, the household export carries the fields,
+  and the MCP `list_supermarkets` marks a located store with 📍. `PRIVACY.md`
+  says what is and isn't stored. This is what iOS build 30 matches against to
+  sort the list by the store you're standing in
+  ([#182](https://github.com/marco308/meals/issues/182)); against this release
+  that build finally has something to match.
+
+### Fixed
+
+- **HTML entities no longer end up in ingredient names**
+  ([#170](https://github.com/marco308/meals/issues/170)). Some sites escape the
+  strings inside their JSON-LD, so `dijon mustard&nbsp;` was stored beside
+  `dijon mustard`. Ingest decodes them in titles, steps, tags and ingredient
+  lines, and every ingredient name is decoded before it is folded, so the two
+  bad rows already in production now show up in
+  `GET /ingredients/duplicates` and can be merged away.
+- **`merge_ingredients` can rename a row listed as `unfolded`**
+  (PR [#180](https://github.com/marco308/meals/pull/180)). The MCP tools looked
+  every name up through the folded `name=` search, so the old spelling resolved
+  to the keeper the tool had just created and the merge answered "Nothing to
+  merge", leaving an empty row behind. A row stored under exactly the given
+  name is now found first. MCP only; no API change.
+
 ## 2026-09-26 — ground cloves, goat's cheese and pea shoots keep their names
 
 Released as **1.6.9**. No migrations, and nothing in the API changed shape.
