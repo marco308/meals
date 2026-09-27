@@ -22,9 +22,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
-## 2026-09-27 — one meal per meal, shown as cards
+## 2026-09-27 — meals fill more than one slot, show as cards, and stop multiplying
 
-Released as **1.7.3**. No migrations, and nothing in the API changed shape.
+Released as **1.7.3**. One migration, additive only: `a1c5e9d3b7f2` adds
+`meals.slots`, backfilled from `slot`. Guidance changed, so this is
+**playbook v18**.
 
 ### Changed
 
@@ -34,8 +36,14 @@ Released as **1.7.3**. No migrations, and nothing in the API changed shape.
 
 ### Added
 
+- **A meal can fill more than one slot.** `slots` on `POST`/`PATCH /meals`
+  and in every meal read back, so an omelette can be breakfast *or* lunch.
+  `slot` is kept and reads as the first of them; an older client re-sending the
+  slot a meal already has leaves the others alone. `GET /meals?slot=` matches
+  any of them. The web and iOS editors swap the one-slot field for toggles
+  (breakfast, lunch, dinner, snack, other), and the MCP tools take `slots`.
 - **`python -m app.merge_meals`** folds identical meals into the oldest of
-  them (same name ignoring case, slot, recipes, scales and extras). Plan
+  them (same name ignoring case, slots, recipes, scales and extras). Plan
   entries, cooked events and freezer batches move to the meal kept, and cooked
   counts are recomputed from the events. When two copies sit on one plan, the
   copy's entry goes, its cooking stays on the kept entry, and on the active
@@ -48,7 +56,7 @@ Released as **1.7.3**. No migrations, and nothing in the API changed shape.
   "Add to plan" on a recipe posts a new meal named after it every time, so a
   recipe planned five times became five identical meals in the library.
   `POST /meals` now returns the meal the household already has, with 200, when
-  the one posted is an exact repeat: same name (ignoring case), slot, recipes
+  the one posted is an exact repeat: same name (ignoring case), slots, recipes
   and scales, and no loose ingredients. That fixes every build already
   installed, and assistants too, without an app update. A reuse is checked
   before the meals cap, since it adds nothing. Duplicates made before this

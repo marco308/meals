@@ -279,6 +279,14 @@ input:focus, textarea:focus, select:focus {
 textarea { resize: vertical; min-height: 7.5rem; line-height: 1.6; }
 select { cursor: pointer; }
 
+/* A meal's slots: checkboxes worn as toggle chips. The box itself stays in
+   the accessibility tree and takes focus; only its drawing is hidden. */
+fieldset.slot-picker { border: 0; padding: 0; margin: 0 0 .9rem; display: flex; flex-wrap: wrap; gap: .45rem; }
+fieldset.slot-picker legend { padding: 0; width: 100%; }
+.slot-picker .chip { position: relative; font-size: .85rem; padding: .3rem .85rem; }
+.slot-picker input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.slot-picker .chip:has(input:checked) { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.slot-picker .chip:has(input:focus-visible) { outline: 2px solid var(--tomato); outline-offset: 2px; }
 .form-row { display: flex; gap: .75rem; }
 .form-row > * { flex: 1; }
 

@@ -3,7 +3,7 @@
 Before `POST /meals` reused an exact repeat, the iPhone app's "Add to plan" on
 a recipe made a new meal every time, so a household that planned one recipe
 five times has five identical meals. Two meals are the same here when they
-have the same name (ignoring case), slot, recipes at the same scales, and the
+have the same name (ignoring case), slots, recipes at the same scales, and the
 same loose ingredients row for row. That is the API's rule plus the extras,
 which can be compared exactly once they are stored.
 
@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CookedEvent, FreezerItem, Meal, Plan, PlanMeal
 from app.services.cooking import refresh_meal_stats
 from app.services.shopping import get_active_list, remove_meal_contributions
+from app.services.slots import meal_slots
 
 
 @dataclass
@@ -45,7 +46,7 @@ def _signature(meal: Meal) -> tuple:
     return (
         meal.household_id,
         meal.name.strip().lower(),
-        meal.slot,
+        tuple(meal_slots(meal)),
         frozenset((link.recipe_id, link.scale) for link in meal.recipe_links),
         frozenset((link.ingredient_id, link.quantity, link.unit) for link in meal.ingredient_links),
     )

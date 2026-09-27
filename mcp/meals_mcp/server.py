@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 17
+PLAYBOOK_VERSION = 18
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -307,6 +307,12 @@ async def delete_recipe(title: str) -> str:
 # ---------------------------------------------------------------- meals & plan
 
 
+def _slots_label(meal: dict) -> str:
+    """ "breakfast or lunch" — every slot a meal can fill."""
+    slots = meal.get("slots") or ([meal["slot"]] if meal.get("slot") else [])
+    return " or ".join(slots) or "no slot"
+
+
 @mcp.tool()
 async def create_meal(
     name: str,
@@ -315,10 +321,15 @@ async def create_meal(
     loose_ingredients: list[dict] | None = None,
     recipe_scales: dict[str, float] | None = None,
     recipe_servings: dict[str, int] | None = None,
+    slots: list[str] | None = None,
 ) -> str:
     """Create a meal — the unit of planning. A meal can combine recipes and
     loose ingredients: 'cottage pie with peas' = the cottage pie recipe plus
     {"name": "frozen peas", "quantity": 200, "unit": "g"} with no recipe.
+
+    slots is every time of day the meal can fill — ["breakfast", "lunch"] for
+    one that works as either (breakfast, lunch, dinner, snack, other). When
+    given it replaces slot; pass [] for none.
 
     recipe_scales maps a recipe id to a multiplier for batch cooking: {"<id>":
     2} doubles that recipe's quantities on the shopping list, leaving the
@@ -339,7 +350,7 @@ async def create_meal(
 
     payload = {
         "name": name,
-        "slot": slot,
+        **({"slots": slots} if slots is not None else {"slot": slot}),
         "recipes": [_amount(rid) for rid in (recipe_ids or [])],
         "loose_ingredients": loose_ingredients or [],
     }
@@ -347,7 +358,7 @@ async def create_meal(
         meal = await _call("POST", "/meals", json=payload)
     except ApiError as exc:
         return str(exc)
-    return f"Meal created: {meal['name']} ({meal['slot'] or 'no slot'}) [id: {meal['id']}]"
+    return f"Meal created: {meal['name']} ({_slots_label(meal)}) [id: {meal['id']}]"
 
 
 @mcp.tool()
@@ -361,8 +372,9 @@ async def update_meal(
     remove_loose_ingredients: list[str] | None = None,
     scale_recipes: dict[str, float] | None = None,
     recipe_servings: dict[str, int] | None = None,
+    slots: list[str] | None = None,
 ) -> str:
-    """Change an existing meal: rename it, move it to another slot, add and
+    """Change an existing meal: rename it, change its slots, add and
     remove recipes and loose sides ('add garlic bread to the cottage pie',
     'nobody eats the peas'), or scale a recipe for batch cooking. Recipes can
     be named or given by id. If the meal is on the active plan the shopping
@@ -375,13 +387,19 @@ async def update_meal(
     recipe_servings says it in portions instead — {"cottage pie": 6} feeds six
     from a recipe that serves four — which is how 'we've got people coming' is
     usually meant. It needs the recipe to say how many it serves. Give a recipe
-    one or the other, not both."""
+    one or the other, not both.
+
+    slots replaces every slot the meal fills — ["lunch", "dinner"] for 'it
+    works for lunch too'; read the meal's current slots first and send the
+    whole list. slot alone makes it that one slot only."""
     try:
         meal = await _find_meal(meal_name)
         payload: dict[str, Any] = {}
         if new_name:
             payload["name"] = new_name
-        if slot:
+        if slots is not None:
+            payload["slots"] = slots
+        elif slot:
             payload["slot"] = slot
 
         if add_recipes or remove_recipes or scale_recipes or recipe_servings:
@@ -428,7 +446,7 @@ async def update_meal(
 
         if not payload:
             return (
-                f"Nothing to change on '{meal['name']}'. Pass new_name, slot, add_recipes, "
+                f"Nothing to change on '{meal['name']}'. Pass new_name, slots, add_recipes, "
                 "remove_recipes, add_loose_ingredients, or remove_loose_ingredients."
             )
         updated = await _call("PATCH", f"/meals/{meal['id']}", json=payload)
@@ -437,7 +455,7 @@ async def update_meal(
     recipes = ", ".join(r["title"] for r in updated["recipes"]) or "no recipes"
     sides = ", ".join(line["name"] for line in updated["loose_ingredients"]) or "no sides"
     return (
-        f"Updated '{updated['name']}' ({updated['slot'] or 'no slot'}): {recipes}; on the side: {sides}. "
+        f"Updated '{updated['name']}' ({_slots_label(updated)}): {recipes}; on the side: {sides}. "
         "The shopping list has been re-synced."
     )
 
@@ -457,8 +475,9 @@ async def delete_meal(meal_name: str) -> str:
 
 @mcp.tool()
 async def get_plan() -> str:
-    """The current plan — this week's meal options grouped by slot. These are
-    options, not a schedule: nothing is tied to a day."""
+    """The current plan — this week's meal options grouped by slot ("Breakfast
+    or lunch" for a meal that fits either). These are options, not a
+    schedule: nothing is tied to a day."""
     try:
         plan = await _call("GET", "/plans/current")
     except ApiError as exc:
@@ -476,7 +495,10 @@ async def get_plan() -> str:
         ]
         time_note = f", {max(minutes)} min" if minutes else ""
         detail = f" ({recipes}{time_note})" if recipes else ""
-        by_slot.setdefault(meal["slot"] or "other", []).append(f"{meal['name']}{detail}{cooked}")
+        slot_label = _slots_label(meal)
+        by_slot.setdefault("other" if slot_label == "no slot" else slot_label, []).append(
+            f"{meal['name']}{detail}{cooked}"
+        )
     lines = [f"Plan: {plan['label']} [id: {plan['id']}]"]
     for slot, meals in by_slot.items():
         lines.append(f"{slot.capitalize()}:")

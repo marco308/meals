@@ -319,11 +319,22 @@ struct IngestResponse: Codable, Sendable {
 struct Meal: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let name: String
+    /// The first of `slots`, and all a server older than the list sends.
     let slot: String?
     let recipes: [RecipeSummary]
     let looseIngredients: [RecipeLine]
     var timesCooked: Int? = nil
     var lastCookedAt: String? = nil
+    /// Every slot the meal can fill ("breakfast or lunch"). Optional so older
+    /// servers and older caches still decode; read it through `allSlots`.
+    var slots: [String]? = nil
+
+    var allSlots: [String] { slots ?? slot.map { [$0] } ?? [] }
+
+    /// "Breakfast or lunch", or nil for a meal with no slot.
+    var slotsLabel: String? {
+        allSlots.isEmpty ? nil : allSlots.joined(separator: " or ").capitalizedFirst
+    }
 
     var cookedSummary: String? { CookedHistory.summary(times: timesCooked, lastCookedAt: lastCookedAt) }
 }
@@ -343,7 +354,7 @@ struct Plan: Codable, Identifiable, Equatable, Sendable {
     var archivedAt: String? = nil
 
     var slots: [(slot: String, meals: [PlanMeal])] {
-        let grouped = Dictionary(grouping: meals) { $0.meal.slot ?? "other" }
+        let grouped = Dictionary(grouping: meals) { $0.meal.allSlots.joined(separator: " or ").nonEmpty ?? "other" }
         return grouped.keys.sorted().map { (slot: $0, meals: grouped[$0] ?? []) }
     }
 }
@@ -549,4 +560,12 @@ struct LooseLine: Identifiable, Equatable, Sendable {
 // Fallback store-walking order used until /aisles has been fetched once.
 enum AisleOrder {
     static let fallback = ["🥬", "🍞", "🥩", "❄️", "🥛", "🥫", "🍝", "🌶️", "🥤", "🍫", "🧊", "🧼", "🧴", "❓"]
+}
+
+extension String {
+    /// "Lunch or dinner": only the first letter, where `capitalized` would
+    /// make it "Lunch Or Dinner".
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
