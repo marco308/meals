@@ -270,3 +270,13 @@ class TestAisleStillFound:
     def test_aisle_survives_folding(self, written, aisle):
         assert guess_aisle(canonical_ingredient_name(written)) == aisle
         assert guess_aisle(written) == aisle
+
+
+@pytest.mark.parametrize(
+    "written",
+    ["dijon mustard&nbsp;", "Dijon&nbsp;mustard", "dijon mustard\xa0", "dijon &#109;ustard"],
+)
+def test_html_entities_fold_onto_the_plain_spelling(written):
+    """#170: an escaped JSON-LD page, or an AI that copied one, must not make a
+    second mustard; and rows already stored that way are found as duplicates."""
+    assert canonical_ingredient_name(written) == "dijon mustard"
