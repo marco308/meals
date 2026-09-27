@@ -327,7 +327,7 @@ async def verify_email(
     payload: EmailVerifyIn, request: Request, user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)
 ) -> UserOut:
     """Confirm your email address with the code emailed to it at signup
-    (decision Q25). Until you do, inviting people and importing recipes from a
+    (decision Q26). Until you do, inviting people and importing recipes from a
     URL are refused; everything else already works.
 
     The code only counts for the account it was sent to, so it has to be

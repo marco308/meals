@@ -39,6 +39,7 @@ The original wording is never lost: `RecipeIngredient.raw_text` keeps the line
 exactly as the recipe wrote it, which is what the recipe view shows.
 """
 
+import html
 import re
 
 from app.services.aisles import _KEYWORDS
@@ -241,7 +242,9 @@ def canonical_ingredient_name(name: str) -> str:
     here; this turns it into "garlic". Returns the cleaned-but-unfolded name
     when folding would leave nothing behind — "cloves" on its own is the spice.
     """
-    cleaned = " ".join(name.lower().split()).strip(" .")
+    # An HTML entity is never part of a food (#170): a page that escaped its
+    # JSON-LD, or an AI that copied one, must fold onto the plain spelling.
+    cleaned = " ".join(html.unescape(name).lower().split()).strip(" .")
     # Prep notes after a comma ("onions, finely chopped") — the JSON-LD parser
     # already drops these, AI- and user-submitted names may not.
     cleaned = cleaned.split(",")[0].strip()

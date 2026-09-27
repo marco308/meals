@@ -23,7 +23,7 @@ PASSWORD = "a-strong-password"
 @pytest.fixture
 def outbox(monkeypatch, settings_override):
     """Capture would-be reset emails and pretend SMTP is configured. Registering
-    on a server with SMTP also sends a verification code (Q25); that one is
+    on a server with SMTP also sends a verification code (Q26); that one is
     test_email_verification.py's, and left out here."""
     settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
     sent: list[dict] = []

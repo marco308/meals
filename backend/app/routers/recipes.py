@@ -103,7 +103,7 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
         return IngestOut(recipe=recipe_out(cached), cached=True)
 
     # A cached URL fetches nothing, so it is open to everyone. A new one makes
-    # this server fetch a page of the caller's choosing (Q25).
+    # this server fetch a page of the caller's choosing (Q26).
     require_verified_email(user, "importing a recipe from a URL")
     # The recipe allowance first, even though create_recipe_from_payload checks
     # it again below: a household that could not store the result should hear

@@ -126,13 +126,13 @@ class Settings(BaseSettings):
     # refused. 0 turns it off.
     signup_rate_limit_per_hour: Annotated[int, BlankIsDefault] = 5
 
-    # Email verification (issue #122, decision Q25). Only in force on a server
+    # Email verification (issue #122, decision Q26). Only in force on a server
     # that can send email: without SMTP nothing could ever be verified, so
     # nothing is asked for. An unverified account can do everything except the
     # two things that reach outward, inviting people and fetching a URL.
     email_verification_ttl_hours: Annotated[int, BlankIsDefault] = 48
 
-    # Reaping households that never began (issue #122, Q25). **Off unless
+    # Reaping households that never began (issue #122, Q26). **Off unless
     # REAP_ABANDONED_AFTER_DAYS is set**, like every other number that could
     # take something from a self-hosted household. Set, `python -m app.reaping`
     # from cron warns a household with one member, nothing in it, no money

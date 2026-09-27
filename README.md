@@ -386,7 +386,7 @@ being created while still honouring invite codes, so closing a server doesn't
 lock out your own family.
 
 Leaving registration open is safer with three things this server does for you
-(decision Q25). On a server with SMTP configured, a new account is emailed a
+(decision Q26). On a server with SMTP configured, a new account is emailed a
 code to confirm its address, and until it does it can use its household freely
 but cannot invite anyone or import a recipe from a URL, the two things that
 reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Starting a

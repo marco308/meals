@@ -22,7 +22,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Added
 
-- **Email verification** (#122, Q25). On a server with SMTP, registering emails
+- **Email verification** (#122, Q26). On a server with SMTP, registering emails
   a code; `POST /auth/verify-email` redeems it and
   `POST /auth/verify-email/resend` sends a fresh one. Until then an account can
   do everything except invite people and fetch a recipe URL (403 saying how to
@@ -32,7 +32,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
   client address, answered 429. Registering with an invite is never counted.
 - **Reaping households that never began**, after warning them:
   `python -m app.reaping` from cron, off unless `REAP_ABANDONED_AFTER_DAYS` is
-  set. See Q25 for exactly what counts.
+  set. See Q26 for exactly what counts.
 
 Migration `c4e8a1f2d9b3` adds `users.email_verified_at` and
 `households.reap_warned_at`, both nullable.

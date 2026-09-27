@@ -362,7 +362,31 @@ Decisions:
 - iOS has no freezer screen yet: the API is additive, so the web app and the
   MCP tools carry it until a build does.
 
-**Q25 — Opening registration: verify the address, limit the rate, reap what
+**Q25 — Supermarkets know where they are; users' locations are never stored** (2026-09-27, #181/#182).
+A saved supermarket can carry `latitude`, `longitude` and an optional
+`radius_m`, so a phone standing in one can sort the list by that store's walk.
+Decisions:
+
+- **The store's location, never the user's.** The server has no field that
+  could hold where a person is. Matching "am I in this store?" happens on the
+  device and the position is discarded there.
+- **iOS sets a location only from place search** (MapKit), which yields the
+  shop's own coordinates, so the App Store label keeps Location as *not
+  collected*. The web app may also use "Set to where I am now" (the browser's
+  position, read once and saved as the store's), since it is no App Store
+  surface; `PRIVACY.md` says both.
+- **No geocoding, no map tiles.** The backend still makes no outbound request
+  on a household's behalf, and the web app still loads nothing external.
+- **The match is per phone.** "Active supermarket" stays one household-wide
+  setting; a phone that recognises a store sorts for it locally rather than
+  flipping the setting under somebody shopping elsewhere.
+- **Both or neither, and a null radius means the default** (150 m, bounds
+  50 to 1000 m), stored as null so the default can move. Clearing the location
+  clears its radius.
+- Assistants don't set locations (they have none to give); the MCP listing
+  only marks a located store with 📍.
+
+**Q26 — Opening registration: verify the address, limit the rate, reap what
 never began** (2026-09-27, issue #122). Registration used to be opened only to
 people the operator knew. A form open to strangers needs three things, and each
 is worth having on any instance that leaves `REGISTRATION_ENABLED` on, not only

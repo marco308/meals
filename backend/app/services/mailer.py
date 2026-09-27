@@ -1,5 +1,5 @@
 """Outbound email: a password reset (Q20), an address verification code and
-the warning before a never-used household is reaped (Q25), and the two dunning
+the warning before a never-used household is reaped (Q26), and the two dunning
 notices (services/dunning.py). Nothing else sends any.
 
 Deliberately plain SMTP rather than a provider SDK: this project is self-hosted

@@ -214,7 +214,7 @@ VERIFY_FIRST = (
 
 
 def require_verified_email(user: User, action: str) -> None:
-    """403 unless this account may do something that reaches outward (Q25).
+    """403 unless this account may do something that reaches outward (Q26).
 
     Inviting and URL ingest are the two: one sends a stranger into somebody's
     household, the other makes this server fetch a page of the caller's

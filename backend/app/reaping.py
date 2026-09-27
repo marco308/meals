@@ -1,6 +1,6 @@
 """Warn, then delete, households that were made and never used (issue #122).
 
-The policy is in services/reaping.py and planning/04-open-questions.md Q25. Like
+The policy is in services/reaping.py and planning/04-open-questions.md Q26. Like
 dunning, this is a command for cron rather than a scheduler in the app:
 
     docker exec -i <api-container> .venv/bin/python -m app.reaping

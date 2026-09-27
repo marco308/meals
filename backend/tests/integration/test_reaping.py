@@ -1,5 +1,5 @@
 """Opening registration, part two: reaping households that never began, after
-warning them (issue #122, decision Q25).
+warning them (issue #122, decision Q26).
 
 What is defended, in order of what it would cost to get wrong:
 

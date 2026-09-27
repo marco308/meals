@@ -266,7 +266,7 @@ which this repo deliberately does not carry.
 
 Opening registration is its own piece of work. A public commercial instance
 needs email verification, signup rate limits, and a policy for reaping
-abandoned free households after warning them. All three now exist (Q25, #122);
+abandoned free households after warning them. All three now exist (Q26, #122);
 reaping still has to be switched on, by setting `REAP_ABANDONED_AFTER_DAYS` and
 adding `python -m app.reaping` to cron.
 
@@ -312,7 +312,7 @@ three more on 2026-08-23:
     the email verification this codebase did not have, signup rate limits, and
     a policy for reaping abandoned free households. Named in §7's last
     paragraph, carried as a bullet in #99, and closed with it unbuilt. **Done**,
-    as decision Q25 in 04-open-questions: an emailed code that only the two
+    as decision Q26 in 04-open-questions: an emailed code that only the two
     outward-reaching actions wait on, a per-hour limit on starting households,
     and `python -m app.reaping` for households that never began, off unless
     `REAP_ABANDONED_AFTER_DAYS` is set.

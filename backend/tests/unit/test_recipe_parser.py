@@ -322,3 +322,42 @@ class TestTrailingUnitWord:
     def test_leaves_a_stated_unit_alone(self):
         parsed = parse_ingredient_line("10g mint leaves")
         assert (parsed.quantity, parsed.unit) == (10, "g")
+
+
+class TestHtmlEntities:
+    """Some sites HTML-escape the strings inside their JSON-LD (#170), and the
+    entity text used to become part of the food: "dijon mustard&nbsp;" sat on
+    the shopping list beside "dijon mustard" and never merged with it."""
+
+    @pytest.mark.parametrize(
+        ("line", "name"),
+        [
+            ("1 tbsp Dijon mustard&nbsp;", "dijon mustard"),
+            ("1 tsp dried thyme&nbsp;", "dried thyme"),
+            ("200g cr&egrave;me fra&icirc;che", "crème fraîche"),
+            ("2&nbsp;cloves garlic", "garlic"),
+        ],
+    )
+    def test_ingredient_line_entities_are_decoded(self, line, name):
+        assert parse_ingredient_line(line).name == name
+
+    def test_raw_text_is_decoded_too(self):
+        assert parse_ingredient_line("1 tsp salt &amp; pepper").raw == "1 tsp salt & pepper"
+
+    def test_every_text_field_is_decoded(self):
+        recipe = extract_recipe(
+            _page(
+                {
+                    "@type": "Recipe",
+                    "name": "Mac &amp; cheese",
+                    "recipeIngredient": ["1 tbsp Dijon mustard&nbsp;"],
+                    "recipeInstructions": [{"@type": "HowToStep", "text": "Don&#39;t stir"}, "Serve &amp; eat"],
+                    "keywords": "quick &amp; easy, cr&egrave;me",
+                }
+            )
+        )
+        assert recipe.title == "Mac & cheese"
+        assert recipe.ingredients[0].name == "dijon mustard"
+        assert recipe.ingredients[0].raw == "1 tbsp Dijon mustard\xa0"
+        assert recipe.instructions == "1. Don't stir\n2. Serve & eat"
+        assert recipe.tags == ["quick & easy", "crème"]

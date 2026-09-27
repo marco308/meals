@@ -830,7 +830,10 @@ async def finish_shop() -> str:
 
 def _fmt_market(market: dict) -> str:
     active = "  ← active (the list sorts for this store)" if market["is_active"] else ""
-    return f"{market['name']}: {' '.join(market['aisle_order'])}{active}"
+    # Where the store is gets set in the apps (a map search, or the web's
+    # "where I am now"); an assistant only needs to know one is saved.
+    located = "  📍" if market.get("latitude") is not None else ""
+    return f"{market['name']}: {' '.join(market['aisle_order'])}{located}{active}"
 
 
 @mcp.tool()
@@ -911,18 +914,24 @@ async def save_supermarket(name: str, aisle_order: list[str], make_active: bool 
 
 
 async def _find_ingredient(name: str) -> dict:
-    # Names are stored folded — "mint leaves" is filed under "mint" — so ask
-    # the API to apply the same folding to the lookup rather than guessing at
-    # a near miss here ("olive oil" must not resolve to "olive oil spray").
+    # A row stored under exactly this name wins. Names written before today's
+    # folding rules are stored as they were, and they are what
+    # find_duplicate_ingredients reports as `unfolded`: folding "soft goat'
+    # cheese" resolves to the new "soft goat's cheese", so without this a
+    # rename could never name the row it is renaming.
+    wanted = name.lower().strip()
+    ingredients = await _call("GET", "/ingredients", params={"search": wanted})
+    exact = [i for i in ingredients if i["name"] == wanted]
+    if exact:
+        return exact[0]
+    # Otherwise fold the lookup the way a write would — "mint leaves" is filed
+    # under "mint" — rather than guessing at a near miss here ("olive oil"
+    # must not resolve to "olive oil spray").
     resolved = await _call("GET", "/ingredients", params={"name": name})
     if resolved:
         return resolved[0]
-    ingredients = await _call("GET", "/ingredients", params={"search": name})
-    exact = [i for i in ingredients if i["name"] == name.lower().strip()]
-    if not exact:
-        names = ", ".join(i["name"] for i in ingredients) or "none like that"
-        raise ApiError(f"No ingredient '{name}' (similar: {names}).")
-    return exact[0]
+    names = ", ".join(i["name"] for i in ingredients) or "none like that"
+    raise ApiError(f"No ingredient '{name}' (similar: {names}).")
 
 
 @mcp.tool()

@@ -1,4 +1,4 @@
-"""Reaping households that never began, after warning them (issue #122, Q25).
+"""Reaping households that never began, after warning them (issue #122, Q26).
 
 An open registration form accumulates households that were made and never used:
 somebody signed up, looked, and went. They hold nothing, but they hold an email

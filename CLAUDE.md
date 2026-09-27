@@ -133,7 +133,7 @@ instrumentation a new feature usually needs.
   `tests/unit/test_security.py` lints every call for it. A login for an unknown
   address still pays for a check (`verify_password(pw, None)`), and the reset
   request answers before it looks anybody up, so neither timing is an oracle.
-- **Opening registration** (Q25, #122). Three guards, all worth having on any
+- **Opening registration** (Q26, #122). Three guards, all worth having on any
   server that leaves registration open. **Verification**: where SMTP is
   configured, registering emails a `kind="verify"` code; it is redeemed signed
   in (`POST /auth/verify-email`), counts only for its own account, and is not
@@ -214,7 +214,10 @@ instrumentation a new feature usually needs.
   via `/supermarkets` (`services/supermarkets.py`): the active supermarket's
   order drives the list sort and `GET /aisles`, which is how iOS learns it
   without an app change. Orders saved before a new aisle existed gain it at
-  the end — adding an aisle must never invalidate a saved supermarket.
+  the end — adding an aisle must never invalidate a saved supermarket. A
+  supermarket may also say where the *store* is (Q25) so a phone can match it
+  on-device; the server never holds a user's position, and iOS sets a store's
+  location only from place search.
 - **The freezer is a tab of batches** (`services/freezer.py`, Q24). One
   `freezer_items` row per batch — a denormalised `label`, the portions *left*,
   `frozen_on` — with `meal_id`/`recipe_id` as `SET NULL` courtesies, so deleting

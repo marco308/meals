@@ -1,10 +1,12 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
 from app.schemas.common import IngredientLineIn
 from app.services.aisles import AISLE_EMOJIS
+from app.services.supermarkets import MAX_RADIUS_M, MIN_RADIUS_M
 
 
 class AdhocItemIn(IngredientLineIn):
@@ -65,12 +67,22 @@ class ShoppingListOut(BaseModel):
     supermarket: SupermarketRef | None = None  # whose aisle order the sort follows; null = the built-in order
 
 
+Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
+Longitude = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)]
+RadiusM = Annotated[int, Field(ge=MIN_RADIUS_M, le=MAX_RADIUS_M)]
+
+
 class SupermarketOut(BaseModel):
     id: uuid.UUID
     name: str
     aisle_order: list[str]  # the complete walk, first aisle to last
     is_active: bool  # the active supermarket's order sorts the list and GET /aisles
     created_at: datetime
+    # Where the store is, for a phone to match on-device; all null when unset.
+    # radius_m is the effective radius, the default filled in.
+    latitude: float | None = None
+    longitude: float | None = None
+    radius_m: int | None = None
 
 
 class SupermarketCreate(BaseModel):
@@ -80,12 +92,22 @@ class SupermarketCreate(BaseModel):
     # may appear once, so a longer list is refused before anything reads it.
     aisle_order: list[str] | None = Field(default=None, max_length=len(AISLE_EMOJIS))
     is_active: bool = False
+    # Where the store is (both or neither). Never where a user is: the apps
+    # set this from a place search or the web's "where I am now".
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
+    radius_m: RadiusM | None = None  # how close counts as "in the store"; null = the default
 
 
 class SupermarketUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     aisle_order: list[str] | None = Field(default=None, max_length=len(AISLE_EMOJIS))
     is_active: bool | None = None  # true sorts the list for this store; false falls back to the built-in order
+    # Send latitude and longitude together; both null clears the location
+    # (and its radius). A field left out is left alone.
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
+    radius_m: RadiusM | None = None
 
 
 class ArchiveOut(BaseModel):

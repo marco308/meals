@@ -78,7 +78,7 @@ class UserOut(BaseModel):
     # decide whether to offer the invite and remove controls at all, rather than
     # offering them and letting the server refuse.
     household_lead_user_id: uuid.UUID | None = None
-    # Q25: true while this account has yet to confirm its address with the code
+    # Q26: true while this account has yet to confirm its address with the code
     # emailed to it, which is when inviting and URL ingest are refused. Always
     # false on a server that cannot send email, which verifies nobody.
     email_verification_pending: bool = False

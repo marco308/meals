@@ -1,5 +1,5 @@
 """Opening registration, part one: email verification and the signup rate limit
-(issue #122, decision Q25).
+(issue #122, decision Q26).
 
 What is defended, in order of what it would cost to get wrong:
 

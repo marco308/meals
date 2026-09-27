@@ -64,7 +64,7 @@ async def test_a_refused_password_reset_is_logged_by_id(client, refusing_relay, 
     response = await client.post("/auth/password-reset", json={"email": ADDRESS})
     assert response.status_code == 202
 
-    # Registering sent a verification code first (Q25), refused the same way.
+    # Registering sent a verification code first (Q26), refused the same way.
     verification, reset = events(caplog, "email.failed")
     assert (verification.outcome, reset.outcome) == ("email_verification", "password_reset")
     for failed in (verification, reset):

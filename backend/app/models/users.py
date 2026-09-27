@@ -127,7 +127,7 @@ class Household(Base):
     expiry_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     lapse_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     # When the household was told it would be reaped for never having been used
-    # (services/reaping.py, Q25). Set once per idle spell, only after the email
+    # (services/reaping.py, Q26). Set once per idle spell, only after the email
     # actually went, and cleared when somebody comes back, so a household is
     # never deleted without a warning it could have acted on.
     reap_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
@@ -146,7 +146,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     display_name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    # When this address was shown to be theirs, by a code sent to it (Q25).
+    # When this address was shown to be theirs, by a code sent to it (Q26).
     # Every account that predates the column was backfilled, since each was
     # made by somebody the operator knew.
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
@@ -168,7 +168,7 @@ class AuthToken(Base):
     """Opaque bearer tokens, stored hashed. kind='session' for app logins,
     kind='api' for the per-user PATs that AI clients use (decision Q7/Q15),
     kind='reset' for password-reset codes and kind='verify' for email
-    verification codes, neither of which is a credential (Q20, Q25)."""
+    verification codes, neither of which is a credential (Q20, Q26)."""
 
     __tablename__ = "auth_tokens"
 

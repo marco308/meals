@@ -12,7 +12,7 @@
 // controls are hidden rather than shown-and-refused for everyone else. Leaving
 // is nobody's business but your own, so that button is always there.
 //
-// An account that has not confirmed its email address (Q25) gets a card at the
+// An account that has not confirmed its email address (Q26) gets a card at the
 // top for the code, because inviting and importing from a link both wait on it.
 // On a server that sends no email the card never appears: nothing waits there.
 
@@ -142,10 +142,12 @@ export async function renderSettings(root) {
                   <div class="m-main">
                     <b>${m.name}</b>
                     <span class="sub aisle-mini">${m.aisle_order.join(" ")}</span>
+                    ${m.latitude != null ? html`<span class="sub">📍 location saved</span>` : ""}
                   </div>
                 </label>
                 <span class="m-actions">
                   <button class="icon-btn" type="button" data-order-market="${m.id}">aisle order</button>
+                  <button class="icon-btn" type="button" data-locate-market="${m.id}">location</button>
                   <button class="icon-btn" type="button" data-rename-market="${m.id}">rename</button>
                   <button class="icon-btn warm" type="button" data-del-market="${m.id}">delete</button>
                 </span>
@@ -344,6 +346,10 @@ export async function renderSettings(root) {
 
   for (const button of root.querySelectorAll("[data-order-market]")) {
     button.onclick = () => orderDialog(root, markets.find((m) => m.id === button.dataset.orderMarket));
+  }
+
+  for (const button of root.querySelectorAll("[data-locate-market]")) {
+    button.onclick = () => locationDialog(root, markets.find((m) => m.id === button.dataset.locateMarket));
   }
 
   for (const button of root.querySelectorAll("[data-rename-market]")) {
@@ -717,6 +723,69 @@ async function orderDialog(root, market) {
       toast(error.detail || error.message, "error");
     }
   };
+}
+
+// Where the store is (Q26), so a phone standing in it can sort by its walk.
+// The browser's position is read once, here, and saved as the *store's*;
+// nothing else in the web app ever asks for it. Geolocation needs a secure
+// context, which a self-hosted server on plain http over the LAN isn't.
+function locationDialog(root, market) {
+  const located = market.latitude != null;
+  const canLocate = window.isSecureContext && "geolocation" in navigator;
+  const dialog = openDialog(html`
+    <h2>Where is ${market.name}?</h2>
+    <p class="sub">
+      ${located
+        ? "A location is saved for this store."
+        : "No location saved yet."}
+      It lets a phone tell when you're in this store and sort your list by its
+      aisles. Only the store's location is kept, never yours.
+    </p>
+    ${canLocate
+      ? html`<p class="sub">Stand in the store (or its car park) and use your current position.</p>`
+      : html`<p class="sub">This browser can't share its position with this server, which needs https.
+          Set the location from the iPhone app instead.</p>`}
+    <div class="dialog-actions">
+      <button class="btn ghost" type="button" data-x>Close</button>
+      ${located ? html`<button class="btn ghost" type="button" data-forget>Forget location</button>` : ""}
+      ${canLocate ? html`<button class="btn" type="button" data-here>Set to where I am now</button>` : ""}
+    </div>
+  `);
+  const save = async (body, message) => {
+    try {
+      await api(`/supermarkets/${market.id}`, { method: "PATCH", body });
+      dialog.close();
+      toast(message, "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  };
+  dialog.querySelector("[data-x]").onclick = () => dialog.close();
+  const forget = dialog.querySelector("[data-forget]");
+  if (forget) {
+    forget.onclick = () => save({ latitude: null, longitude: null }, `${market.name}'s location forgotten.`);
+  }
+  const here = dialog.querySelector("[data-here]");
+  if (here) {
+    here.onclick = () => {
+      here.disabled = true;
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) =>
+          save({ latitude: coords.latitude, longitude: coords.longitude }, `${market.name}'s location saved.`),
+        (error) => {
+          here.disabled = false;
+          toast(
+            error.code === error.PERMISSION_DENIED
+              ? "The browser wasn't allowed to share your position. Allow it for this site and try again."
+              : "Couldn't get your position. Try again in a moment.",
+            "error",
+          );
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      );
+    };
+  }
 }
 
 function renameMarketDialog(root, market) {
