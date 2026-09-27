@@ -247,6 +247,31 @@ class TestCleaning:
         canonical_ingredient_name("beef " + "(" * 40_000)
         assert time.perf_counter() - started < 1.0
 
+    @pytest.mark.parametrize(
+        ("written", "folded"),
+        [
+            ("butter (unsalted, softened)", "butter"),
+            ("tomatoes (chopped, tinned)", "tomato"),
+            ("onions (red, sliced), finely chopped", "onion"),
+        ],
+    )
+    def test_a_comma_inside_brackets_does_not_cut_the_name(self, written, folded):
+        """The comma split ran first and halved the bracket: "butter (unsalted"."""
+        assert canonical_ingredient_name(written) == folded
+
+    def test_a_long_name_of_short_words_is_not_cubic(self):
+        """Every run of words was folded from scratch in search of a protected
+        phrase: 30 ms for one 200-character name, three seconds of blocked
+        event loop for a recipe of a hundred."""
+        name = ("a " * 100)[:200]
+        started = time.perf_counter()
+        for _ in range(100):
+            canonical_ingredient_name(name)
+        assert time.perf_counter() - started < 0.5
+
+    def test_a_protected_phrase_is_still_found_inside_a_long_name(self):
+        assert canonical_ingredient_name("fresh " * 20 + "kaffir lime leaves") == "kaffir lime leaves"
+
 
 class TestAisleStillFound:
     """Canonicalisation runs before `guess_aisle`, so every folded name must
