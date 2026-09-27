@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import limits
@@ -27,15 +27,14 @@ async def get_meal(db: AsyncSession, household_id: uuid.UUID, meal_id: uuid.UUID
     return result.scalar_one_or_none()
 
 
-async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, lines: list[MealRecipeIn]) -> None:
-    existing = await db.execute(select(MealRecipe).where(MealRecipe.meal_id == meal.id))
-    for link in existing.scalars():
-        await db.delete(link)
-    seen: set[uuid.UUID] = set()
+async def _resolve_scales(
+    db: AsyncSession, household_id: uuid.UUID, lines: list[MealRecipeIn]
+) -> dict[uuid.UUID, float]:
+    """Each recipe once, at the scale it will be stored at, in payload order."""
+    scales: dict[uuid.UUID, float] = {}
     for line in lines:
-        if line.recipe_id in seen:
+        if line.recipe_id in scales:
             continue
-        seen.add(line.recipe_id)
         recipe = await get_recipe(db, household_id, line.recipe_id)
         if recipe is None:
             raise HTTPException(
@@ -50,8 +49,39 @@ async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, li
                 scale = scale_for_servings(recipe.title, recipe.servings, line.servings)
             except ScalingError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-        db.add(MealRecipe(meal_id=meal.id, recipe_id=line.recipe_id, scale=scale))
+        scales[line.recipe_id] = scale
+    return scales
+
+
+async def _set_recipes(db: AsyncSession, household_id: uuid.UUID, meal: Meal, lines: list[MealRecipeIn]) -> None:
+    scales = await _resolve_scales(db, household_id, lines)
+    existing = await db.execute(select(MealRecipe).where(MealRecipe.meal_id == meal.id))
+    for link in existing.scalars():
+        await db.delete(link)
+    await db.flush()  # the old links go before the new: (meal, recipe) is unique
+    for recipe_id, scale in scales.items():
+        db.add(MealRecipe(meal_id=meal.id, recipe_id=recipe_id, scale=scale))
     await db.flush()
+
+
+async def _same_meal(
+    db: AsyncSession, household_id: uuid.UUID, name: str, slots: list[str], scales: dict[uuid.UUID, float]
+) -> Meal | None:
+    """A meal this household already has that the one being posted would
+    duplicate: same name (ignoring case), same slots, the same recipes at the
+    same scales, and no extras. Extras are left out on purpose, because
+    comparing them means canonicalising names and units the way an insert
+    would, and the duplicates that actually happen are one recipe planned
+    again from a phone, which never carries any."""
+    result = await db.execute(
+        select(Meal).where(Meal.household_id == household_id, func.lower(Meal.name) == name.lower())
+    )
+    for meal in result.scalars():
+        if meal.name.lower() != name.lower() or meal_slots(meal) != slots or meal.ingredient_links:
+            continue
+        if {link.recipe_id: link.scale for link in meal.recipe_links} == scales:
+            return meal
+    return None
 
 
 async def _set_loose_ingredients(
@@ -67,7 +97,7 @@ async def _set_loose_ingredients(
 
 
 @router.post("", response_model=MealOut, status_code=status.HTTP_201_CREATED)
-async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> MealOut:
+async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession, response: Response) -> MealOut:
     """A meal = zero or more recipes plus loose ingredients — 'cottage pie
     with peas and carrots on the side' is one recipe and two loose
     ingredients, no recipe needed for the veg.
@@ -83,7 +113,22 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
 
     `slots` is every time of day the meal can fill — `["breakfast", "lunch"]`
     for a meal that works as either; `slot` is the one-slot spelling and
-    comes back as the first of them."""
+    comes back as the first of them.
+
+    Posting a meal the household already has (same name, slots, recipes and
+    scales, no extras) returns that meal with 200 instead of a copy, so
+    "plan this recipe" can be sent every time without filling the library
+    with duplicates."""
+    name = payload.name.strip()
+    slots = clean_slots(payload.slots if payload.slots is not None else [payload.slot or ""])
+    if not payload.loose_ingredients:
+        # Before the cap: reusing a meal adds nothing, so a household at its
+        # limit can still put an old favourite back on the plan.
+        scales = await _resolve_scales(db, user.household_id, payload.resolved_recipes)
+        existing = await _same_meal(db, user.household_id, name, slots, scales)
+        if existing is not None:
+            response.status_code = status.HTTP_200_OK
+            return meal_out(existing)
     await limits.enforce(db, user.household, "meals")
     # The lines are in the payload in front of us, so this needs no query.
     await limits.enforce(
@@ -93,8 +138,8 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession) -> 
         used=len(payload.resolved_recipes) + len(payload.loose_ingredients),
         adding=0,
     )
-    meal = Meal(household_id=user.household_id, name=payload.name.strip())
-    set_meal_slots(meal, clean_slots(payload.slots if payload.slots is not None else [payload.slot or ""]))
+    meal = Meal(household_id=user.household_id, name=name)
+    set_meal_slots(meal, slots)
     db.add(meal)
     await db.flush()
     await _set_recipes(db, user.household_id, meal, payload.resolved_recipes)

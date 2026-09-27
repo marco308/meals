@@ -61,6 +61,67 @@ class TestCreateMeal:
         assert meal["loose_ingredients"][0]["ingredient_id"] == recipe_onion["ingredient_id"]
 
 
+class TestSameMealTwice:
+    """Planning a recipe from the phone posts a meal named after it every time,
+    and each one used to be a new row: a library of five identical "Halloumi
+    toast" meals. An exact repeat now hands back the meal already there."""
+
+    async def test_planning_a_recipe_again_reuses_its_meal(self, auth_client):
+        recipe = await create_recipe(auth_client, title="Halloumi Toast")
+        body = {"name": "Halloumi Toast", "slot": "dinner", "recipes": [{"recipe_id": recipe["id"]}]}
+        first = await auth_client.post("/meals", json=body)
+        again = await auth_client.post("/meals", json={**body, "name": "halloumi toast ", "slot": "Dinner"})
+        assert (first.status_code, again.status_code) == (201, 200)
+        assert again.json()["id"] == first.json()["id"]
+        assert len((await auth_client.get("/meals")).json()) == 1
+
+    async def test_servings_and_scale_that_agree_are_the_same_meal(self, auth_client):
+        recipe = await create_recipe(auth_client, title="Chilli", servings=4)
+        first = await create_meal(auth_client, name="Chilli", recipes=[{"recipe_id": recipe["id"], "scale": 1.5}])
+        again = await auth_client.post(
+            "/meals", json={"name": "Chilli", "slot": "dinner", "recipes": [{"recipe_id": recipe["id"], "servings": 6}]}
+        )
+        assert again.status_code == 200
+        assert again.json()["id"] == first["id"]
+
+    async def test_slots_match_as_a_set_and_one_slot_is_not_two(self, auth_client):
+        first = await auth_client.post("/meals", json={"name": "Omelette", "slots": ["lunch", "breakfast"]})
+        again = await auth_client.post("/meals", json={"name": "Omelette", "slots": ["Breakfast", "lunch"]})
+        narrower = await auth_client.post("/meals", json={"name": "Omelette", "slot": "breakfast"})
+        assert (first.status_code, again.status_code, narrower.status_code) == (201, 200, 201)
+        assert again.json()["id"] == first.json()["id"]
+
+    async def test_any_difference_is_a_new_meal(self, auth_client):
+        rice = await create_recipe(auth_client, title="Rice")
+        curry = await create_recipe(auth_client, title="Curry")
+        base = await create_meal(auth_client, name="Curry night", recipe_ids=[curry["id"]])
+        variants = [
+            {"name": "Curry night", "slot": "lunch", "recipe_ids": [curry["id"]]},
+            {"name": "Curry night", "slot": "dinner", "recipes": [{"recipe_id": curry["id"], "scale": 2}]},
+            {"name": "Curry night", "slot": "dinner", "recipe_ids": [curry["id"], rice["id"]]},
+            {
+                "name": "Curry night",
+                "slot": "dinner",
+                "recipe_ids": [curry["id"]],
+                "loose_ingredients": [{"name": "naan", "quantity": 2, "unit": "items"}],
+            },
+            {"name": "Curry night!", "slot": "dinner", "recipe_ids": [curry["id"]]},
+        ]
+        ids = {base["id"]}
+        for body in variants:
+            response = await auth_client.post("/meals", json=body)
+            assert response.status_code == 201, body
+            ids.add(response.json()["id"])
+        assert len(ids) == len(variants) + 1
+
+    async def test_a_meal_with_extras_is_never_matched(self, auth_client):
+        """Comparing extras would mean canonicalising them the way an insert
+        does, so a meal carrying any is always created, even twice."""
+        body = {"name": "Beans on toast", "loose_ingredients": [{"name": "baked beans", "quantity": 1, "unit": "tin"}]}
+        assert (await auth_client.post("/meals", json=body)).status_code == 201
+        assert (await auth_client.post("/meals", json=body)).status_code == 201
+
+
 class TestBrowseMeals:
     async def test_list_search_and_slot_filter(self, auth_client):
         await create_meal(auth_client, name="Spag bol", slot="dinner")
