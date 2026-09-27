@@ -1,9 +1,10 @@
 # Test environment must be pinned before any app module is imported:
-# in-memory SQLite, no auth rate limiting.
+# in-memory SQLite, no auth or signup rate limiting.
 import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
 os.environ["AUTH_RATE_LIMIT_PER_MINUTE"] = "0"
+os.environ["SIGNUP_RATE_LIMIT_PER_HOUR"] = "0"
 os.environ["ENVIRONMENT"] = "test"
 
 from collections.abc import AsyncIterator  # noqa: E402

@@ -177,8 +177,9 @@ class TestOneResetCodeSetsOnePassword:
         settings_override(SMTP_HOST="smtp.example.com", SMTP_FROM="meals@example.com")
         sent: list[str] = []
 
-        async def fake_send(to: str, subject: str, body: str, **_log_context) -> None:
-            sent.append(next(line.strip() for line in body.splitlines() if line.strip().count("-") == 2))
+        async def fake_send(to: str, subject: str, body: str, *, purpose: str, **_ids) -> None:
+            if purpose == "password_reset":  # registering sends a verification code too
+                sent.append(next(line.strip() for line in body.splitlines() if line.strip().count("-") == 2))
 
         monkeypatch.setattr(auth_router, "send_email", fake_send)
         auth = await register(client)

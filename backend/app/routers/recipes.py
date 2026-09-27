@@ -8,7 +8,7 @@ from sqlalchemy import nullsfirst, select
 from sqlalchemy.exc import IntegrityError
 
 from app import limits
-from app.deps import CurrentUser, DbSession
+from app.deps import CurrentUser, DbSession, require_verified_email
 from app.models import MealRecipe, Recipe
 from app.observability import log_event
 from app.schemas.catalog import IngestIn, IngestOut, RecipeCreate, RecipeOut, RecipeSummary, RecipeUpdate, ReparseIn
@@ -87,7 +87,9 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     Failure is a 422 either way — the page has no
     usable JSON-LD, or this server couldn't fetch it (bot-blocked, unreachable,
     not public) — and the detail tells the calling AI to read the page itself
-    and submit the structured recipe via POST /recipes."""
+    and submit the structured recipe via POST /recipes. An account that has not
+    yet confirmed its email address gets a 403 for a URL not already in the
+    library, saying how to confirm it."""
     url = payload.url.strip()
     # Read once, up front: the rollback after a lost insert race expires `user`.
     household_id = user.household_id
@@ -100,6 +102,9 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
         log_event("recipe.ingested", outcome="cached", host=host, recipe_id=cached.id)
         return IngestOut(recipe=recipe_out(cached), cached=True)
 
+    # A cached URL fetches nothing, so it is open to everyone. A new one makes
+    # this server fetch a page of the caller's choosing (Q25).
+    require_verified_email(user, "importing a recipe from a URL")
     # The recipe allowance first, even though create_recipe_from_payload checks
     # it again below: a household that could not store the result should hear
     # that before this server spends a page fetch and a month's ingest on
@@ -288,6 +293,7 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
             ),
         )
 
+    require_verified_email(user, "re-reading a recipe from its URL")
     host = _host_of(recipe.source_url)
     # A re-parse is the same outbound fetch as an ingest, so it costs the same
     # allowance. Metering only /recipes/ingest would leave the limit one POST

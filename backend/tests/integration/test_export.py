@@ -292,8 +292,11 @@ class TestNothingIsLeftBehind:
             "entitlement_note",
             "expiry_warned_at",
             "lapse_notified_at",
+            "reap_warned_at",
         },
-        User: {"password_hash", "household_id"},
+        # When this server confirmed the address is its own bookkeeping too:
+        # the next server will ask again, and should.
+        User: {"password_hash", "household_id", "email_verified_at"},
         Ingredient: {"household_id"},
         Recipe: {"household_id"},
         # Link rows: their own id and their parent are implied by the nesting.

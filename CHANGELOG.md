@@ -20,7 +20,22 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Added
+
+- **Email verification** (#122, Q25). On a server with SMTP, registering emails
+  a code; `POST /auth/verify-email` redeems it and
+  `POST /auth/verify-email/resend` sends a fresh one. Until then an account can
+  do everything except invite people and fetch a recipe URL (403 saying how to
+  confirm). `UserOut` gains `email_verification_pending`. Every existing account
+  is backfilled as verified. Settings on the web has a card for the code.
+- **A signup rate limit**: `SIGNUP_RATE_LIMIT_PER_HOUR` (5) new households per
+  client address, answered 429. Registering with an invite is never counted.
+- **Reaping households that never began**, after warning them:
+  `python -m app.reaping` from cron, off unless `REAP_ABANDONED_AFTER_DAYS` is
+  set. See Q25 for exactly what counts.
+
+Migration `c4e8a1f2d9b3` adds `users.email_verified_at` and
+`households.reap_warned_at`, both nullable.
 
 ## 2026-09-26 — ground cloves, goat's cheese and pea shoots keep their names
 

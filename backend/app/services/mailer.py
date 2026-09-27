@@ -1,5 +1,6 @@
-"""Outbound email: a password reset (Q20), and the two dunning notices
-(services/dunning.py). Nothing else sends any.
+"""Outbound email: a password reset (Q20), an address verification code and
+the warning before a never-used household is reaped (Q25), and the two dunning
+notices (services/dunning.py). Nothing else sends any.
 
 Deliberately plain SMTP rather than a provider SDK: this project is self-hosted
 by design, and every relay speaks SMTP while every SDK needs an account with one
@@ -71,4 +72,17 @@ def password_reset_body(display_name: str, code: str, ttl_minutes: int) -> str:
         f"It works once and expires in {ttl_minutes} minutes.\n\n"
         f"If this wasn't you, you can ignore this email — nothing has changed "
         f"and your current password still works.\n"
+    )
+
+
+def email_verification_body(display_name: str, code: str, ttl_hours: int) -> str:
+    return (
+        f"Hello {display_name},\n\n"
+        f"Welcome to Meals. To confirm this is your address, enter this code in "
+        f"Settings:\n\n"
+        f"    {code}\n\n"
+        f"It works once and expires in {ttl_hours} hours. Until then everything "
+        f"works except inviting people and importing recipes from a link.\n\n"
+        f"If you didn't sign up, you can ignore this email. Nobody can use the "
+        f"account without the password it was made with.\n"
     )

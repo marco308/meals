@@ -42,6 +42,9 @@ BLANK_IS_DEFAULT = [
     ("LIMITS_PROFILE", "limits_profile"),
     ("DEFAULT_HOUSEHOLD_TIER", "default_household_tier"),
     ("BILLING_PRICE_CURRENCY", "billing_price_currency"),
+    ("SIGNUP_RATE_LIMIT_PER_HOUR", "signup_rate_limit_per_hour"),
+    ("EMAIL_VERIFICATION_TTL_HOURS", "email_verification_ttl_hours"),
+    ("REAP_WARNING_DAYS", "reap_warning_days"),
 ]
 
 # A real value for each, different from the default, so "blank falls back" and
@@ -53,6 +56,9 @@ SET_VALUES = {
     "LIMITS_PROFILE": ("hosted", "hosted"),
     "DEFAULT_HOUSEHOLD_TIER": ("free", "free"),
     "BILLING_PRICE_CURRENCY": ("USD", "USD"),
+    "SIGNUP_RATE_LIMIT_PER_HOUR": ("0", 0),
+    "EMAIL_VERIFICATION_TTL_HOURS": ("12", 12),
+    "REAP_WARNING_DAYS": ("30", 30),
 }
 
 

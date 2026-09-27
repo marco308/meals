@@ -361,3 +361,43 @@ Decisions:
   ceiling story stays whole; unlimited by default like everything else.
 - iOS has no freezer screen yet: the API is additive, so the web app and the
   MCP tools carry it until a build does.
+
+**Q25 — Opening registration: verify the address, limit the rate, reap what
+never began** (2026-09-27, issue #122). Registration used to be opened only to
+people the operator knew. A form open to strangers needs three things, and each
+is worth having on any instance that leaves `REGISTRATION_ENABLED` on, not only
+a commercial one.
+
+- **Verification is a code, and only where one can be sent.** Registering emails
+  a short code (`auth_tokens.kind="verify"`, 48 hours). It is redeemed signed
+  in, and only counts for the account it was sent to, so guessing one means
+  guessing your own behind the auth rate limit. Like a reset code it is never a
+  credential: `deps.AUTHENTICATING_KINDS` is an allow-list and `verify` is not
+  on it. On a server with no SMTP nothing is asked for, because nobody there
+  could ever answer. Every account that predates this was backfilled as
+  verified.
+- **An unverified account may do everything except what reaches outward**:
+  inviting (which sends a stranger into a household) and fetching a URL (which
+  makes this server fetch a page of the caller's choosing, by ingest or
+  re-parse). A URL already in the library fetches nothing and stays open.
+  Refusing anything that stays inside the household would make signing up
+  worse without making anybody safer. It is a plain 403 that says how to
+  confirm, so every iOS build already in the wild shows it inline.
+- **Starting a household is rate-limited per caller; joining one is not.** Per
+  hour rather than per minute (the auth limit is brute-force protection and
+  resets too fast to stop a household a minute), beside `deps.auth_rate_limit`
+  rather than in `app/limits.py`, because it answers 429 on a window and not
+  402 on a count. An invite is somebody vouching for the caller, so a family
+  registering its phones from one router is never refused.
+- **Reaping is for households that never began, and never without warning.**
+  §5 of 08-freemium ("nothing is deleted") is about a household that lapsed and
+  it stands. A household is reaped only when all of this holds: one member;
+  nothing anybody made in it (a recipe, meal, plan, list *line*, ingredient,
+  supermarket, cooked meal, freezer batch or invite; an empty list does not
+  count, since opening the app makes one); no money ever involved, including a
+  comp; and no credential made or used for `REAP_ABANDONED_AFTER_DAYS`. It is
+  emailed once, and deleted `REAP_WARNING_DAYS` after the email went unless
+  somebody signed in, which clears the mark. A relay failure marks nothing, so
+  no household is reaped on a warning it did not get. Deletion is the same
+  `delete_user` that `DELETE /auth/me` uses. Off unless the setting is given,
+  like every number that could take something away on a self-hosted box.

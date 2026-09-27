@@ -232,6 +232,11 @@ async function submit(data, root) {
     else if (data.household_name?.trim()) body.household_name = data.household_name.trim();
     const auth = await api("/auth/register", { method: "POST", body });
     session.save(auth);
+    // Q25: on a server that sends email, a code is on its way. Settings is
+    // where it goes, and says so again for as long as it is waiting.
+    if (auth.user.email_verification_pending) {
+      toast(`We've emailed a code to ${auth.user.email}. Enter it in Settings to invite people and import recipes from links.`, "ok");
+    }
     window.location.hash = "#/plan";
     return;
   }

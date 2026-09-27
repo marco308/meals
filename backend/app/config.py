@@ -118,6 +118,31 @@ class Settings(BaseSettings):
 
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
+    # New households per hour per IP (issue #122). The per-minute limit above
+    # is brute-force protection and resets too quickly to stop somebody
+    # scripting a household a minute; this is the rate half of what
+    # `MAX_HOUSEHOLDS` bounds in total. Registering with an invite code never
+    # counts, so a family setting up its phones from one router is never
+    # refused. 0 turns it off.
+    signup_rate_limit_per_hour: Annotated[int, BlankIsDefault] = 5
+
+    # Email verification (issue #122, decision Q25). Only in force on a server
+    # that can send email: without SMTP nothing could ever be verified, so
+    # nothing is asked for. An unverified account can do everything except the
+    # two things that reach outward, inviting people and fetching a URL.
+    email_verification_ttl_hours: Annotated[int, BlankIsDefault] = 48
+
+    # Reaping households that never began (issue #122, Q25). **Off unless
+    # REAP_ABANDONED_AFTER_DAYS is set**, like every other number that could
+    # take something from a self-hosted household. Set, `python -m app.reaping`
+    # from cron warns a household with one member, nothing in it, no money
+    # involved and no sign-in for that many days, and deletes it
+    # REAP_WARNING_DAYS after the warning went out, unless somebody signed in.
+    # A household that has ever held anything is never reaped: §5's "nothing is
+    # deleted" is about a household that lapsed, and this is one that never
+    # started.
+    reap_abandoned_after_days: OptionalInt = None
+    reap_warning_days: Annotated[int, BlankIsDefault] = 14
 
     # Prometheus metrics (app/metrics.py). Unset, GET /metrics 404s and no
     # background work runs; set, the endpoint answers to

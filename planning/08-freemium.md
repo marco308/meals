@@ -264,10 +264,11 @@ Postgres with the family's**. That move comes before the first pound, not
 after it. It stays out of the issue tracker because it is deployment topology,
 which this repo deliberately does not carry.
 
-Opening registration is its own piece of work and is currently `false` on the
-deployment. A public commercial instance needs email verification, which does
-not exist yet, signup rate limits, and a policy for reaping abandoned free
-households after warning them.
+Opening registration is its own piece of work. A public commercial instance
+needs email verification, signup rate limits, and a policy for reaping
+abandoned free households after warning them. All three now exist (Q25, #122);
+reaping still has to be switched on, by setting `REAP_ABANDONED_AFTER_DAYS` and
+adding `python -m app.reaping` to cron.
 
 Also required, none of it code: a legal entity and business bank details, a
 terms and refunds page served like `/privacy` and `/support`, a billing
@@ -308,9 +309,13 @@ three more on 2026-08-23:
    one served here, because with a merchant of record they are the seller and
    the refund is theirs to give.
 10. Opening registration ([#122](https://github.com/marco308/meals/issues/122)):
-    the email verification this codebase does not have, signup rate limits, and
+    the email verification this codebase did not have, signup rate limits, and
     a policy for reaping abandoned free households. Named in §7's last
-    paragraph, carried as a bullet in #99, and closed with it unbuilt.
+    paragraph, carried as a bullet in #99, and closed with it unbuilt. **Done**,
+    as decision Q25 in 04-open-questions: an emailed code that only the two
+    outward-reaching actions wait on, a per-hour limit on starting households,
+    and `python -m app.reaping` for households that never began, off unless
+    `REAP_ABANDONED_AFTER_DAYS` is set.
 
 10 sits behind §9's gate. 8 does not, because a household on a limited server
 deserves to know where it stands whether or not anything is ever sold, and the

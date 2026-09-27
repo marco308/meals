@@ -155,3 +155,72 @@ def forgive_auth_attempt(request: Request) -> None:
     window = _attempts.get(_rate_limit_key(request))
     if window:
         window.pop()
+
+
+# New households, per caller, per hour (issue #122). A separate window from the
+# one above because it answers a different question: not "is somebody guessing a
+# password" but "is somebody manufacturing households". Ten a minute is no
+# obstacle to that, and an hour is.
+_signups: dict[str, deque[float]] = defaultdict(deque)
+
+
+def charge_signup(request: Request) -> None:
+    """Count one new household against the caller, or refuse with 429.
+
+    Called by `register` after every other refusal and before anything is
+    written, and only for a registration that starts a household: an invite
+    code is somebody vouching for the caller, so a family registering its
+    phones from one router is never counted. `refund_signup` hands the slot
+    back if the write then fails.
+    """
+    limit = get_settings().signup_rate_limit_per_hour
+    if limit <= 0:
+        return
+    key = _rate_limit_key(request)
+    now = time.monotonic()
+    window = _signups[key]
+    while window and now - window[0] > 3600:
+        window.popleft()
+    if len(window) >= limit:
+        log_event("auth.signup_rate_limited", bucket=key)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "too many new households have been started from here in the last hour; try again later. "
+                "Joining an existing household with an invite code is not limited"
+            ),
+        )
+    window.append(now)
+
+
+def refund_signup(request: Request) -> None:
+    if get_settings().signup_rate_limit_per_hour <= 0:
+        return
+    window = _signups.get(_rate_limit_key(request))
+    if window:
+        window.pop()
+
+
+# ---------------------------------------------------------- email verification
+
+#: The refusal an unverified account gets for the two things it may not do yet.
+#: Only ever reached on a server that sends email (`User.email_verification_pending`),
+#: so it is true wherever it is read.
+VERIFY_FIRST = (
+    "confirm your email address first: {action} reaches beyond this server, so it waits until the address is "
+    "shown to be yours. Enter the code we emailed you in Settings on the web, or send it to "
+    "POST /auth/verify-email; POST /auth/verify-email/resend sends a fresh one"
+)
+
+
+def require_verified_email(user: User, action: str) -> None:
+    """403 unless this account may do something that reaches outward (Q25).
+
+    Inviting and URL ingest are the two: one sends a stranger into somebody's
+    household, the other makes this server fetch a page of the caller's
+    choosing. Everything that stays inside the household is open to an
+    unverified account, because refusing it would only make signing up worse
+    without making anybody safer.
+    """
+    if user.email_verification_pending:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=VERIFY_FIRST.format(action=action))

@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 25 September 2026**
+**Last updated: 27 September 2026**
 
 YAMP is a meal planner that runs on a server: your own, or a hosted one. The
 iOS app is a client: it talks to whichever server you point it at, and to
@@ -72,6 +72,14 @@ asked for:
 - **Password reset emails.** If your server has email configured, a reset code
   is sent through its mail relay. If it isn't configured, password reset is
   simply unavailable.
+- **Confirming your address.** If your server has email configured, signing up
+  sends a code to the address you gave, through the same relay, to show it is
+  yours. The server records when it was confirmed and nothing else about it.
+- **Accounts that were never used.** A server can be set to delete an account
+  that was made and never used: one person, nothing added, and no sign-in for a
+  period its operator chooses. It emails that address first, and deletes
+  nothing if you sign in before the date it gives. An account with anything in
+  it, or that has ever paid, is never deleted this way.
 
 If you connect an AI assistant to the API with a personal token, that assistant
 sees whatever it asks for. That connection is yours to make and yours to revoke

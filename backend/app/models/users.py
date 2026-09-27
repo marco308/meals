@@ -126,6 +126,11 @@ class Household(Base):
     # gets its own pair rather than being silently skipped.
     expiry_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     lapse_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # When the household was told it would be reaped for never having been used
+    # (services/reaping.py, Q25). Set once per idle spell, only after the email
+    # actually went, and cleared when somebody comes back, so a household is
+    # never deleted without a warning it could have acted on.
+    reap_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     # Two foreign keys now join these tables (a user's household, a household's
     # lead), so both relationships have to say which one they travel.
@@ -141,15 +146,29 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     display_name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # When this address was shown to be theirs, by a code sent to it (Q25).
+    # Every account that predates the column was backfilled, since each was
+    # made by somebody the operator knew.
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     household: Mapped[Household] = relationship(back_populates="users", lazy="selectin", foreign_keys=[household_id])
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
+    @property
+    def email_verification_pending(self) -> bool:
+        """Whether this account is still waiting to confirm its address.
+
+        Never on a server that cannot send email: nothing could be verified
+        there, so asking would only lock the two outward-facing actions for
+        good."""
+        return self.email_verified_at is None and get_settings().email_configured
+
 
 class AuthToken(Base):
     """Opaque bearer tokens, stored hashed. kind='session' for app logins,
-    kind='api' for the per-user PATs that AI clients use (decision Q7/Q15), and
-    kind='reset' for password-reset codes, which are not credentials (Q20)."""
+    kind='api' for the per-user PATs that AI clients use (decision Q7/Q15),
+    kind='reset' for password-reset codes and kind='verify' for email
+    verification codes, neither of which is a credential (Q20, Q25)."""
 
     __tablename__ = "auth_tokens"
 
