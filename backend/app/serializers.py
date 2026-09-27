@@ -124,8 +124,18 @@ def plan_out(plan: Plan) -> PlanOut:
         # from a SQLite dev file, where the FK cascade never fired) can still
         # hold an orphan — and a whole plan screen failing over one dead row is
         # a much worse outcome than the row quietly not being listed.
-        meals=[plan_meal_out(link) for link in plan.meal_links if link.meal is not None],
+        meals=[plan_meal_out(link) for link in _menu_order(plan.meal_links) if link.meal is not None],
     )
+
+
+def _menu_order(links: list[PlanMeal]) -> list[PlanMeal]:
+    """What is left to cook first, in the order it was added, then what has
+    been cooked, most recent last. Done here so every client gets it, the
+    phones already installed included: iOS and the web keep this order within
+    each slot rather than sorting on their own."""
+    to_cook = [link for link in links if link.cooked_at is None]
+    cooked = sorted((link for link in links if link.cooked_at is not None), key=lambda link: link.cooked_at)
+    return to_cook + cooked
 
 
 def plan_summary(plan: Plan) -> PlanSummary:
