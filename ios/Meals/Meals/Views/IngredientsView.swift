@@ -5,7 +5,8 @@ import SwiftUI
 /// they get set). Rows push the same ingredient editor every other screen
 /// uses; the duplicates sweep (Q21) lives in the toolbar. Needs the server —
 /// curation is deliberate work, not a mid-shop activity, so there's no
-/// offline cache here.
+/// offline cache here. Reached from Settings rather than a tab of its own:
+/// the tab bar holds five before iOS folds the rest into "More".
 struct IngredientsView: View {
     @Environment(Session.self) private var session
 
@@ -24,119 +25,117 @@ struct IngredientsView: View {
     @State private var fetchTicket = 0
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(sections, id: \.title) { section in
-                    // A–Z runs as one unbroken list; the header only earns its
-                    // place when the sort creates real groups.
-                    Section {
-                        ForEach(section.items) { item in
-                            NavigationLink {
-                                IngredientEditorView(ingredientId: item.id) {
-                                    Task { await refresh() }
-                                }
+        List {
+            ForEach(sections, id: \.title) { section in
+                // A–Z runs as one unbroken list; the header only earns its
+                // place when the sort creates real groups.
+                Section {
+                    ForEach(section.items) { item in
+                        NavigationLink {
+                            IngredientEditorView(ingredientId: item.id) {
+                                Task { await refresh() }
+                            }
+                        } label: {
+                            row(item)
+                        }
+                        // No full swipe: deleting can't be undone, so it
+                        // always goes through the confirmation.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                pendingDelete = item
                             } label: {
-                                row(item)
+                                Label("Delete", systemImage: "trash")
                             }
-                            // No full swipe: deleting can't be undone, so it
-                            // always goes through the confirmation.
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    pendingDelete = item
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
-                    } header: {
-                        if !section.title.isEmpty {
-                            Text(section.title)
                         }
                     }
+                } header: {
+                    if !section.title.isEmpty {
+                        Text(section.title)
+                    }
                 }
+            }
 
-                if loaded && items.isEmpty {
-                    if isOffline {
-                        ContentUnavailableView(
-                            "Offline",
-                            systemImage: "wifi.slash",
-                            description: Text("The catalogue needs the server — it'll be here when you're back online.")
+            if loaded && items.isEmpty {
+                if isOffline {
+                    ContentUnavailableView(
+                        "Offline",
+                        systemImage: "wifi.slash",
+                        description: Text("The catalogue needs the server — it'll be here when you're back online.")
+                    )
+                } else {
+                    ContentUnavailableView(
+                        hasFilters ? "Nothing matches" : "Nothing here",
+                        systemImage: "carrot",
+                        description: Text(
+                            hasFilters
+                                ? "No ingredient matches those filters."
+                                : "Ingredients appear as recipes and shopping lists use them."
                         )
-                    } else {
-                        ContentUnavailableView(
-                            hasFilters ? "Nothing matches" : "Nothing here",
-                            systemImage: "carrot",
-                            description: Text(
-                                hasFilters
-                                    ? "No ingredient matches those filters."
-                                    : "Ingredients appear as recipes and shopping lists use them."
-                            )
-                        )
-                    }
+                    )
                 }
             }
-            .navigationTitle("Ingredients")
-            .searchable(text: $search, prompt: "Search ingredients")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Sort", selection: $sort) {
-                            ForEach(IngredientSort.allCases, id: \.self) { option in
-                                Text(option.label).tag(option)
-                            }
+        }
+        .navigationTitle("Ingredients")
+        .searchable(text: $search, prompt: "Search ingredients")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort", selection: $sort) {
+                        ForEach(IngredientSort.allCases, id: \.self) { option in
+                            Text(option.label).tag(option)
                         }
-                        Divider()
-                        Toggle("Staples only", isOn: $staplesOnly)
-                        Picker("Verdict", selection: $tierFilter) {
-                            Text("Any verdict").tag(ValueTier?.none)
-                            Text("⭐ Premium").tag(Optional(ValueTier.premium))
-                            Text("💷 Budget").tag(Optional(ValueTier.budget))
-                        }
-                        .pickerStyle(.menu)
-                    } label: {
-                        Image(systemName: hasFilters
-                            ? "line.3.horizontal.decrease.circle.fill"
-                            : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel("Sort and filter")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showDuplicates = true
-                    } label: {
-                        Image(systemName: "arrow.triangle.merge")
+                    Divider()
+                    Toggle("Staples only", isOn: $staplesOnly)
+                    Picker("Verdict", selection: $tierFilter) {
+                        Text("Any verdict").tag(ValueTier?.none)
+                        Text("⭐ Premium").tag(Optional(ValueTier.premium))
+                        Text("💷 Budget").tag(Optional(ValueTier.budget))
                     }
-                    .accessibilityLabel("Find duplicates")
+                    .pickerStyle(.menu)
+                } label: {
+                    Image(systemName: hasFilters
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle")
                 }
+                .accessibilityLabel("Sort and filter")
             }
-            .task { await refresh() }
-            .refreshable { await refresh() }
-            .onChange(of: search) { _, _ in Task { await refresh() } }
-            .onChange(of: sort) { _, _ in Task { await refresh() } }
-            .onChange(of: staplesOnly) { _, _ in Task { await refresh() } }
-            .onChange(of: tierFilter) { _, _ in Task { await refresh() } }
-            .sheet(isPresented: $showDuplicates) {
-                DuplicatesView { Task { await refresh() } }
-            }
-            .confirmationDialog(
-                "Delete '\(pendingDelete?.name ?? "")'? Only works if nothing references it — recipes, meals and list lines all protect their ingredients.",
-                isPresented: .init(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button("Delete ingredient", role: .destructive) {
-                    guard let item = pendingDelete else { return }
-                    pendingDelete = nil
-                    Task { await remove(item) }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showDuplicates = true
+                } label: {
+                    Image(systemName: "arrow.triangle.merge")
                 }
+                .accessibilityLabel("Find duplicates")
             }
-            .alert(
-                "Couldn't do that",
-                isPresented: .init(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
-            ) {
-                Button("OK") { actionError = nil }
-            } message: {
-                Text(actionError ?? "")
+        }
+        .task { await refresh() }
+        .refreshable { await refresh() }
+        .onChange(of: search) { _, _ in Task { await refresh() } }
+        .onChange(of: sort) { _, _ in Task { await refresh() } }
+        .onChange(of: staplesOnly) { _, _ in Task { await refresh() } }
+        .onChange(of: tierFilter) { _, _ in Task { await refresh() } }
+        .sheet(isPresented: $showDuplicates) {
+            DuplicatesView { Task { await refresh() } }
+        }
+        .confirmationDialog(
+            "Delete '\(pendingDelete?.name ?? "")'? Only works if nothing references it — recipes, meals and list lines all protect their ingredients.",
+            isPresented: .init(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete ingredient", role: .destructive) {
+                guard let item = pendingDelete else { return }
+                pendingDelete = nil
+                Task { await remove(item) }
             }
+        }
+        .alert(
+            "Couldn't do that",
+            isPresented: .init(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+        ) {
+            Button("OK") { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
     }
 

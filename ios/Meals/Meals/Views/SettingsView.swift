@@ -19,6 +19,7 @@ struct SettingsView: View {
                 accountSection
                 householdSection
                 shoppingSection
+                kitchenSection
                 mealTimesSection
                 aiSection
                 serverSection
@@ -105,6 +106,18 @@ struct SettingsView: View {
                 "Save the stores you shop at and arrange each one's aisles the way you "
                     + "meet them — the shopping list walks whichever store is picked."
             )
+        }
+    }
+
+    private var kitchenSection: some View {
+        Section {
+            NavigationLink {
+                IngredientsView()
+            } label: {
+                Label("Ingredients", systemImage: "carrot")
+            }
+        } footer: {
+            Text("Every ingredient the household uses: its aisle, whether it's a staple, and whether the premium version is worth it.")
         }
     }
 
