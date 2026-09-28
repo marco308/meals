@@ -25,6 +25,9 @@ targets:
     platform: iOS
     sources:
       - Meals
+      - Shared
+    dependencies:
+      - target: MealsWidgets
     resources:
       - path: Meals/Resources
         excludes:
@@ -44,7 +47,7 @@ targets:
         # uploads have come from outside this repo, so check the latest build
         # there and set this above it before `make ios-testflight`. Then add a
         # row to ios/CHANGELOG.md and move current_ios_build in the backend.
-        CFBundleVersion: "30"
+        CFBundleVersion: "32"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -54,6 +57,13 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # Meal times on the Lock Screen (MealTimes.swift). The background
+        # refresh takes a finished meal time down and schedules the next one.
+        NSSupportsLiveActivities: true
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.marcuslab.meals.mealtimes
         # Q25: read while the app is open, compared on the phone with the saved
         # stores, never sent. Saved stores come from place search, not from
         # this, which is why App Store privacy can keep Location "not collected".
@@ -85,6 +95,35 @@ targets:
           SWIFT_OPTIMIZATION_LEVEL: -Onone
         Release:
           SWIFT_OPTIMIZATION_LEVEL: -Osize
+
+  # Draws the meal-time Live Activities. It holds no API client and no data of
+  # its own: everything it shows arrives in the activity from the app.
+  # Its two version numbers must match the app's above, or the upload is refused.
+  MealsWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - MealsWidgets
+      - Shared
+    info:
+      path: MealsWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Meals
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleShortVersionString: "1.2"
+        CFBundleVersion: "32"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcuslab.meals.widgets
+        PRODUCT_NAME: MealsWidgets
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ${MEALS_DEVELOPMENT_TEAM}
+        SWIFT_STRICT_CONCURRENCY: complete
+        SKIP_INSTALL: YES
 
   MealsTests:
     type: bundle.unit-test
