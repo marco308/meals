@@ -19,6 +19,7 @@ struct SettingsView: View {
                 accountSection
                 householdSection
                 shoppingSection
+                mealTimesSection
                 aiSection
                 serverSection
                 aboutSection
@@ -104,6 +105,18 @@ struct SettingsView: View {
                 "Save the stores you shop at and arrange each one's aisles the way you "
                     + "meet them — the shopping list walks whichever store is picked."
             )
+        }
+    }
+
+    private var mealTimesSection: some View {
+        Section {
+            NavigationLink {
+                MealTimesView()
+            } label: {
+                Label("Meal times", systemImage: "clock")
+            }
+        } footer: {
+            Text("What the plan offers for breakfast, lunch and dinner, on the Lock Screen while it's time.")
         }
     }
 

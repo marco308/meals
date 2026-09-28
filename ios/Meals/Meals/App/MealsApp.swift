@@ -6,6 +6,7 @@ struct MealsApp: App {
     @State private var planStore: PlanStore
     @State private var recipeStore: RecipeStore
     @State private var listStore: ShoppingListStore
+    @State private var mealTimes: MealTimes
 
     init() {
         // Session first: it checks whether the app's data was already on the
@@ -28,6 +29,7 @@ struct MealsApp: App {
                 recipeStore.clearCache()
             }
         }
+        let mealTimes = MealTimes(plan: { planStore.plan }, signedIn: { session.isAuthenticated })
         session.onAccountDeleted = { owner in listStore.accountDeleted(owner) }
         session.announceAccountState()
 
@@ -35,6 +37,7 @@ struct MealsApp: App {
         _planStore = State(initialValue: planStore)
         _recipeStore = State(initialValue: recipeStore)
         _listStore = State(initialValue: listStore)
+        _mealTimes = State(initialValue: mealTimes)
     }
 
     var body: some Scene {
@@ -44,6 +47,13 @@ struct MealsApp: App {
                 .environment(planStore)
                 .environment(recipeStore)
                 .environment(listStore)
+                .environment(mealTimes)
+        }
+        // Take a finished meal time off the Lock Screen and schedule the next
+        // one, reading the plan fresh when there is signal (the cache if not).
+        .backgroundTask(.appRefresh(MealTimes.refreshTaskIdentifier)) {
+            await planStore.refresh()
+            await mealTimes.refresh()
         }
     }
 }
@@ -52,6 +62,8 @@ struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ShoppingListStore.self) private var listStore
+    @Environment(PlanStore.self) private var planStore
+    @Environment(MealTimes.self) private var mealTimes
 
     var body: some View {
         Group {
@@ -72,6 +84,10 @@ struct RootView: View {
             }
         }
         .task { await session.checkClientCompatibility() }
+        // Meal times on the Lock Screen follow the plan: a meal cooked, added
+        // or removed (here or by anyone in the household) and a sign-out.
+        .onChange(of: planStore.plan) { Task { await mealTimes.refresh() } }
+        .onChange(of: session.isAuthenticated) { Task { await mealTimes.refresh() } }
         .task {
             // Signal back (walking out of the dead spot by the freezers):
             // send what was queued now, not on the next tap.
@@ -86,6 +102,10 @@ struct RootView: View {
             if phase == .active {
                 Task { await session.checkClientCompatibility() }
                 Task { await refreshAndSync() }
+                Task {
+                    await mealTimes.refresh()
+                    if session.isAuthenticated { await planStore.refresh() }
+                }
             }
         }
     }

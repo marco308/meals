@@ -365,7 +365,7 @@ wheels = [
 
 [[package]]
 name = "meals-mcp"
-version = "1.7.6"
+version = "1.7.7"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
