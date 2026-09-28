@@ -353,9 +353,48 @@ struct Plan: Codable, Identifiable, Equatable, Sendable {
     // Optional so caches written by older app versions still decode.
     var archivedAt: String? = nil
 
+    /// The plan in sections, one per combination of slots, in meal-of-the-day
+    /// order: "Breakfast", "Breakfast or lunch", "Lunch", "Dinner", "Snack",
+    /// "Other", then anything a household made up, alphabetically. A meal
+    /// with no slot goes under "Other". Meals keep the server's order within
+    /// a section, which is what puts the cooked ones last.
     var slots: [(slot: String, meals: [PlanMeal])] {
-        let grouped = Dictionary(grouping: meals) { $0.meal.allSlots.joined(separator: " or ").nonEmpty ?? "other" }
-        return grouped.keys.sorted().map { (slot: $0, meals: grouped[$0] ?? []) }
+        var order: [[String]] = []
+        var grouped: [[String]: [PlanMeal]] = [:]
+        for planMeal in meals {
+            let slots = planMeal.meal.allSlots
+            let key = slots.isEmpty ? ["other"] : slots
+            if grouped[key] == nil { order.append(key) }
+            grouped[key, default: []].append(planMeal)
+        }
+        return order.sorted(by: MealSlots.precedes)
+            .map { (slot: $0.joined(separator: " or "), meals: grouped[$0] ?? []) }
+    }
+}
+
+/// The slots every meal editor offers, in the order they happen in a day.
+/// The same list and order the API stores them in (`services/slots.py`) and
+/// the web app shows them in (`web/js/views/meals.js`).
+enum MealSlots {
+    static let suggested = ["breakfast", "lunch", "dinner", "snack", "other"]
+
+    /// Suggested slots by their place in the day, anything else after them
+    /// alphabetically; a list of slots compares one slot at a time, so
+    /// "breakfast" comes before "breakfast or lunch", which comes before "lunch".
+    static func precedes(_ lhs: [String], _ rhs: [String]) -> Bool {
+        for (a, b) in zip(lhs, rhs) where a != b {
+            return precedes(a, b)
+        }
+        return lhs.count < rhs.count
+    }
+
+    static func precedes(_ lhs: String, _ rhs: String) -> Bool {
+        switch (suggested.firstIndex(of: lhs), suggested.firstIndex(of: rhs)) {
+        case let (a?, b?): a < b
+        case (_?, nil): true
+        case (nil, _?): false
+        case (nil, nil): lhs < rhs
+        }
     }
 }
 

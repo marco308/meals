@@ -47,9 +47,26 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(plan.label, "This week's options")
         XCTAssertEqual(plan.meals.count, 4)
         let slots = plan.slots.map(\.slot)
-        XCTAssertEqual(slots, ["dinner", "lunch"])
-        let dinner = try XCTUnwrap(plan.slots.first?.meals.first)
+        XCTAssertEqual(slots, ["lunch", "dinner"], "sections run in meal-of-the-day order, not alphabetically")
+        let dinner = try XCTUnwrap(plan.slots.last?.meals.first)
         XCTAssertNil(dinner.cookedAt)
+    }
+
+    func testPlanSectionsRunInMealOfTheDayOrder() throws {
+        func planMeal(_ slots: [String]) -> PlanMeal {
+            PlanMeal(id: UUID(), meal: Meal(id: UUID(), name: slots.joined(), slot: slots.first, recipes: [],
+                                            looseIngredients: [], slots: slots), cookedAt: nil)
+        }
+        let plan = Plan(id: UUID(), label: "w/c", status: "active", meals: [
+            planMeal(["batch-cook"]), planMeal([]), planMeal(["dinner"]), planMeal(["snack"]),
+            planMeal(["lunch", "dinner"]), planMeal(["lunch"]), planMeal(["breakfast", "lunch"]),
+            planMeal(["breakfast"]), planMeal(["other"]), planMeal(["dinner"]),
+        ])
+        XCTAssertEqual(plan.slots.map(\.slot), [
+            "breakfast", "breakfast or lunch", "lunch", "lunch or dinner", "dinner", "snack", "other", "batch-cook",
+        ])
+        XCTAssertEqual(plan.slots.first { $0.slot == "other" }?.meals.count, 2, "a meal with no slot is filed under other")
+        XCTAssertEqual(plan.slots.first { $0.slot == "dinner" }?.meals.count, 2)
     }
 
     func testMealWithSeveralSlotsGroupsUnderAllOfThem() throws {

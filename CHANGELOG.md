@@ -22,6 +22,26 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-28 — the plan reads in the order of the day
+
+Released as **1.7.6**. No migrations, and nothing in the API changed shape.
+Announces iOS build 31 (`current_ios_build`).
+
+### Changed
+
+- **The web app's plan is sectioned by slot**, as the iPhone app's always
+  was: Breakfast, Lunch, Dinner, Snack, Other, with a meal that fills two
+  slots under its own heading between them ("Breakfast or lunch") and a meal
+  with no slot under Other. The slot chips on each row are gone, since the
+  heading says it.
+
+### Fixed
+
+- **iOS build 31 puts the plan's sections in meal-of-the-day order.** Earlier
+  builds sorted them alphabetically, so a plan read Breakfast, Dinner, Lunch.
+  A test now reads the slot order back from the API, the web app and the
+  iPhone app, since the three share no code.
+
 ## 2026-09-27 — a recipe's ingredients say what you think of them
 
 Released as **1.7.5**. No migrations, and nothing in the API changed shape:

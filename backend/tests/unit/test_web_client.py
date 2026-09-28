@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from app import limits
+from app.services import slots
 
 WEB = Path(__file__).resolve().parents[3] / "web" / "js" / "views"
 
@@ -143,3 +144,21 @@ def test_the_plan_page_lists_every_active_plan():
     source = (WEB / "plan.js").read_text()
     assert 'api("/plans", { query: { status: "active" } })' in source
     assert "${isActive && otherActivePlans(active, plan.id)}" in source
+
+
+def test_every_client_orders_slots_as_the_api_stores_them():
+    """The plan is sectioned by slot on the web and on the iPhone, and both
+    run breakfast, lunch, dinner, snack, other. iOS once sorted its sections
+    alphabetically ("Breakfast, Dinner, Lunch"), and the order lives in three
+    places with no shared code between them, so it is read back from each."""
+    repo = Path(__file__).resolve().parents[3]
+    web = re.search(r"const SUGGESTED_SLOTS = \[([^\]]*)\]", (WEB / "meals.js").read_text())
+    ios = re.search(
+        r"static let suggested = \[([^\]]*)\]",
+        (repo / "ios" / "Meals" / "Meals" / "Models" / "Models.swift").read_text(),
+    )
+    assert web, "web/js/views/meals.js no longer declares SUGGESTED_SLOTS"
+    assert ios, "Models.swift no longer declares MealSlots.suggested"
+    for found in (web, ios):
+        assert tuple(re.findall(r'"([^"]+)"', found.group(1))) == slots.SUGGESTED_SLOTS
+    assert "compareSlotLists" in (WEB / "plan.js").read_text(), "the plan page no longer sorts its sections"

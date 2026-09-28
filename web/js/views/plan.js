@@ -4,6 +4,7 @@
 // just say so.
 
 import { api } from "../api.js";
+import { compareSlotLists } from "./meals.js";
 import { confirmDialog, emptyState, fmtRel, foodEmoji, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderPlan(root, planId = null) {
@@ -67,7 +68,14 @@ export async function renderPlan(root, planId = null) {
         </div>
         ${plan.meals.length === 0
           ? emptyState("🫕", "Nothing on the menu yet", "Add a few meals and the shopping list writes itself.")
-          : html`<ul class="menu-list">${plan.meals.map((pm) => planMeal(pm, plan, isActive))}</ul>`}
+          : slotSections(plan.meals).map(
+              (section) => html`
+                <section class="menu-section">
+                  <h3 class="menu-section-head">${section.label}</h3>
+                  <ul class="menu-list">${section.meals.map((pm) => planMeal(pm, plan, isActive))}</ul>
+                </section>
+              `,
+            )}
         ${plan.meals.length > 0 && html`<p class="menu-foot">${uncooked === 0 ? "all cooked — nicely done" : `${uncooked} still to cook`}</p>`}
       </div>
 
@@ -124,6 +132,23 @@ export async function renderPlan(root, planId = null) {
   }
 }
 
+// The plan in sections, one per combination of slots ("Breakfast", "Lunch or
+// dinner"), in meal-of-the-day order, the same sections the iPhone app shows.
+// A meal with no slot goes under "Other". Meals keep the server's order within
+// a section, which is what puts the cooked ones last.
+function slotSections(planMeals) {
+  const sections = new Map();
+  for (const pm of planMeals) {
+    const slots = pm.meal.slots.length ? pm.meal.slots : ["other"];
+    const key = slots.join(" or ");
+    if (!sections.has(key)) sections.set(key, { slots, meals: [] });
+    sections.get(key).meals.push(pm);
+  }
+  return [...sections.entries()]
+    .sort(([, a], [, b]) => compareSlotLists(a.slots, b.slots))
+    .map(([key, section]) => ({ label: key.charAt(0).toUpperCase() + key.slice(1), meals: section.meals }));
+}
+
 function planMeal(pm, plan, isActive) {
   const meal = pm.meal;
   return html`
@@ -132,7 +157,6 @@ function planMeal(pm, plan, isActive) {
       <div class="m-main">
         <a class="m-name" href="#/meals/${meal.id}">${meal.name}</a>
         <div class="m-meta">
-          ${meal.slots.map((slot) => html`<span class="chip">${slot}</span>`)}
           ${cookedChip(pm, meal)}
         </div>
       </div>

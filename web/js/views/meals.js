@@ -13,8 +13,27 @@ let query = { search: "", slot: "" };
 const SUGGESTED_SLOTS = ["breakfast", "lunch", "dinner", "snack", "other"];
 
 function bySlotOrder(slots) {
-  const known = SUGGESTED_SLOTS.filter((slot) => slots.includes(slot));
-  return [...known, ...slots.filter((slot) => !SUGGESTED_SLOTS.includes(slot)).sort()];
+  return [...slots].sort(compareSlot);
+}
+
+// Suggested slots by their place in the day, anything else after them
+// alphabetically.
+function compareSlot(a, b) {
+  const [i, j] = [SUGGESTED_SLOTS.indexOf(a), SUGGESTED_SLOTS.indexOf(b)];
+  if (i >= 0 && j >= 0) return i - j;
+  if (i >= 0 || j >= 0) return i >= 0 ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// A list of slots compares one slot at a time, so "breakfast" comes before
+// "breakfast or lunch", which comes before "lunch". The plan page's sections
+// run in this order, as the iPhone app's do (MealSlots in Models.swift).
+export function compareSlotLists(a, b) {
+  for (let k = 0; k < Math.min(a.length, b.length); k++) {
+    const order = compareSlot(a[k], b[k]);
+    if (order !== 0) return order;
+  }
+  return a.length - b.length;
 }
 
 function slotChips(meal) {
