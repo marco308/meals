@@ -3,6 +3,7 @@ and the two read paths that follow the active order — GET /aisles (how iOS
 learns it) and the GET /shopping-list sort."""
 
 import time
+import timeit
 
 from app.services.aisles import AISLE_EMOJIS
 from app.services.supermarkets import DEFAULT_RADIUS_M, HALF_LOCATION_DETAIL, invalid_aisle_order_detail
@@ -75,15 +76,18 @@ class TestCrud:
         started = time.perf_counter()
         created = await auth_client.post("/supermarkets", json={"name": "Aldi", "aisle_order": order})
         updated = await auth_client.patch(f"/supermarkets/{market['id']}", json={"aisle_order": order})
-        assert time.perf_counter() - started < 2.0
-        assert created.status_code == updated.status_code == 422
-
-
-def test_the_duplicate_check_is_linear():
-    started = time.perf_counter()
-    detail = invalid_aisle_order_detail(["🥬"] * 40_000)
-    assert time.perf_counter() - started < 0.5
-    assert detail == "aisle(s) 🥬 listed more than once; each aisle appears at most once"
+        elapsed = time.perf_counter() - started
+        # Refused by the schema's length bound, before any per-entry check
+        # runs: that is what "at once" means, and it doesn't depend on the
+        # runner. The scaling of the duplicate check itself is asserted
+        # structurally in test_the_duplicate_check_is_linear below.
+        for response in (created, updated):
+            assert response.status_code == 422
+            assert [(e["type"], e["loc"]) for e in response.json()["detail"]] == [("too_long", ["body", "aisle_order"])]
+        # A backstop, not the measure: ~0.06s here, 2.09s once on a CI runner
+        # with coverage on, 15s for the old quadratic check. 5s keeps a
+        # comfortable margin on both sides.
+        assert elapsed < 5.0
 
     async def test_rename_and_reorder(self, auth_client):
         market = await create_market(auth_client)
@@ -106,6 +110,21 @@ def test_the_duplicate_check_is_linear():
         assert (await auth_client.delete(f"/supermarkets/{market['id']}")).status_code == 204
         listed = (await auth_client.get("/supermarkets")).json()
         assert listed == []
+
+
+def test_the_duplicate_check_is_linear():
+    """Four times the entries may take about four times as long; the old
+    order.count() per entry took sixteen. Comparing the two sizes on the same
+    machine cancels out how fast that machine is, and the best of several runs
+    drops the ones a busy runner interrupted."""
+
+    def best_time(n):
+        order = ["🥬"] * n
+        return min(timeit.repeat(lambda: invalid_aisle_order_detail(order), number=1, repeat=3))
+
+    assert best_time(40_000) / best_time(10_000) < 8
+    detail = invalid_aisle_order_detail(["🥬"] * 40_000)
+    assert detail == "aisle(s) 🥬 listed more than once; each aisle appears at most once"
 
 
 class TestLocation:
