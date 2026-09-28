@@ -77,7 +77,7 @@ struct MealEditorView: View {
 
     /// Offered in meal-of-the-day order, the order the server stores them in.
     /// A meal can fill any number: "breakfast or lunch" is one meal.
-    private static let suggestedSlots = ["breakfast", "lunch", "dinner", "snack", "other"]
+    private static let suggestedSlots = MealSlots.suggested
 
     /// The suggested slots plus any the meal already has that aren't among
     /// them, so saving never drops one unasked.
