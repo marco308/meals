@@ -22,6 +22,18 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-09-28: iOS build 34, a Meals tab
+
+Released as **1.7.8**. No migrations, and nothing in the API changed.
+Announces iOS build 34 (`current_ios_build`).
+
+### Added
+
+- **iOS build 34 has a Meals tab.** The phone could browse recipes but not
+  meals, which were only on screen while on the plan. The tab lists every
+  meal with search, a slot filter, create, add-to-plan and delete, and
+  Ingredients moves into Settings to keep the tab bar at five.
+
 ## 2026-09-28 — the plan reads in the order of the day
 
 Released as **1.7.6**. No migrations, and nothing in the API changed shape.
