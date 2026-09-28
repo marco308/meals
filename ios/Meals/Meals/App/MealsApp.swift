@@ -125,12 +125,16 @@ struct MainTabView: View {
         TabView {
             PlanView()
                 .tabItem { Label("Plan", systemImage: "list.bullet.rectangle") }
+            // Meals and recipes are different things (a meal is what goes on
+            // the plan: some recipes plus sides), so each gets its library.
+            // Five tabs is the most an iPhone shows before "More", which is
+            // why Ingredients lives in Settings.
+            MealsView()
+                .tabItem { Label("Meals", systemImage: "fork.knife") }
             RecipesView()
                 .tabItem { Label("Recipes", systemImage: "book") }
             ShoppingListView()
                 .tabItem { Label("Shopping", systemImage: "cart") }
-            IngredientsView()
-                .tabItem { Label("Ingredients", systemImage: "carrot") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
