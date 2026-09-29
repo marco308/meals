@@ -209,6 +209,51 @@ class TestParseIngredientLine:
         assert parsed.quantity is None
         assert parsed.unit is None
 
+    @pytest.mark.parametrize(
+        "line,name,quantity,unit",
+        [
+            # #188: bracketed pack sizes
+            ("1 (400g) tin chickpeas", "chickpeas", 400, "g"),
+            ("2 (400g) tins of chickpeas", "chickpeas", 800, "g"),
+            ("1 (400ml) can coconut milk", "coconut milk", 400, "ml"),
+            # word amounts, which used to make "an egg" a food of its own
+            ("an egg", "egg", 1, "item"),
+            ("An egg, beaten", "egg", 1, "item"),
+            ("one onion", "onion", 1, "item"),
+            ("two red onions", "red onions", 2, "item"),
+            ("twelve eggs", "eggs", 12, "item"),
+            ("a pinch of salt", "salt", 1, "pinch"),
+            ("a handful of basil leaves", "basil leaves", 1, "handful"),
+            ("a 400g tin of chickpeas", "chickpeas", 400, "g"),
+            # compound imperial with no metric figure to keep
+            ("2lb 4oz potatoes", "potatoes", 1020, "g"),
+            ("1 lb 8 oz beef", "beef", 678, "g"),
+            # container words after a multiplied metric amount, sachets included
+            ("2 x 5g sachets yeast", "yeast", 10, "g"),
+            ("4 x 125g pots of yogurt", "yogurt", 500, "g"),
+            # an 'x' that multiplies nothing
+            ("2 x tins tomatoes", "tomatoes", 2, "tin"),
+            ("2 x large onions", "large onions", 2, "item"),
+        ],
+    )
+    def test_word_amounts_pack_sizes_and_compound_imperial(self, line, name, quantity, unit):
+        parsed = parse_ingredient_line(line)
+        assert parsed.name == name
+        assert parsed.quantity == pytest.approx(quantity)
+        assert parsed.unit == unit
+        assert parsed.raw == line
+
+    @pytest.mark.parametrize(
+        "line",
+        ["a few sprigs thyme", "a little olive oil", "a good pinch of salt", "one and a half onions", "a"],
+    )
+    def test_a_vague_word_amount_guesses_nothing(self, line):
+        """ "a few" is not one, and "one and a half" is not one either: the
+        line stays whole rather than become 1 of "few sprigs thyme"."""
+        parsed = parse_ingredient_line(line)
+        assert parsed.quantity is None
+        assert parsed.name == line
+
     def test_unparseable_line_keeps_everything_in_name(self):
         parsed = parse_ingredient_line("Salt and pepper to taste")
         assert parsed.quantity is None
