@@ -103,12 +103,60 @@ _MULTIPLIER_RE = re.compile(
     rf"(?:(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})\b)?\.?\s+(?P<rest>.+)$",
     re.IGNORECASE,
 )
-# "2 400g cans of black beans" — count + glued metric amount + container word, no 'x'
+# "2 400g cans of black beans", "1 (400g) tin chickpeas", "1 (14.5 ounce) can
+# diced tomatoes", "1 15oz. can black beans": a count, the amount in each
+# (bracketed or not, metric or convertible), and the container. No 'x'.
+_PACK_UNITS = "|".join(re.escape(u) for u in sorted(set(METRIC_UNITS) | set(INGEST_CONVERSIONS), key=len, reverse=True))
 _COUNT_CONTAINER_RE = re.compile(
-    rf"^\s*(?P<count>\d+)\s+(?P<qty>\d+(?:\.\d+)?)\s*(?P<unit>g|kg|ml|l)\s+"
+    r"^\s*(?P<count>\d++)\s+(?P<open>\()?\s*(?P<qty>\d++(?:\.\d++)?|\.\d++)[\s-]*"
+    rf"(?P<unit>{_PACK_UNITS})\b\.?\s*(?(open)\))\s*"
     rf"(?:{_CONTAINER})\s+(?:of\s+)?(?P<rest>.+)$",
     re.IGNORECASE,
 )
+# "1 (2-inch) piece fresh ginger": the bracket sizes the piece, and a piece of
+# ginger is bought as one ginger.
+_SIZED_PIECE_RE = re.compile(r"^(?P<count>\d++) \([^()]*\) ?pieces? (?:of )?", re.IGNORECASE)
+# "2lb 4oz potatoes": two imperial figures for one amount, with no metric
+# figure for _DUAL_MEASURE_RE to keep instead. Summed only when both land in
+# the same canonical unit.
+_IMPERIAL_CONVERTIBLE = "|".join(re.escape(u) for u in sorted(INGEST_CONVERSIONS, key=len, reverse=True))
+_COMPOUND_IMPERIAL_RE = re.compile(
+    rf"^\s*(?P<q1>{_NUMBER_TOKEN})\s*(?P<u1>{_IMPERIAL_CONVERTIBLE})\b\.?\s*"
+    rf"(?P<q2>{_NUMBER_TOKEN})\s*(?P<u2>{_IMPERIAL_CONVERTIBLE})\b\.?\s+(?:of\s+)?(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+# "an egg", "one onion", "a pinch of salt". Each of these used to be its own
+# ingredient ("an egg" beside "egg"), merged by hand afterwards. The word
+# becomes its number unless what follows makes it vague ("a few sprigs", "a
+# little oil", "a good pinch") or only part of a number ("one and a half",
+# "a quarter of"): those keep the whole line as the name, as before.
+_WORD_AMOUNTS = {
+    "a": "1",
+    "an": "1",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+}
+_VAGUE_AFTER_WORD_AMOUNT = (
+    "few|little|bit|couple|dozen|half|third|quarter|and|or|to|good|generous|heaped|heaping|rounded|level|scant"
+    "|splash|drizzle|squeeze|dollop|sprinkle|sprinkling|glug|dusting|touch|small amount"
+)
+_WORD_AMOUNT_RE = re.compile(
+    rf"^(?P<word>{'|'.join(_WORD_AMOUNTS)})\s+(?!(?:{_VAGUE_AFTER_WORD_AMOUNT})\b)(?=\S)",
+    re.IGNORECASE,
+)
+# "2 x tins tomatoes", "2 x large onions": the 'x' multiplies nothing, so it
+# goes, and the line reads as "2 tins tomatoes".
+_BARE_TIMES_RE = re.compile(r"^(?P<count>\d+)\s*x\s+(?=[a-z])", re.IGNORECASE)
 
 
 def parse_ingredient_line(raw: str) -> ParsedIngredient:
@@ -141,6 +189,9 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
     raw = html.unescape(raw)[:_MAX_LINE_CHARS]
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
+    cleaned = _WORD_AMOUNT_RE.sub(lambda m: _WORD_AMOUNTS[m.group("word").lower()] + " ", cleaned, count=1)
+    cleaned = _BARE_TIMES_RE.sub(r"\g<count> ", cleaned, count=1)
+    cleaned = _SIZED_PIECE_RE.sub(r"\g<count> ", cleaned, count=1)
     cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
 
     multiplier = _MULTIPLIER_RE.match(cleaned)
@@ -167,6 +218,17 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
             float(counted.group("count")) * float(counted.group("qty")), counted.group("unit")
         )
         return ParsedIngredient(raw=raw, name=_clean_name(counted.group("rest")), quantity=quantity, unit=unit)
+
+    compound = _COMPOUND_IMPERIAL_RE.match(cleaned)
+    if compound:
+        first, second = parse_number(compound.group("q1")), parse_number(compound.group("q2"))
+        if first is not None and second is not None:
+            q1, u1 = _convert_unit(first, compound.group("u1"))
+            q2, u2 = _convert_unit(second, compound.group("u2"))
+            if u1 == u2:
+                return ParsedIngredient(
+                    raw=raw, name=_clean_name(compound.group("rest")), quantity=round(q1 + q2, 3), unit=u1
+                )
 
     match = _LINE_RE.match(cleaned)
     if match and match.group("qty"):

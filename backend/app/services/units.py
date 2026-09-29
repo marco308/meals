@@ -134,7 +134,24 @@ NATURAL_UNITS: frozenset[str] = frozenset(
 
 # What a metric amount comes in, dropped from the name once the amount is
 # known: "2 x 400g tins chopped tomatoes" is 800 g of chopped tomatoes.
-CONTAINER_UNITS: frozenset[str] = frozenset({"tin", "can", "jar", "pack", "packet", "bottle"})
+CONTAINER_UNITS: frozenset[str] = frozenset(
+    {
+        "tin",
+        "can",
+        "jar",
+        "pack",
+        "packet",
+        "package",
+        "bottle",
+        "sachet",
+        "pouch",
+        "sheet",
+        "tub",
+        "pot",
+        "carton",
+        "bag",
+    }
+)
 
 # The plurals `pluralize`'s rules would get wrong: wordforms' table, reversed.
 _IRREGULAR_PLURALS = {singular: plural for plural, singular in IRREGULAR_SINGULARS.items()}
