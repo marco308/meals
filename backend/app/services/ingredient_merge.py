@@ -14,6 +14,7 @@ can call `merge_ingredients` on anything the table was too cautious to claim.
 
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,44 +27,49 @@ class MergeError(ValueError):
     """The merge was refused; the message says what to do instead."""
 
 
-async def find_duplicate_groups(db: AsyncSession, household_id: uuid.UUID) -> list[list[Ingredient]]:
-    """Groups of two or more ingredients that fold to the same canonical name,
-    keeper first. The keeper is the row already stored under the canonical
-    name if there is one, else the oldest — merging into the oldest keeps the
-    aisle and value tier somebody has most likely already curated."""
+@dataclass
+class Duplicates:
+    """What `GET /ingredients/duplicates` reports, from one read of the catalogue."""
+
+    # (canonical name, members keeper first), sorted by the keeper's name.
+    groups: list[tuple[str, list[Ingredient]]]
+    # (ingredient, canonical name) for a row with no twin, sorted by name.
+    unfolded: list[tuple[Ingredient, str]]
+
+
+async def find_duplicates(db: AsyncSession, household_id: uuid.UUID) -> Duplicates:
+    """Every ingredient in the household, folded once.
+
+    **Groups** are two or more ingredients that fold to the same canonical
+    name, keeper first. The keeper is the row already stored under the
+    canonical name if there is one, else the oldest — merging into the oldest
+    keeps the aisle and value tier somebody has most likely already curated.
+
+    **Unfolded** are ingredients stored under a name that predates the folding
+    rules and have no duplicate to merge with — "garlic cloves" when there is
+    no "garlic" — so a client can offer the rename, which it performs as a
+    merge into the canonical name."""
     result = await db.execute(
-        select(Ingredient).where(Ingredient.household_id == household_id).order_by(Ingredient.created_at)
+        select(Ingredient).where(Ingredient.household_id == household_id).order_by(Ingredient.name)
     )
+    ingredients = list(result.scalars())
+    names = {ingredient.name for ingredient in ingredients}
     by_canonical: dict[str, list[Ingredient]] = defaultdict(list)
-    for ingredient in result.scalars():
-        by_canonical[canonical_ingredient_name(ingredient.name) or ingredient.name].append(ingredient)
+    unfolded: list[tuple[Ingredient, str]] = []
+    for ingredient in ingredients:
+        canonical = canonical_ingredient_name(ingredient.name)
+        by_canonical[canonical or ingredient.name].append(ingredient)
+        if canonical and canonical != ingredient.name and canonical not in names:
+            unfolded.append((ingredient, canonical))
 
     groups = []
     for canonical, members in by_canonical.items():
         if len(members) < 2:
             continue
         members.sort(key=lambda i: (i.name != canonical, i.created_at))
-        groups.append(members)
-    groups.sort(key=lambda group: group[0].name)
-    return groups
-
-
-async def find_unfolded(db: AsyncSession, household_id: uuid.UUID) -> list[tuple[Ingredient, str]]:
-    """Ingredients stored under a name that predates the folding rules and has
-    no duplicate to merge with — "garlic cloves" when there is no "garlic".
-    Reported as `(ingredient, canonical name)` so a client can offer the
-    rename, which it performs as a merge into the canonical name."""
-    result = await db.execute(
-        select(Ingredient).where(Ingredient.household_id == household_id).order_by(Ingredient.name)
-    )
-    ingredients = list(result.scalars())
-    names = {ingredient.name for ingredient in ingredients}
-    unfolded = []
-    for ingredient in ingredients:
-        canonical = canonical_ingredient_name(ingredient.name)
-        if canonical and canonical != ingredient.name and canonical not in names:
-            unfolded.append((ingredient, canonical))
-    return unfolded
+        groups.append((canonical, members))
+    groups.sort(key=lambda group: group[1][0].name)
+    return Duplicates(groups=groups, unfolded=unfolded)
 
 
 async def merge_ingredients(

@@ -42,12 +42,12 @@ exactly as the recipe wrote it, which is what the recipe view shows.
 import html
 import re
 
-from app.services.aisles import _KEYWORDS
+from app.services.aisles import KEYWORD_PHRASES
 from app.services.wordforms import fold_food_words, singular_word
 
 # Prep state and size. Stripped wherever they appear, unless frozen by a
 # protected phrase. See the module docstring for what is deliberately absent.
-_MODIFIERS: frozenset[str] = frozenset(
+MODIFIERS: frozenset[str] = frozenset(
     {
         "fresh",
         "freshly",
@@ -109,6 +109,12 @@ _GRADED: frozenset[str] = frozenset(
 
 # "how much of the plant" words. Stripped only at the ends of the name, so
 # "cloves" (the spice) and "bay leaf" survive as names in their own right.
+#
+# Deliberately not derived from `units.NATURAL_UNITS`, though most of these
+# are on it: that list says what a recipe may count in, this one what a name
+# may lose, and it is part of every stored ingredient's identity. Whether
+# "stick" is a unit is a question about butter (#187); "cinnamon sticks" must
+# fold to "cinnamon" whatever the answer.
 _FORM_NOUNS: frozenset[str] = frozenset(
     {
         "leaf",
@@ -125,7 +131,7 @@ _FORM_NOUNS: frozenset[str] = frozenset(
 )
 
 # Words that change which product you buy, from the docstring's list. They are
-# never stripped anyway (they are not in `_MODIFIERS`); naming them lets the
+# never stripped anyway (they are not in `MODIFIERS`); naming them lets the
 # form-noun strip see when the noun is all that is left of the food: "ground
 # cloves" is the spice, and stripping "cloves" would leave the ingredient
 # called "ground".
@@ -200,7 +206,7 @@ def _build_protected() -> dict[tuple[str, ...], str]:
     and "chopped tomatoes" both key to the tin, and both come back as
     "chopped tomatoes" — folding a compound product to the singular would fix
     the duplicate and ruin the shopping list ("2 tins chopped tomato")."""
-    phrases = {keyword for keyword in _KEYWORDS if " " in keyword} | set(_EXTRA_PROTECTED)
+    phrases = KEYWORD_PHRASES | _EXTRA_PROTECTED
     table: dict[tuple[str, ...], str] = {}
     for phrase in sorted(phrases):
         key = tuple(_normalize_phrase(phrase))
@@ -245,8 +251,8 @@ def canonical_ingredient_name(name: str) -> str:
     """Fold an ingredient name to the key form used for identity.
 
     "3 garlic cloves" has already become "garlic cloves" by the time it gets
-    here; this turns it into "garlic". Returns the cleaned-but-unfolded name
-    when folding would leave nothing behind — "cloves" on its own is the spice.
+    here; this turns it into "garlic". A form noun is never stripped when it
+    is all there is: "cloves" on its own is the spice, and folds to "clove".
     """
     # An HTML entity is never part of a food (#170): a page that escaped its
     # JSON-LD, or an AI that copied one, must fold onto the plain spelling.
@@ -281,12 +287,12 @@ def canonical_ingredient_name(name: str) -> str:
     # A size word may go only while every word before it is a modifier too,
     # and only when the food is not one sold by grade.
     lead = 0
-    while lead < len(words) and words[lead] in _MODIFIERS and not is_frozen(lead):
+    while lead < len(words) and words[lead] in MODIFIERS and not is_frozen(lead):
         lead += 1
     sizes_strippable = words[-1] not in _GRADED
 
     def strippable(index: int, word: str) -> bool:
-        if word not in _MODIFIERS or is_frozen(index):
+        if word not in MODIFIERS or is_frozen(index):
             return False
         return word not in _SIZES or (index < lead and sizes_strippable)
 

@@ -4,12 +4,8 @@ import time
 import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES
-from app.services.recipe_parser import (
-    NoRecipeFound,
-    extract_recipe,
-    parse_ingredient_line,
-    parse_iso8601_duration,
-)
+from app.services.ingredient_lines import parse_ingredient_line
+from app.services.recipe_parser import NoRecipeFound, extract_recipe, parse_iso8601_duration
 from tests.conftest import fixture_html
 
 
