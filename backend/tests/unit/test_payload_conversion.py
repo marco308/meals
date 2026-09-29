@@ -2,7 +2,8 @@ import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES, MAX_RECIPE_MINUTES
 from app.services.catalog import parsed_recipe_to_payload
-from app.services.recipe_parser import NoRecipeFound, ParsedIngredient, ParsedRecipe, parse_ingredient_line
+from app.services.ingredient_lines import ParsedIngredient, parse_ingredient_line
+from app.services.recipe_parser import NoRecipeFound, ParsedRecipe
 
 
 def test_out_of_convention_parser_output_degrades_to_unquantified_line():

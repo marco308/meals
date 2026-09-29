@@ -5,7 +5,7 @@ get ❓ and the user's AI (or the user) assigns a tag via PATCH /ingredients.
 The emoji vocabulary is part of the published skill, so AIs use the same tags.
 """
 
-from app.services.wordforms import singularize_food
+from app.services.wordforms import singular_word
 
 # Store-walking order — the shopping list sorts by this.
 AISLES: list[tuple[str, str]] = [
@@ -389,13 +389,29 @@ _KEYWORDS: dict[str, str] = {
 
 
 def _fold(text: str) -> str:
-    return " ".join(singularize_food(word) for word in text.lower().split())
+    """Every word in the plain singular, which is the form matching compares
+    in. Not `fold_food_words`, whose plurals depend on which word is the head
+    noun: the keyword "peas" is a head on its own and not inside "pea shoots",
+    so the two would fold it differently and substring matching would miss."""
+    return " ".join(singular_word(word) for word in text.lower().split())
 
+
+# Multi-word keywords: products specific enough to have earned their own
+# aisle, which ingredient_names therefore treats as products in their own
+# right ("chopped tomatoes" is a tin, not a tomato).
+KEYWORD_PHRASES: frozenset[str] = frozenset(keyword for keyword in _KEYWORDS if " " in keyword)
 
 # Every keyword in its canonical word-form as well as as written, so a name
 # that has been through `canonical_ingredient_name` ("chopped tomato",
 # "bay leaf", "mixed berry") still finds the aisle its plural spelling would.
 _FOLDED_KEYWORDS: dict[str, str] = {_fold(keyword): emoji for keyword, emoji in _KEYWORDS.items()}
+
+# (keyword, folded, "s" trimmed, is a phrase, emoji), worked out once here
+# rather than on every guess: there are a few hundred keywords and every new
+# ingredient guesses.
+_MATCHERS = [
+    (keyword, _fold(keyword), keyword.rstrip("s"), " " in keyword, emoji) for keyword, emoji in _KEYWORDS.items()
+]
 
 
 def guess_aisle(ingredient_name: str) -> str:
@@ -407,20 +423,18 @@ def guess_aisle(ingredient_name: str) -> str:
     if folded in _FOLDED_KEYWORDS:
         return _FOLDED_KEYWORDS[folded]
     words = set(name.split()) | set(folded.split())
+    trimmed = {word.rstrip("s") for word in words}
     best: tuple[int, str] | None = None
-    for keyword, emoji in _KEYWORDS.items():
+    for keyword, folded_keyword, trimmed_keyword, is_phrase, emoji in _MATCHERS:
         # multi-word keywords match as substrings, single words whole-word only
-        if " " in keyword:
-            matched = keyword in name or _fold(keyword) in folded
+        if is_phrase:
+            matched = keyword in name or folded_keyword in folded
         else:
-            matched = keyword in words or singular_match(keyword, words) or singularize_food(keyword) in words
+            # A crude "s" either side as well, for plurals the fold leaves alone.
+            matched = keyword in words or folded_keyword in words or keyword in trimmed or trimmed_keyword in words
         if matched and (best is None or len(keyword) > best[0]):
             best = (len(keyword), emoji)
     return best[1] if best else UNKNOWN_AISLE
-
-
-def singular_match(keyword: str, words: set[str]) -> bool:
-    return any(word.rstrip("s") == keyword or keyword.rstrip("s") == word for word in words)
 
 
 def is_valid_aisle(emoji: str) -> bool:
