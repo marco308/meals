@@ -14,6 +14,8 @@ import math
 import re
 from fractions import Fraction
 
+from app.services.wordforms import IRREGULAR_SINGULARS, singular
+
 # Metric units → (canonical unit, multiplier)
 METRIC_UNITS: dict[str, tuple[str, float]] = {
     "g": ("g", 1),
@@ -95,19 +97,50 @@ INGEST_CONVERSIONS: dict[str, tuple[str, float]] = {
     "gallons": ("ml", 3785),
 }
 
-# Irregular plural → singular for natural units.
-_IRREGULAR_SINGULARS = {
-    "leaves": "leaf",
-    "halves": "half",
-    "bunches": "bunch",
-    "pinches": "pinch",
-    "dashes": "dash",
-    "cloves": "clove",
-    "slices": "slice",
-}
+# Natural units, singular. This is the one list of countable unit words: the
+# ingestion parser recognises each of them and its plural as a unit
+# ("2 cloves garlic", "3 garlic cloves"), and ingredient_names strips the
+# ones that measure part of a plant off the ends of a name. Plurals come from
+# `pluralize`, so there is no second list of them to drift.
+NATURAL_UNITS: frozenset[str] = frozenset(
+    {
+        "tin",
+        "clove",
+        "bunch",
+        "sprig",
+        "stick",
+        "slice",
+        "rasher",
+        "fillet",
+        "leaf",
+        "pinch",
+        "dash",
+        "handful",
+        "knob",
+        "sheet",
+        "ball",
+        "sachet",
+        "jar",
+        "pack",
+        "packet",
+        "block",
+        "head",
+        "stalk",
+        "wedge",
+        "nest",
+        "cube",
+    }
+)
+
+# What a metric amount comes in, dropped from the name once the amount is
+# known: "2 x 400g tins chopped tomatoes" is 800 g of chopped tomatoes.
+CONTAINER_UNITS: frozenset[str] = frozenset({"tin", "can", "jar", "pack", "packet", "bottle"})
+
+# The plurals `pluralize`'s rules would get wrong: wordforms' table, reversed.
+_IRREGULAR_PLURALS = {singular: plural for plural, singular in IRREGULAR_SINGULARS.items()}
 
 # Common natural-unit synonyms folded to one canonical word.
-_UNIT_SYNONYMS = {
+UNIT_SYNONYMS: dict[str, str] = {
     "can": "tin",
     "cans": "tin",
     "tinned": "tin",
@@ -119,21 +152,18 @@ _UNIT_SYNONYMS = {
 }
 
 
+def unit_forms(units: frozenset[str]) -> frozenset[str]:
+    """Every way a recipe writes these units: each one and its plural."""
+    return frozenset(units | {pluralize(unit) for unit in units})
+
+
 class UnitNotAllowedError(ValueError):
     """Raised when a quantity uses a unit outside the API convention."""
 
 
 def singularize(word: str) -> str:
-    word = word.lower().strip()
-    if word in _IRREGULAR_SINGULARS:
-        return _IRREGULAR_SINGULARS[word]
-    if word.endswith("ies"):
-        return word[:-3] + "y"
-    if word.endswith("es") and word[:-2].endswith(("ch", "sh", "ss", "x")):
-        return word[:-2]
-    if word.endswith("s") and not word.endswith("ss"):
-        return word[:-1]
-    return word
+    """A unit word in the singular: "tins" → "tin", "leaves" → "leaf"."""
+    return singular(word.lower().strip())
 
 
 def is_butter(name: str | None) -> bool:
@@ -160,7 +190,7 @@ def normalize_unit(unit: str) -> tuple[str, float]:
         raise UnitNotAllowedError(
             f"unit '{cleaned}' is not recognised; use g/kg/ml/l or a simple natural unit word like 'tin', 'clove', 'bunch'"
         )
-    folded = _UNIT_SYNONYMS.get(cleaned, cleaned)
+    folded = UNIT_SYNONYMS.get(cleaned, cleaned)
     return singularize(folded), 1
 
 
@@ -240,7 +270,7 @@ def format_quantity(quantity: float | None, unit: str | None) -> str:
         return f"{_trim(quantity)} {unit}"
     if unit == "item":
         return f"×{_trim(quantity)}"
-    plural = unit if quantity == 1 else _pluralize(unit)
+    plural = unit if quantity == 1 else pluralize(unit)
     return f"{_trim(quantity)} {plural}"
 
 
@@ -259,10 +289,9 @@ def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
     return format_quantity(quantity, unit)
 
 
-def _pluralize(unit: str) -> str:
-    for plural, singular in _IRREGULAR_SINGULARS.items():
-        if singular == unit:
-            return plural
+def pluralize(unit: str) -> str:
+    if unit in _IRREGULAR_PLURALS:
+        return _IRREGULAR_PLURALS[unit]
     if unit.endswith(("ch", "sh", "ss", "x")):
         return unit + "es"
     return unit + "s"

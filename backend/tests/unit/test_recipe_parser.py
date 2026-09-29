@@ -4,16 +4,18 @@ import time
 import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES
-from app.services import recipe_parser
 from app.services.catalog import parsed_recipe_to_payload
-from app.services.recipe_parser import (
-    NoRecipeFound,
-    ParsedRecipe,
-    extract_recipe,
-    parse_ingredient_line,
-    parse_iso8601_duration,
+from app.services.ingredient_lines import parse_ingredient_line
+from app.services.recipe_parser import NoRecipeFound, ParsedRecipe, extract_recipe, parse_iso8601_duration
+from app.services.units import (
+    BANNED_UNITS,
+    INGEST_CONVERSIONS,
+    METRIC_UNITS,
+    NATURAL_UNITS,
+    UNIT_SYNONYMS,
+    normalize_quantity,
+    unit_forms,
 )
-from app.services.units import BANNED_UNITS, INGEST_CONVERSIONS, normalize_quantity
 from tests.conftest import fixture_html
 
 
@@ -422,7 +424,9 @@ class TestUnitsAgreeWithTheApi:
     def test_every_banned_unit_is_converted_at_ingest(self):
         assert set(BANNED_UNITS) <= set(INGEST_CONVERSIONS)
 
-    @pytest.mark.parametrize("word", sorted(recipe_parser._UNIT_WORDS))
+    @pytest.mark.parametrize(
+        "word", sorted(set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(UNIT_SYNONYMS) | unit_forms(NATURAL_UNITS))
+    )
     def test_every_unit_the_parser_writes_is_one_the_api_accepts(self, word):
         parsed = parse_ingredient_line(f"2 {word} celery")
         assert parsed.quantity is not None
