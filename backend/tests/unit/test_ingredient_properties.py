@@ -235,13 +235,13 @@ class TestNestedBrackets:
     with a note inside a note, and folding such a name twice differs from
     folding it once."""
 
-    @pytest.mark.xfail(strict=True, reason="new: nested brackets survive one pass of the bracket regex")
+    @pytest.mark.xfail(strict=True, reason="#208: nested brackets survive one pass of the bracket regex")
     @pytest.mark.parametrize("name", ["(())", "stock ((homemade))", "butter (salted (or unsalted)) (softened)"])
     def test_folding_a_nested_bracket_is_idempotent(self, name):
         once = canonical_ingredient_name(name)
         assert canonical_ingredient_name(once) == once
 
-    @pytest.mark.xfail(strict=True, reason="new: nested brackets survive one pass of the bracket regex")
+    @pytest.mark.xfail(strict=True, reason="#208: nested brackets survive one pass of the bracket regex")
     @pytest.mark.parametrize(
         "line",
         [
@@ -254,7 +254,7 @@ class TestNestedBrackets:
         assert "(" not in name and ")" not in name, name
 
 
-@pytest.mark.xfail(strict=True, reason="new: the trailing '.' is stripped before singularising exposes one")
+@pytest.mark.xfail(strict=True, reason="#208: the trailing '.' is stripped before singularising exposes one")
 @pytest.mark.parametrize("name", ["00.s", "tomato.s"])
 def test_folding_a_dotted_plural_is_idempotent(name):
     """Found by the idempotence property: "00.s" folds to "00." and then to "00"."""

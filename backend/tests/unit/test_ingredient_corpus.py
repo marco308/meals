@@ -12,13 +12,15 @@ states none. The name is what `parse_ingredient_line` hands on: lowercased,
 prep notes after a comma dropped, not yet folded by `canonical_ingredient_name`.
 
 When a new site breaks something, the fix is one more row. A row the parser
-gets wrong today carries an `xfail` reason, "#187"/"#188" for the open issues
-and "new" otherwise, and is strict: fixing the parser turns it into a failure
-that asks for the mark to come off. A row that could fairly go two ways (a
+gets wrong today carries an `xfail` reason that starts with the issue it waits
+on ("#206: …"), so a bug found here gets an issue before it gets a row, and is
+strict: fixing the parser turns it into a failure that asks for the mark to
+come off. A row that could fairly go two ways (a
 bracketed pack size is either its weight or one tin) gives the other in `or`.
 """
 
 import json
+import re
 from collections import Counter
 
 import pytest
@@ -74,4 +76,4 @@ def test_the_corpus_is_what_it_says():
     for row in CORPUS:
         assert row["site"] and row["line"].strip(), row
         assert (row["quantity"] is None) == (row["unit"] is None), row
-        assert row.get("xfail", "new").startswith(("#187", "#188", "new")), row
+        assert re.match(r"#\d+: ", row.get("xfail", "#0: ")), row
