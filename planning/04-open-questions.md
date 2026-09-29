@@ -11,7 +11,9 @@ Every quantity submitted to the API must be either:
 - **metric** (g, kg, ml, l), or
 - **a count of a natural unit** ("2 tins", "3 cloves", "1 bunch", "6 items")
 
-No cups, oz, sticks, etc. — the AI (or human) converts before writing. The backend then only merges exact-matching units, which stays simple and predictable. The published skill/prompt pack (Layer 3) carries the conversion rules.
+No cups, oz, sticks of butter, etc. — the AI (or human) converts before writing. The backend then only merges exact-matching units, which stays simple and predictable. The published skill/prompt pack (Layer 3) carries the conversion rules.
+
+*Amended (#187):* a stick is a natural unit when it is celery or cinnamon, and 113 g when it is butter, so the API refuses `stick` only for butter and the ingest parser converts butter sticks to grams. Every unit the API refuses has to have an ingest conversion (quart and gallon had none, and were stored as the food "quart stock"); a test holds the two lists together.
 
 **Q3 — Manual (no-URL) recipes: yes, in v1.** Title + ingredients minimum; steps optional.
 

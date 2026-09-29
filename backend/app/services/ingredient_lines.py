@@ -17,11 +17,13 @@ from dataclasses import dataclass
 from app.services.ingredient_names import MODIFIERS, is_protected_name
 from app.services.units import (
     BANNED_UNITS,
+    BUTTER_STICK_G,
     CONTAINER_UNITS,
     INGEST_CONVERSIONS,
     METRIC_UNITS,
     NATURAL_UNITS,
     UNIT_SYNONYMS,
+    is_butter,
     parse_number,
     singularize,
     unit_forms,
@@ -158,6 +160,21 @@ _BARE_TIMES_RE = re.compile(r"^(?P<count>\d+)\s*x\s+(?=[a-z])", re.IGNORECASE)
 
 
 def parse_ingredient_line(raw: str) -> ParsedIngredient:
+    """Parse a human ingredient line ('500g minced beef', '2 x 400g tins chopped tomatoes').
+
+    A stick of butter leaves as grams (#187): "stick" is a natural unit for
+    celery and cinnamon, but the API refuses it for butter, and a refused line
+    is stored with no amount at all.
+    """
+    parsed = _parse_ingredient_line(raw)
+    if parsed.unit == "stick" and parsed.quantity is not None and is_butter(parsed.name):
+        return ParsedIngredient(
+            raw=parsed.raw, name=parsed.name, quantity=round(parsed.quantity * BUTTER_STICK_G, 3), unit="g"
+        )
+    return parsed
+
+
+def _parse_ingredient_line(raw: str) -> ParsedIngredient:
     """Parse a human ingredient line ('500g minced beef', '2 x 400g tins chopped tomatoes').
 
     Conservative by design: anything unparseable keeps quantity=None and the

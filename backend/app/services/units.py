@@ -11,6 +11,7 @@ lowercase words. The shopping list merges exact-matching canonical units only.
 """
 
 import math
+import re
 from fractions import Fraction
 
 from app.services.wordforms import IRREGULAR_SINGULARS, singular
@@ -58,9 +59,14 @@ BANNED_UNITS: dict[str, str] = {
     "floz": "convert to ml first (1 fl oz = 28 ml)",
     "quart": "convert to ml first (1 quart = 946 ml)",
     "gallon": "convert to ml first (1 gallon = 3785 ml)",
-    "stick": "convert to g first (1 stick of butter = 113 g)",
-    "sticks": "convert to g first (1 stick of butter = 113 g)",
 }
+
+# A stick is two things (#187). Celery and cinnamon come in sticks you count,
+# so "stick" is a natural unit; a stick of butter is a US measure of 113 g, so
+# butter in sticks is refused like any other imperial unit, and converted by
+# our own ingestion. Only the name can tell them apart.
+BUTTER_STICK_G = 113
+_BUTTER_WORDS = frozenset({"butter", "margarine"})
 
 # Conversions our own ingestion parser applies when a recipe page uses
 # non-convention units. External clients must convert before writing; the
@@ -85,6 +91,10 @@ INGEST_CONVERSIONS: dict[str, tuple[str, float]] = {
     "pints": ("ml", 568),
     "fl oz": ("ml", 28),
     "floz": ("ml", 28),
+    "quart": ("ml", 946),
+    "quarts": ("ml", 946),
+    "gallon": ("ml", 3785),
+    "gallons": ("ml", 3785),
 }
 
 # Natural units, singular. This is the one list of countable unit words: the
@@ -173,6 +183,11 @@ def singularize(word: str) -> str:
     return singular(word.lower().strip())
 
 
+def is_butter(name: str | None) -> bool:
+    """Whether a stick of this is the 113 g measure rather than a count."""
+    return bool(name) and not _BUTTER_WORDS.isdisjoint(re.findall(r"[a-z]+", name.lower()))
+
+
 def normalize_unit(unit: str) -> tuple[str, float]:
     """Return (canonical_unit, multiplier) for an API-submitted unit.
 
@@ -196,13 +211,22 @@ def normalize_unit(unit: str) -> tuple[str, float]:
     return singularize(folded), 1
 
 
-def normalize_quantity(quantity: float, unit: str) -> tuple[float, str]:
+def normalize_quantity(quantity: float, unit: str, name: str | None = None) -> tuple[float, str]:
     """Normalise an API-submitted (quantity, unit) to canonical form.
+
+    `name` is the food, which only a stick needs: sticks of celery are a
+    count, sticks of butter are refused with the conversion (BUTTER_STICK_G).
 
     The canonical amount has to be finite. Python's JSON parser reads
     `Infinity` and an overflowing `1e400` as floats, 1e308 kg is infinite
     once it is grams, and one stored on a line broke every view of it."""
     canonical, multiplier = normalize_unit(unit)
+    if canonical == "stick" and is_butter(name):
+        raise UnitNotAllowedError(
+            "a stick of butter is not a count: quantities must be metric (g/kg/ml/l) "
+            "or a count of a natural unit ('2 tins', '3 cloves'); convert to g first "
+            f"(1 stick of butter = {BUTTER_STICK_G} g). Sticks of celery or cinnamon are fine as a count"
+        )
     value = round(quantity * multiplier, 3)
     if not math.isfinite(value):
         raise UnitNotAllowedError(

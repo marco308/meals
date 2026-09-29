@@ -42,9 +42,13 @@ enum MealsUnits {
         "floz": "1 fl oz = 28 ml",
         "quart": "1 quart = 946 ml",
         "gallon": "1 gallon = 3785 ml",
-        "stick": "1 stick of butter = 113 g",
-        "sticks": "1 stick of butter = 113 g",
     ]
+
+    /// A stick is a count of celery or cinnamon and 113 g of butter (#187),
+    /// so the server refuses it only when the food is butter. Earlier builds
+    /// refused every stick, which was stricter than the server but never
+    /// queued anything it would drop.
+    static let butterStick = "1 stick of butter = 113 g"
 
     /// nil when the unit is fine; otherwise the conversion to show.
     ///
@@ -52,14 +56,23 @@ enum MealsUnits {
     /// unit, in any script, with spaces or hyphens inside it. What it refuses
     /// is anything else ("l.", "2kg"), so that is refused here too; a word
     /// this build has never heard of is still the server's business.
-    static func rejection(for unit: String?) -> String? {
+    static func rejection(for unit: String?, of name: String? = nil) -> String? {
         guard let unit else { return nil }
         let cleaned = unit.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return nil }
         if let conversion = rejected[cleaned] { return conversion }
+        if cleaned == "stick" || cleaned == "sticks", isButter(name) { return butterStick }
         let word = cleaned.filter { $0 != " " && $0 != "-" }
         guard !word.isEmpty, word.allSatisfy(\.isLetter) else { return "“\(cleaned)” isn't a unit" }
         return nil
+    }
+
+    /// Mirrors `is_butter` in `app/services/units.py`: the whole word, so
+    /// buttermilk and butternut squash are still counted in sticks.
+    static func isButter(_ name: String?) -> Bool {
+        guard let name else { return false }
+        let words = name.lowercased().split { !$0.isLetter }
+        return words.contains("butter") || words.contains("margarine")
     }
 
     /// nil when the API will take the amount; otherwise what to say. Zero and
