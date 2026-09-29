@@ -1,10 +1,13 @@
 """Word-form folding for food words (decision Q21).
 
 Shared by `ingredient_names` (which uses it to build the canonical identity
-key) and `aisles` (which must recognise a keyword in its canonical form —
-"chopped tomato" is still a tin). Kept apart from `units.singularize`, which
-only ever sees unit words and so mangles "tomatoes" into "tomatoe", and kept
-in its own module so the two importers don't form a cycle.
+key), `aisles` (which must recognise a keyword in its canonical form —
+"chopped tomato" is still a tin) and `units` (whose natural units are plural
+nouns too). Kept in its own module so the importers don't form a cycle.
+
+There is one set of English plural rules, `singular`, and one table of the
+plurals it would get wrong. Food words add two guards on top of it
+(`singular_word`); unit words take it as it is.
 """
 
 # Words that merely look plural: singularising them produces nonsense
@@ -26,7 +29,8 @@ _ALWAYS_PLURAL: dict[str, str] = {
     "crisp": "crisps",
 }
 
-_IRREGULAR_PLURALS: dict[str, str] = {
+# Plural → singular, where the rules in `singular` would get it wrong.
+IRREGULAR_SINGULARS: dict[str, str] = {
     "leaves": "leaf",
     "loaves": "loaf",
     "halves": "half",
@@ -78,10 +82,17 @@ def _singular(word: str) -> str:
     # rename.
     if word.endswith("'") and len(word) > 1 and not word[:-1].endswith(("s", "'")):
         return word + "s"
-    if word in _IRREGULAR_PLURALS:
-        return _IRREGULAR_PLURALS[word]
     if word in _NEVER_SINGULAR or len(word) <= 3:
         return word
+    return singular(word)
+
+
+def singular(word: str) -> str:
+    """English plural rules, for a word already lowercased and stripped. Unit
+    words use these as they are; food words go through `singular_word`,
+    which also leaves possessives, short words and `_NEVER_SINGULAR` alone."""
+    if word in IRREGULAR_SINGULARS:
+        return IRREGULAR_SINGULARS[word]
     if word.endswith(("ss", "us", "is", "sh", "ch")) or not word.endswith("s"):
         return word
     if word.endswith("ies"):

@@ -19,7 +19,7 @@ from app.schemas.catalog import (
 from app.serializers import ingredient_out
 from app.services.aisles import AISLE_ORDER, AISLES, is_valid_aisle
 from app.services.catalog import get_or_create_ingredient
-from app.services.ingredient_merge import MergeError, find_duplicate_groups, find_unfolded, merge_ingredients
+from app.services.ingredient_merge import MergeError, find_duplicates, merge_ingredients
 from app.services.ingredient_names import canonical_ingredient_name
 from app.services.supermarkets import effective_aisle_order, get_active_supermarket
 from app.services.values import VALUE_TIER_HINT, VALUE_TIER_NAMES, is_valid_value_tier
@@ -164,20 +164,19 @@ async def list_duplicate_ingredients(user: CurrentUser, db: DbSession) -> Duplic
     Reported groups are name-folding facts, not guesses — two ingredients that
     are really the same but share no wording ("beef mince" and "minced beef")
     won't appear. Merge those directly if you know they match."""
-    groups = await find_duplicate_groups(db, user.household_id)
-    unfolded = await find_unfolded(db, user.household_id)
+    duplicates = await find_duplicates(db, user.household_id)
     return DuplicatesOut(
         groups=[
             DuplicateGroup(
-                canonical_name=canonical_ingredient_name(group[0].name) or group[0].name,
-                keeper=ingredient_out(group[0]),
-                duplicates=[ingredient_out(other) for other in group[1:]],
+                canonical_name=canonical,
+                keeper=ingredient_out(members[0]),
+                duplicates=[ingredient_out(other) for other in members[1:]],
             )
-            for group in groups
+            for canonical, members in duplicates.groups
         ],
         unfolded=[
             UnfoldedIngredient(ingredient=ingredient_out(ingredient), canonical_name=canonical)
-            for ingredient, canonical in unfolded
+            for ingredient, canonical in duplicates.unfolded
         ],
     )
 

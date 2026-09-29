@@ -3,12 +3,15 @@ import math
 import pytest
 
 from app.services.units import (
+    CONTAINER_UNITS,
+    NATURAL_UNITS,
     UnitNotAllowedError,
     format_buy_quantity,
     format_quantity,
     normalize_quantity,
     normalize_unit,
     parse_number,
+    pluralize,
     singularize,
 )
 
@@ -152,3 +155,9 @@ class TestSingularize:
     )
     def test_singularises(self, word, expected):
         assert singularize(word) == expected
+
+    @pytest.mark.parametrize("unit", sorted(NATURAL_UNITS | CONTAINER_UNITS))
+    def test_every_unit_round_trips_through_its_plural(self, unit):
+        """The parser recognises a unit's plural by generating it, and stores
+        what `singularize` makes of it: the two have to meet."""
+        assert singularize(pluralize(unit)) == unit

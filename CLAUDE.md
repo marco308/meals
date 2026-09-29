@@ -175,7 +175,10 @@ instrumentation a new feature usually needs.
   ("tin", "clove"). Imperial and spoon/cup units are rejected for API clients
   with the exact conversion in the error; the backend's own JSON-LD ingestion
   converts instead (`INGEST_CONVERSIONS`). Merging only ever happens on an
-  exact canonical-unit match.
+  exact canonical-unit match. `units.py` is also the one list of unit words
+  (`NATURAL_UNITS`, `CONTAINER_UNITS`, `UNIT_SYNONYMS`): the line parser
+  (`services/ingredient_lines.py`) builds its regexes from them, so a new unit
+  is one entry there, never a second list.
 - **Parse once, reuse forever** (Q3). `source_url` is unique per household and
   is the cache key: re-posting a known URL returns the stored recipe with 200,
   never a duplicate, and never clobbers a recipe with `edited=True`. Ingestion
