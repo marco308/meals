@@ -30,6 +30,7 @@ meals-mcp = { path = "../mcp" }
 [dependency-groups]
 dev = [
     "httpx2>=2.5",
+    "hypothesis>=6.168.3",
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
