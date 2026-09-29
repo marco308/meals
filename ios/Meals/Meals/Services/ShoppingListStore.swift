@@ -404,7 +404,7 @@ final class ShoppingListStore {
         if let problem = MealsUnits.rejection(forAmount: quantity) {
             return "\(problem)."
         }
-        if let problem = MealsUnits.rejection(for: unit) {
+        if let problem = MealsUnits.rejection(for: unit, of: name) {
             return "\(problem). The list only takes metric or a count."
         }
         if (quantity == nil) != (unit == nil) {

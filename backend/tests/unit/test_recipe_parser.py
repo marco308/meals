@@ -4,8 +4,18 @@ import time
 import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES
+from app.services.catalog import parsed_recipe_to_payload
 from app.services.ingredient_lines import parse_ingredient_line
-from app.services.recipe_parser import NoRecipeFound, extract_recipe, parse_iso8601_duration
+from app.services.recipe_parser import NoRecipeFound, ParsedRecipe, extract_recipe, parse_iso8601_duration
+from app.services.units import (
+    BANNED_UNITS,
+    INGEST_CONVERSIONS,
+    METRIC_UNITS,
+    NATURAL_UNITS,
+    UNIT_SYNONYMS,
+    normalize_quantity,
+    unit_forms,
+)
 from tests.conftest import fixture_html
 
 
@@ -386,3 +396,38 @@ class TestHtmlEntities:
         assert recipe.ingredients[0].raw == "1 tbsp Dijon mustard\xa0"
         assert recipe.instructions == "1. Don't stir\n2. Serve & eat"
         assert recipe.tags == ["quick & easy", "crème"]
+
+
+class TestUnitsAgreeWithTheApi:
+    """The parser and the API used to disagree about which units exist, and a
+    line the API refused was stored with no amount at all (#187)."""
+
+    @pytest.mark.parametrize(
+        ("line", "name", "quantity", "unit"),
+        [
+            ("2 sticks celery", "celery", 2, "stick"),
+            ("1 stick cinnamon", "cinnamon", 1, "stick"),
+            ("2 sticks butter", "butter", 226, "g"),
+            ("1/2 stick unsalted butter, softened", "unsalted butter", 56.5, "g"),
+            ("2 butter sticks", "butter", 226, "g"),
+            ("1 quart stock", "stock", 946, "ml"),
+            ("2 gallons milk", "milk", 7570, "ml"),
+        ],
+    )
+    def test_the_amount_survives_ingest(self, line, name, quantity, unit):
+        payload = parsed_recipe_to_payload(
+            ParsedRecipe(title="t", source_url="https://example.com/r", ingredients=[parse_ingredient_line(line)])
+        )
+        (stored,) = payload.ingredients
+        assert (stored.name, stored.quantity, stored.unit) == (name, quantity, unit)
+
+    def test_every_banned_unit_is_converted_at_ingest(self):
+        assert set(BANNED_UNITS) <= set(INGEST_CONVERSIONS)
+
+    @pytest.mark.parametrize(
+        "word", sorted(set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(UNIT_SYNONYMS) | unit_forms(NATURAL_UNITS))
+    )
+    def test_every_unit_the_parser_writes_is_one_the_api_accepts(self, word):
+        parsed = parse_ingredient_line(f"2 {word} celery")
+        assert parsed.quantity is not None
+        normalize_quantity(parsed.quantity, parsed.unit, parsed.name)

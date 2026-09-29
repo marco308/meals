@@ -71,9 +71,6 @@ _NATURAL_PLURALS = {"leaf": "leaves", "bunch": "bunches", "pinch": "pinches", "d
 NATURAL_WORDS = sorted(
     NATURAL_UNITS | {_NATURAL_PLURALS.get(u, u + "s") for u in NATURAL_UNITS} | {"can", "cans", "piece", "pieces"}
 )
-# #187: a stick is a unit the parser emits and the API bans. Everything else
-# the parser emits must survive the payload, and does.
-STICKS = frozenset({"stick", "sticks"})
 UNIT_WORDS = sorted(set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(BANNED_UNITS) | set(NATURAL_WORDS))
 
 amounts = st.one_of(
@@ -137,11 +134,6 @@ def lines(draw, units: list[str] = UNIT_WORDS, trailing: list[str] = NATURAL_WOR
     return f"{food}{note}{prep}"
 
 
-without_sticks = lines(
-    units=[u for u in UNIT_WORDS if u not in STICKS], trailing=[u for u in NATURAL_WORDS if u not in STICKS]
-)
-
-
 class TestParsedShape:
     @FAST
     @given(lines())
@@ -183,17 +175,16 @@ class TestPayloadKeepsTheAmount:
     lost its quantity."""
 
     @FAST
-    @given(without_sticks)
+    @given(lines())
     def test_every_parsed_amount_survives(self, line):
         parsed = parse_ingredient_line(line)
         (stored,) = parsed_recipe_to_payload(ParsedRecipe(title="Line", ingredients=[parsed])).ingredients
         if parsed.quantity:
             assert (stored.quantity, stored.unit) == (parsed.quantity, parsed.unit), line
 
-    @pytest.mark.xfail(strict=True, reason="#187: a stick is a unit the parser emits and the API bans")
     @FAST
     @example("2 sticks butter")
-    @given(st.builds(lambda n, f, u: f"{n} {u} {f}", st.integers(1, 9), foods, st.sampled_from(sorted(STICKS))))
+    @given(st.builds(lambda n, f, u: f"{n} {u} {f}", st.integers(1, 9), foods, st.sampled_from(["stick", "sticks"])))
     def test_a_stick_survives(self, line):
         parsed = parse_ingredient_line(line)
         (stored,) = parsed_recipe_to_payload(ParsedRecipe(title="Line", ingredients=[parsed])).ingredients

@@ -29,7 +29,7 @@ struct IngredientLineEditor: View {
     /// The conversion the API would refuse with, shown here instead — at the
     /// field, before the whole meal fails to save.
     private var unitWarning: String? {
-        MealsUnits.rejection(for: unit).map { "\($0). The list only takes metric or a count." }
+        MealsUnits.rejection(for: unit, of: name).map { "\($0). The list only takes metric or a count." }
     }
 
     /// Zero, negatives, "inf": the API refuses every one, so say so here.

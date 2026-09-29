@@ -15,7 +15,7 @@ dictionary is read here, in the suite that runs on every push, the same way
 import re
 from pathlib import Path
 
-from app.services.units import BANNED_UNITS
+from app.services.units import _BUTTER_WORDS, BANNED_UNITS, BUTTER_STICK_G
 
 QUANTITY = Path(__file__).resolve().parents[3] / "ios" / "Meals" / "Meals" / "Models" / "Quantity.swift"
 
@@ -46,3 +46,12 @@ def test_each_hint_is_the_conversion_the_server_quotes():
         assert hint in BANNED_UNITS.get(unit, ""), (
             f"the app says {hint!r} for {unit!r} where the server says {BANNED_UNITS.get(unit)!r}"
         )
+
+
+def test_the_app_refuses_a_stick_of_butter_as_the_server_does():
+    """Only the butter is banned in sticks (#187), so the rule lives beside
+    the dictionary rather than in it, and needs its own check."""
+    text = QUANTITY.read_text(encoding="utf-8")
+    assert f'static let butterStick = "1 stick of butter = {BUTTER_STICK_G} g"' in text
+    for word in _BUTTER_WORDS:
+        assert f'words.contains("{word}")' in text, f"the app would queue a stick of {word} the server refuses"

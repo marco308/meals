@@ -161,3 +161,27 @@ class TestSingularize:
         """The parser recognises a unit's plural by generating it, and stores
         what `singularize` makes of it: the two have to meet."""
         assert singularize(pluralize(unit)) == unit
+
+
+class TestSticks:
+    """A stick is a count of celery or cinnamon and 113 g of butter (#187)."""
+
+    @pytest.mark.parametrize("name", ["celery", "cinnamon", "rhubarb"])
+    def test_a_stick_of_anything_but_butter_is_a_count(self, name):
+        assert normalize_quantity(2, "sticks", name) == (2, "stick")
+
+    @pytest.mark.parametrize("name", ["butter", "unsalted butter", "margarine"])
+    def test_a_stick_of_butter_is_refused_with_the_conversion(self, name):
+        with pytest.raises(UnitNotAllowedError, match="113 g"):
+            normalize_quantity(2, "sticks", name)
+
+    @pytest.mark.parametrize("name", ["butternut squash", "buttermilk"])
+    def test_only_the_word_butter_counts(self, name):
+        assert normalize_quantity(1, "stick", name) == (1, "stick")
+
+    def test_an_api_line_is_judged_by_its_own_name(self):
+        from app.schemas.common import IngredientLineIn
+
+        assert IngredientLineIn(name="Celery", quantity=2, unit="sticks").unit == "stick"
+        with pytest.raises(ValueError, match="113 g"):
+            IngredientLineIn(name="Butter", quantity=2, unit="sticks")
