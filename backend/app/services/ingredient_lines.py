@@ -101,13 +101,19 @@ _MULTIPLIER_RE = re.compile(
     rf"(?:(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})\b)?\.?\s+(?P<rest>.+)$",
     re.IGNORECASE,
 )
-# "2 400g cans of black beans", "1 (400g) tin chickpeas": a count, the metric
-# amount in each (bracketed or not), and the container. No 'x'.
+# "2 400g cans of black beans", "1 (400g) tin chickpeas", "1 (14.5 ounce) can
+# diced tomatoes", "1 15oz. can black beans": a count, the amount in each
+# (bracketed or not, metric or convertible), and the container. No 'x'.
+_PACK_UNITS = "|".join(re.escape(u) for u in sorted(set(METRIC_UNITS) | set(INGEST_CONVERSIONS), key=len, reverse=True))
 _COUNT_CONTAINER_RE = re.compile(
-    r"^\s*(?P<count>\d+)\s+(?P<open>\()?\s*(?P<qty>\d+(?:\.\d+)?)\s*(?P<unit>g|kg|ml|l)\s*(?(open)\))\s*"
+    r"^\s*(?P<count>\d++)\s+(?P<open>\()?\s*(?P<qty>\d++(?:\.\d++)?|\.\d++)[\s-]*"
+    rf"(?P<unit>{_PACK_UNITS})\b\.?\s*(?(open)\))\s*"
     rf"(?:{_CONTAINER})\s+(?:of\s+)?(?P<rest>.+)$",
     re.IGNORECASE,
 )
+# "1 (2-inch) piece fresh ginger": the bracket sizes the piece, and a piece of
+# ginger is bought as one ginger.
+_SIZED_PIECE_RE = re.compile(r"^(?P<count>\d++) \([^()]*\) ?pieces? (?:of )?", re.IGNORECASE)
 # "2lb 4oz potatoes": two imperial figures for one amount, with no metric
 # figure for _DUAL_MEASURE_RE to keep instead. Summed only when both land in
 # the same canonical unit.
@@ -168,6 +174,7 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
     cleaned = re.sub(r"\s+", " ", line)
     cleaned = _WORD_AMOUNT_RE.sub(lambda m: _WORD_AMOUNTS[m.group("word").lower()] + " ", cleaned, count=1)
     cleaned = _BARE_TIMES_RE.sub(r"\g<count> ", cleaned, count=1)
+    cleaned = _SIZED_PIECE_RE.sub(r"\g<count> ", cleaned, count=1)
     cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
 
     multiplier = _MULTIPLIER_RE.match(cleaned)
