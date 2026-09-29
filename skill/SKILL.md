@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 18 -->
+<!-- playbook-version: 19 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v18, and this file is a snapshot** — once installed it never
+**This is playbook v19, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -27,7 +27,9 @@ conversation, and tell the user to replace their installed copy.
    "3 cloves", "1 bunch", "4 items". Convert before writing:
    - 1 tsp = 5 ml · 1 tbsp = 15 ml · 1 cup = 240 ml
    - 1 oz = 28 g · 1 lb = 454 g · 1 UK pint = 568 ml
-   - Never submit cups, oz, lb, tsp, tbsp, sticks, or pints.
+   - 1 US quart = 946 ml · 1 US gallon = 3785 ml · 1 stick of butter = 113 g
+   - Never submit cups, oz, lb, tsp, tbsp, pints, quarts, gallons, or sticks
+     of butter. A stick of celery or cinnamon is a natural unit: "2 sticks".
 3. **Parse once, reuse forever.** Always try `ingest_recipe(url)` first — the
    library may already have it, and most sites parse for free from JSON-LD.
 4. **The list explains itself.** When reading the shopping list back, keep the

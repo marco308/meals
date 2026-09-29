@@ -82,13 +82,21 @@ final class UnitVocabularyTests: XCTestCase {
     /// `backend/tests/unit/test_ios_units.py` holds the list to the server's.
     func testThePluralsTheServerBansAreRefusedHereToo() {
         for unit in [
-            "teaspoons", "tablespoons", "ounces", "lbs", "pounds", "pints", "sticks", "quart", "gallon",
+            "teaspoons", "tablespoons", "ounces", "lbs", "pounds", "pints", "quart", "gallon",
             "fl oz", "floz", "PINTS",
         ] {
             XCTAssertNotNil(MealsUnits.rejection(for: unit), unit)
         }
         XCTAssertEqual(MealsUnits.rejection(for: "pints"), "1 UK pint = 568 ml")
-        XCTAssertEqual(MealsUnits.rejection(for: "sticks"), "1 stick of butter = 113 g")
+    }
+
+    /// Celery and cinnamon come in sticks you count; butter's are 113 g (#187).
+    func testAStickIsRefusedOnlyForButter() {
+        XCTAssertNil(MealsUnits.rejection(for: "sticks", of: "celery"))
+        XCTAssertNil(MealsUnits.rejection(for: "stick", of: "buttermilk"))
+        XCTAssertNil(MealsUnits.rejection(for: "sticks"))
+        XCTAssertEqual(MealsUnits.rejection(for: "sticks", of: "Unsalted butter"), "1 stick of butter = 113 g")
+        XCTAssertEqual(MealsUnits.rejection(for: "stick", of: "margarine"), "1 stick of butter = 113 g")
     }
 
     func testOnlyAWordCanBeAUnit() {

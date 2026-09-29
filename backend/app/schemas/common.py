@@ -26,7 +26,7 @@ class IngredientLineIn(BaseModel):
                     "(use g/kg/ml/l or a natural unit like 'tin', 'clove', 'item')"
                 )
             try:
-                self.quantity, self.unit = normalize_quantity(self.quantity, self.unit)
+                self.quantity, self.unit = normalize_quantity(self.quantity, self.unit, self.name)
             except UnitNotAllowedError as exc:
                 raise ValueError(f"ingredient '{self.name}': {exc}") from exc
         elif self.unit is not None:

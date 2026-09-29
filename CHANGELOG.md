@@ -20,7 +20,24 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+Guidance changed, so this is **playbook v19**.
+
+### Fixed
+
+- **Ingest keeps the amount on sticks, quarts and gallons** (#187). The parser
+  read "2 sticks celery" as a count the API then refused, so the line was
+  stored with no quantity; "2 sticks butter" now arrives as 226 g, and celery
+  and cinnamon sticks as counts. "1 quart stock" was stored as one item of
+  "quart stock" and is now 946 ml (a gallon is 3785 ml).
+
+### Changed
+
+- **`stick` is accepted as a natural unit, except for butter.** Loosened, not
+  tightened: sticks of celery or cinnamon used to be refused. A stick of butter
+  is still refused, with the 113 g conversion in the 422.
+  The iPhone app's matching check (a stick is refused only when the food is
+  butter) ships in its next build; builds already installed refuse every
+  stick, which is stricter than the server and so never queues a drop.
 
 ## 2026-09-28: iOS build 34, a Meals tab
 
