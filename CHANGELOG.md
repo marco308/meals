@@ -20,9 +20,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+Nothing merged since the release below.
+
+## 2026-09-30: the parser reads more of a recipe, and the plan shows its food
+
+Released as **1.7.9**. No migrations, and nothing in the API changed shape.
 Guidance changed, so this is **playbook v19**.
 
 ### Fixed
+
+- **Ingest reads word amounts, pack sizes and compound imperial**
+  ([#202](https://github.com/marco308/meals/pull/202), #188). "an egg" and
+  "one onion" are 1 item, "a pinch of salt" is 1 pinch, "1 (400g) tin
+  chickpeas" is 400 g, "2lb 4oz potatoes" is 1020 g and "2 x 5g sachets yeast"
+  is 10 g. US pack sizes ("1 (14.5 ounce) can") parse too. Vague amounts ("a
+  few", "a good pinch") keep the whole line as the name, as before.
 
 - **Ingest keeps the amount on sticks, quarts and gallons** (#187). The parser
   read "2 sticks celery" as a count the API then refused, so the line was
@@ -38,6 +50,11 @@ Guidance changed, so this is **playbook v19**.
   The iPhone app's matching check (a stick is refused only when the food is
   butter) ships in its next build; builds already installed refuse every
   stick, which is stricter than the server and so never queues a drop.
+- **The web app's plan shows the food**
+  ([#210](https://github.com/marco308/meals/pull/210)). Each meal on the plan,
+  and in the add-a-meal picker, has its first recipe photo where the emoji
+  was, matching the Meals and Recipes pages. A meal with no photographed
+  recipe keeps its emoji.
 
 ## 2026-09-28: iOS build 34, a Meals tab
 
