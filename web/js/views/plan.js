@@ -4,8 +4,8 @@
 // just say so.
 
 import { api } from "../api.js";
-import { compareSlotLists } from "./meals.js";
-import { confirmDialog, emptyState, fmtRel, foodEmoji, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
+import { compareSlotLists, mealThumb } from "./meals.js";
+import { confirmDialog, emptyState, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderPlan(root, planId = null) {
   render(root, skeleton());
@@ -153,7 +153,7 @@ function planMeal(pm, plan, isActive) {
   const meal = pm.meal;
   return html`
     <li class="menu-item ${pm.cooked_at ? "cooked" : ""}">
-      <span class="m-emoji" aria-hidden="true">${foodEmoji(meal.name)}</span>
+      ${mealThumb(meal)}
       <div class="m-main">
         <a class="m-name" href="#/meals/${meal.id}">${meal.name}</a>
         <div class="m-meta">
@@ -320,7 +320,7 @@ async function addMealDialog(plan, reload) {
       ${meals.map(
         (meal) => html`
           <li>
-            <span aria-hidden="true">${foodEmoji(meal.name)}</span>
+            ${mealThumb(meal)}
             <div class="p-main">
               <div class="p-title">${meal.name}</div>
               <div class="p-sub">

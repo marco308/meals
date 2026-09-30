@@ -60,6 +60,16 @@ function mealPhotos(meal) {
   `;
 }
 
+// The small square a meal gets where it sits in a row (the plan, the add-a-meal
+// picker): its first recipe photo, or its emoji when no recipe has one. One
+// photo rather than the card's mosaic, because four at this size are noise.
+export function mealThumb(meal) {
+  const url = meal.recipes.map((r) => r.image_url).find(Boolean);
+  return html`
+    <span class="m-thumb" aria-hidden="true">${url ? html`<img src="${url}" alt="" loading="lazy">` : foodEmoji(meal.name)}</span>
+  `;
+}
+
 export async function renderMeals(root) {
   render(root, html`
     <div class="page">

@@ -397,7 +397,21 @@ fieldset.slot-picker legend { padding: 0; width: 100%; }
   border-top: 1px dashed var(--line-2);
 }
 .menu-item:first-child { border-top: 0; }
-.m-emoji { font-size: 1.5rem; width: 2.1rem; text-align: center; flex: none; }
+/* A meal's picture in a row: its first recipe photo, or its emoji on the same
+   cream tile the recipe and meal cards use when there is no photo. */
+.m-thumb {
+  width: 3rem;
+  height: 3rem;
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--cream-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+.m-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .m-name {
   font-family: var(--display);
   font-weight: 700;
@@ -411,7 +425,7 @@ fieldset.slot-picker legend { padding: 0; width: 100%; }
 .menu-item .m-actions { display: flex; gap: .4rem; opacity: 0; transition: opacity .15s; }
 .menu-item:hover .m-actions, .menu-item:focus-within .m-actions { opacity: 1; }
 .menu-item.cooked .m-name { color: var(--ink-mute); }
-.menu-item.cooked .m-emoji { filter: grayscale(.6); opacity: .7; }
+.menu-item.cooked .m-thumb { filter: grayscale(.6); opacity: .7; }
 .menu-foot {
   text-align: center;
   color: var(--ink-mute);
