@@ -302,6 +302,9 @@ class TestNothingIsLeftBehind:
             "expiry_warned_at",
             "lapse_notified_at",
             "reap_warned_at",
+            # A credential for somebody else's service, and for a printer in
+            # one kitchen: worthless on another box and not to be handed about.
+            "label_printer_token",
         },
         # When this server confirmed the address is its own bookkeeping too:
         # the next server will ask again, and should.

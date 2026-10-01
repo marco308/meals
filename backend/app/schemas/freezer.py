@@ -61,3 +61,26 @@ class FreezerItemOut(BaseModel):
 class FreezerOut(BaseModel):
     items: list[FreezerItemOut]  # oldest batch first — eat that one
     total_portions: int
+    # Whether POST /freezer/{item_id}/label will print: this server has a label
+    # service and this household has a token for it. Clients show the button
+    # only when it is true.
+    can_print_labels: bool = False
+
+
+class FreezerLabelIn(BaseModel):
+    copies: int = Field(default=1, ge=1, le=20)  # one per tub
+
+
+class FreezerLabelOut(BaseModel):
+    printed: int  # labels sent to the printer
+    dish: str  # the name as it went on the label, which may be shortened
+    qr: bool  # whether the label carries a link back to the meal or recipe
+
+
+class LabelPrinterIn(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+
+
+class LabelPrinterOut(BaseModel):
+    available: bool  # this server has a label service (LABEL_SERVICE_URL)
+    configured: bool  # and this household has a token for it; the token itself is never returned

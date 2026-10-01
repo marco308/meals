@@ -526,6 +526,17 @@ struct FreezerItem: Codable, Identifiable, Equatable, Sendable {
 struct FreezerPayload: Codable, Equatable, Sendable {
     let items: [FreezerItem]
     let totalPortions: Int
+    /// The server has a label printer and this household a token for it.
+    /// Optional because servers before freezer labels don't send it.
+    let canPrintLabels: Bool?
+}
+
+/// The reply to `POST /freezer/{id}/label`: what went on the label, which may
+/// be a shortened name.
+struct FreezerLabelResult: Codable, Equatable, Sendable {
+    let printed: Int
+    let dish: String
+    let qr: Bool
 }
 
 /// A finished shop (`GET /shopping-list/archived`) — what a list looked like

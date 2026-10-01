@@ -229,6 +229,18 @@ instrumentation a new feature usually needs.
   the last portion deletes the row, so the table is what is in the freezer and
   nothing else. It touches neither the plan nor the shopping list: eating from
   the freezer is not a cooking.
+- **Freezer labels are off unless two things are set** (`services/labels.py`,
+  `routers/labels.py`). `LABEL_SERVICE_URL` is the operator's (a label service
+  that owns a Bluetooth printer and draws a `freezer` template), so this server
+  only ever dials an address its operator chose; the bearer token for it is the
+  *household's* (`households.label_printer_token`, pasted in web Settings),
+  because the printer in one kitchen is no other household's business. The
+  token is never returned, logged or exported. `GET /freezer` publishes
+  `can_print_labels` and clients show 🏷️ only then. Names are shortened here,
+  not shrunk by the service, and the QR code is an uppercase `/L/<code>` short
+  link (QR alphanumeric mode, so it fits the smallest code with the biggest
+  modules) that redirects to the web app; free-text batches get none. Keep the
+  homelab out of the repo: its URL lives only in the gitignored deploy config.
 - **Premium vs budget** (`services/values.py`, Q17). An ingredient's
   `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
   household's own verdict — unlike an aisle it is **never guessed**, so no

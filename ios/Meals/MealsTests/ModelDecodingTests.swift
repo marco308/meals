@@ -284,6 +284,8 @@ final class ModelDecodingTests: XCTestCase {
     func testDecodesTheFreezer() throws {
         let stock = try APIClient.decoder().decode(FreezerPayload.self, from: fixture("freezer"))
         XCTAssertEqual(stock.totalPortions, 6)
+        // A server from before freezer labels says nothing, and that means no button.
+        XCTAssertNil(stock.canPrintLabels)
         XCTAssertEqual(stock.items.map(\.label), ["Chilli con carne", "Mum's lasagne"])
 
         let chilli = stock.items[0]
