@@ -52,8 +52,10 @@ MAX_TITLE_BESIDE_QR = 18
 MAX_COPIES = 20
 
 #: Where the part of a name worth keeping ends: "Chilli (batch of 6)", "Thai
-#: green curry with jasmine rice", "Lasagne - the good one".
-_SEPARATORS = (" with ", " - ", " – ", " — ", ": ", " | ", ", ", " & ")
+#: green curry with jasmine rice", "Lasagne - the good one". Not " & " or
+#: " and ": in "Fish & chips" both halves are the dish, so those only ever
+#: lose whole words off the end.
+_SEPARATORS = (" with ", " - ", " – ", " — ", ": ", " | ", ", ")
 
 #: Short-link prefixes: which kind of thing the id after it names.
 _KINDS = {"R": "recipes", "M": "meals"}

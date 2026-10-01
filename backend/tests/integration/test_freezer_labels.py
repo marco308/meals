@@ -181,6 +181,7 @@ class TestShortening:
             ("Slow-cooker beef and ale stew", 18, "Slow-cooker beef…"),
             ("Supercalifragilisticexpialidocious", 18, "Supercalifragilis…"),
             ("  Lasagne   - the good one ", 24, "Lasagne - the good one"),
+            ("Fish & chips family freezer batch", 24, "Fish & chips family…"),
         ],
     )
     def test_names_fit_the_label(self, name, limit, expected):
