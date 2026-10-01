@@ -22,6 +22,25 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-10-01: freezer labels
+
+Released as **1.8.0**. One additive migration (`households.label_printer_token`).
+Guidance changed, so this is **playbook v20**. Announces iOS build 35.
+
+### Added
+
+- **Print a label for a freezer batch**
+  ([#213](https://github.com/marco308/meals/pull/213)). On a server with a
+  label service (`LABEL_SERVICE_URL`, off by default) a household that has
+  saved its token under Settings → Label printer gets a 🏷️ button on every
+  freezer batch and a "print a label" tickbox when freezing something. The
+  label carries the dish name, shortened to fit, the date it was frozen and,
+  for a batch from a meal or recipe, a QR code back to it through a short
+  `/L/<code>` link. `GET /freezer` publishes `can_print_labels`;
+  `POST /freezer/{id}/label` prints; `GET|PUT|DELETE /household/label-printer`
+  manage the token, which is never returned, logged or exported. iOS build 35
+  carries the same as a swipe action.
+
 ## 2026-09-30: the parser reads more of a recipe, and the plan shows its food
 
 Released as **1.7.9**. No migrations, and nothing in the API changed shape.
