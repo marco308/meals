@@ -9,12 +9,22 @@ cooking — the cooked record was written when the batch was made.
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.deps import CurrentUser, DbSession
 from app.routers.meals import get_meal
-from app.schemas.freezer import FreezerAddIn, FreezerItemOut, FreezerItemUpdate, FreezerOut, FreezerTakeIn
+from app.routers.skill import base_url
+from app.schemas.freezer import (
+    FreezerAddIn,
+    FreezerItemOut,
+    FreezerItemUpdate,
+    FreezerLabelIn,
+    FreezerLabelOut,
+    FreezerOut,
+    FreezerTakeIn,
+)
 from app.serializers import freezer_item_out
+from app.services import labels
 from app.services.catalog import get_recipe
 from app.services.freezer import add_batch, get_item, list_freezer, take_portions
 
@@ -30,7 +40,11 @@ async def get_freezer(user: CurrentUser, db: DbSession) -> FreezerOut:
     the app, which meal or recipe it was; `total_portions` is the whole
     freezer in one number."""
     items = await list_freezer(db, user.household_id)
-    return FreezerOut(items=[freezer_item_out(item) for item in items], total_portions=sum(i.portions for i in items))
+    return FreezerOut(
+        items=[freezer_item_out(item) for item in items],
+        total_portions=sum(i.portions for i in items),
+        can_print_labels=labels.can_print(user.household),
+    )
 
 
 @router.post("", response_model=FreezerItemOut, status_code=status.HTTP_201_CREATED)
@@ -126,3 +140,29 @@ async def remove_from_freezer(item_id: uuid.UUID, user: CurrentUser, db: DbSessi
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     await db.delete(item)
     await db.commit()
+
+
+@router.post("/{item_id}/label", response_model=FreezerLabelOut)
+async def print_freezer_label(
+    item_id: uuid.UUID, request: Request, user: CurrentUser, db: DbSession, payload: FreezerLabelIn | None = None
+) -> FreezerLabelOut:
+    """Print a label for a batch on the household's label printer: the dish
+    name (shortened to fit), the date it was frozen and, when the batch came
+    from a meal or recipe, a QR code that opens it. `copies` is how many
+    (default 1, one per tub). Only when GET /freezer says `can_print_labels`;
+    otherwise a 409 says how to set one up. Nothing about the batch changes."""
+    item = await get_item(db, user.household_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    household = user.household
+    copies = payload.copies if payload else 1
+    fields = labels.label_fields(item, base_url(request))
+    # Nothing is written, so release the pooled connection before waiting on
+    # a printer that may take a while to wake.
+    await db.commit()
+    try:
+        await labels.print_freezer_label(household, item, copies=copies, public_base=base_url(request))
+    except labels.LabelError as exc:
+        headers = {"Retry-After": exc.retry_after} if exc.retry_after else None
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
+    return FreezerLabelOut(printed=copies, dish=fields["dish"], qr="qr" in fields)

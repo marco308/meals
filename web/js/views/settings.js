@@ -21,7 +21,7 @@ import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, ske
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, household, invites, tokens, markets, allowances, subscription] = await Promise.all([
+  const [user, household, invites, tokens, markets, allowances, subscription, printer] = await Promise.all([
     api("/auth/me"),
     api("/auth/household"),
     api("/auth/invites"),
@@ -31,6 +31,7 @@ export async function renderSettings(root) {
     // 404 is the answer on every server that has no billing, which is almost
     // all of them, and it is the server's own answer rather than a guess.
     api("/billing/subscription").catch(() => null),
+    api("/household/label-printer").catch(() => null),
   ]);
   session.saveUser(user);
   const youLead = household.lead_user_id === user.id;
@@ -188,6 +189,8 @@ export async function renderSettings(root) {
         <div class="dialog-actions"><button class="btn" data-token>New API token</button></div>
       </div>
 
+      ${printer?.available ? labelPrinterSection(printer) : ""}
+
       <div class="section card">
         <h2>Password</h2>
         <form data-password>
@@ -264,6 +267,29 @@ export async function renderSettings(root) {
     }
   });
 
+  root.querySelector("[data-printer]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const token = new FormData(event.target).get("token").trim();
+    if (!token) return;
+    try {
+      await api("/household/label-printer", { method: "PUT", body: { token } });
+      toast("🏷️ Label printer saved. The freezer page has a label button on every batch now.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  });
+  root.querySelector("[data-printer-forget]")?.addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: "Forget the label printer?",
+      body: "The label buttons go from the freezer page until a token is pasted here again.",
+      confirmLabel: "Forget it",
+      danger: true,
+    });
+    if (!ok) return;
+    await api("/household/label-printer", { method: "DELETE" });
+    renderSettings(root);
+  });
   root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household);
   root.querySelector("[data-rename-household]")?.addEventListener("click", () =>
     renameHouseholdDialog(root, household),
@@ -1062,4 +1088,28 @@ function deleteAccountDialog() {
       toast(error.detail || error.message, "error");
     }
   };
+}
+
+// Freezer labels. Only on a server with a label service at all, which is the
+// operator's to set up (LABEL_SERVICE_URL); the token is the household's, and
+// it is written here and never read back.
+function labelPrinterSection(printer) {
+  return html`
+    <div class="section card">
+      <h2>🏷️ Label printer</h2>
+      <p class="sub">
+        ${printer.configured
+          ? "Set up. Every batch on the freezer page has a label button: the dish, the date it went in, and a QR code back to the recipe when there is one."
+          : "This server can print freezer labels. Paste the token the label service gave your household and every batch on the freezer page gets a label button."}
+      </p>
+      <form data-printer>
+        <label class="field"><span>${printer.configured ? "Replace the token" : "Label service token"}</span>
+          <input type="password" name="token" maxlength="200" autocomplete="off" required></label>
+        <div class="dialog-actions">
+          ${printer.configured && html`<button class="btn ghost" type="button" data-printer-forget>Forget it</button>`}
+          <button class="btn" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  `;
 }

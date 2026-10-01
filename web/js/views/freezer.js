@@ -2,6 +2,10 @@
 // One row per batch, oldest at the top because that is the one to eat next.
 // Nothing here touches the plan or the list — freezing is a statement about
 // the freezer, and eating from it is not a cooking.
+//
+// Where the server has a label printer and the household a token for it
+// (`can_print_labels`), each batch gets a 🏷️ button and freezing something
+// prints its label in the same step. Neither appears anywhere else.
 
 import { api } from "../api.js";
 import { confirmDialog, emptyState, fmtRel, foodEmoji, html, openDialog, render, skeleton, toast } from "../dom.js";
@@ -39,11 +43,19 @@ export async function renderFreezer(root) {
             "Nothing in the freezer",
             "When you batch-cook, put the spare portions here and this page becomes the answer to “what's for tea?”.",
           )
-        : html`<ul class="row-list">${items.map(batch)}</ul>`}
+        : html`<ul class="row-list">${items.map((item) => batch(item, stock.can_print_labels))}</ul>`}
     </div>
   `);
 
-  root.querySelector("[data-add]").onclick = () => addDialog(root);
+  root.querySelector("[data-add]").onclick = () => addDialog(root, stock.can_print_labels);
+
+  for (const button of root.querySelectorAll("[data-label]")) {
+    button.onclick = async () => {
+      button.disabled = true;
+      await printLabel(button.dataset.label);
+      button.disabled = false;
+    };
+  }
 
   for (const button of root.querySelectorAll("[data-take]")) {
     button.onclick = async () => {
@@ -91,7 +103,18 @@ export async function renderFreezer(root) {
   }
 }
 
-function batch(item) {
+// One label for one batch. The reply names the dish as it went on the label,
+// which is shortened when the full name would not fit.
+async function printLabel(itemId) {
+  try {
+    const printed = await api(`/freezer/${itemId}/label`, { method: "POST", body: { copies: 1 } });
+    toast(`🏷️ Label printed: ${printed.dish}`, "ok");
+  } catch (error) {
+    toast(error.detail || error.message, "error");
+  }
+}
+
+function batch(item, canPrint) {
   const age = (Date.now() - new Date(`${item.frozen_on}T12:00:00`)) / 86_400_000;
   const name = item.meal_id
     ? html`<a href="#/meals/${item.meal_id}">${item.label}</a>`
@@ -112,6 +135,7 @@ function batch(item) {
         ${age > 90 && html`<span class="chip butter">been in a while</span>`}
         <span class="chip ${item.portions === 1 ? "red" : "green"}">${plural(item.portions, "portion", "portions")}</span>
         <div class="row-actions">
+          ${canPrint && html`<button class="icon-btn" data-label="${item.id}" title="Print a label for this batch" aria-label="Print a label">🏷️</button>`}
           <button class="icon-btn" data-take="${item.id}" title="Took one out to eat">−1</button>
           <button class="icon-btn" data-more="${item.id}" title="Recount: there's one more than I said">+1</button>
           <button class="icon-btn warm" data-remove="${item.id}" title="Take the whole batch out">remove</button>
@@ -124,7 +148,7 @@ function batch(item) {
 // Three ways to say what went in (Q24): a meal, a recipe, or free text for
 // food that never passed through the plan. The picker searches the first two;
 // free text is the fallback, not the default.
-async function addDialog(root) {
+async function addDialog(root, canPrint) {
   let kind = "meal";
   let picked = null; // {id, label} from the picker, or null while typing free text
   const dialog = openDialog(html`
@@ -149,6 +173,7 @@ async function addDialog(root) {
       </div>
       <label class="field"><span>Note <small>(optional)</small></span>
         <input type="text" name="note" maxlength="300" placeholder="the spicy batch"></label>
+      ${canPrint && html`<label class="check-line"><input type="checkbox" name="print_label" checked> 🏷️ print a label for it</label>`}
       <div class="dialog-actions">
         <button class="btn ghost" type="button" data-x>Cancel</button>
         <button class="btn" type="submit" data-submit disabled>Pick one above</button>
@@ -246,6 +271,7 @@ async function addDialog(root) {
       const item = await api("/freezer", { method: "POST", body });
       dialog.close();
       toast(`In it goes — ${plural(item.portions, "portion", "portions")} of ${item.label}.`, "ok");
+      if (data.get("print_label")) await printLabel(item.id);
       renderFreezer(root);
     } catch (error) {
       submit.disabled = false;

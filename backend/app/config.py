@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     # What TestFlight/the App Store currently has, so an older-but-still-allowed
     # app can nudge the user without being locked out. Track `CFBundleVersion`
     # in ios/project.yml when that is bumped for an upload.
-    current_ios_build: int = 34
+    current_ios_build: int = 35
     ios_upgrade_url: str | None = None
 
     # Per-household limits (app/limits.py, planning/08-freemium.md). Every
@@ -299,6 +299,18 @@ class Settings(BaseSettings):
     # endless response is a memory spike on the database's machine. Recipe
     # pages are heavy with markup and still land well under this.
     recipe_fetch_max_bytes: int = 5 * 1024 * 1024
+
+    # Freezer labels (services/labels.py). **Off unless LABEL_SERVICE_URL is
+    # set**: the base URL of a label service that owns the printer's
+    # Bluetooth and draws a `freezer` template (the API it must speak is in
+    # that module's docstring).
+    # The URL is the operator's, so this server only ever calls an address its
+    # operator chose. Who may print is a household's own token for that
+    # service, pasted into Settings: on a server that holds many households,
+    # the printer in one kitchen is nobody else's. The timeout is generous
+    # because the service may have to find and wake the printer first.
+    label_service_url: str | None = None
+    label_service_timeout_seconds: float = 30.0
 
     # Outbound email, used only for password resets (Q20). Unset by default: the
     # app has always run with no mail configured, so a self-hoster who doesn't

@@ -30,6 +30,7 @@ from app.routers import (
     skill,
     supermarkets,
 )
+from app.routers import labels as labels_router
 from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version
 from app.services import security
@@ -203,6 +204,7 @@ app.include_router(plans.router)
 app.include_router(shopping.router)
 app.include_router(supermarkets.router)
 app.include_router(freezer.router)
+app.include_router(labels_router.router)
 app.include_router(skill.router)
 app.include_router(pages.router)
 app.include_router(limits_router.router)

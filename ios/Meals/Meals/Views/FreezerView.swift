@@ -17,6 +17,9 @@ struct FreezerView: View {
     @State private var errorMessage: String?
     @State private var showAdd = false
     @State private var pendingRemove: FreezerItem?
+    @State private var labelsPrinted = 0
+
+    private var canPrintLabels: Bool { stock?.canPrintLabels ?? false }
 
     var body: some View {
         List {
@@ -32,6 +35,7 @@ struct FreezerView: View {
                         "\(stock.totalPortions) portion\(stock.totalPortions == 1 ? "" : "s") in "
                             + "\(stock.items.count) batch\(stock.items.count == 1 ? "" : "es"). "
                             + "Swipe right on a batch when you take a portion out."
+                            + (canPrintLabels ? " Swipe left to print its label." : "")
                     )
                 }
             }
@@ -70,7 +74,7 @@ struct FreezerView: View {
         .task { await refresh() }
         .refreshable { await refresh() }
         .sheet(isPresented: $showAdd) {
-            AddToFreezerSheet { await refresh() }
+            AddToFreezerSheet(canPrintLabel: canPrintLabels) { await refresh() }
         }
         .confirmationDialog(
             removeConfirmTitle,
@@ -83,6 +87,7 @@ struct FreezerView: View {
                 Task { await remove(item) }
             }
         }
+        .sensoryFeedback(.success, trigger: labelsPrinted)
         .alert(
             "Something went wrong",
             isPresented: .init(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
@@ -131,6 +136,25 @@ struct FreezerView: View {
                 Label("One more", systemImage: "plus")
             }
             .tint(.blue)
+            if canPrintLabels {
+                Button {
+                    Task { await printLabel(item) }
+                } label: {
+                    Label("Label", systemImage: "tag")
+                }
+                .tint(.orange)
+            }
+        }
+    }
+
+    private func printLabel(_ item: FreezerItem) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await session.api.printFreezerLabel(id: item.id)
+            labelsPrinted += 1
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -199,6 +223,9 @@ struct AddToFreezerSheet: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
 
+    /// Offer to print the batch's label as it goes in: the household has a
+    /// label printer (`FreezerPayload.canPrintLabels`).
+    var canPrintLabel = false
     /// Runs after a successful save, so the list behind refreshes.
     let onSaved: () async -> Void
 
@@ -215,6 +242,10 @@ struct AddToFreezerSheet: View {
     @State private var isSaving = false
     @State private var loaded = false
     @State private var errorMessage: String?
+    @State private var printLabel = true
+    /// Set when the batch went in but its label did not print: Freeze again
+    /// would freeze it twice, so the button becomes Done.
+    @State private var frozenWithoutLabel = false
 
     var body: some View {
         NavigationStack {
@@ -279,6 +310,9 @@ struct AddToFreezerSheet: View {
                     Stepper("Portions: \(portions)", value: $portions, in: 1...500)
                     DatePicker("Frozen on", selection: $frozenOn, in: ...Date.now, displayedComponents: .date)
                     TextField("Note (optional, e.g. the spicy batch)", text: $note)
+                    if canPrintLabel {
+                        Toggle("Print a label", isOn: $printLabel)
+                    }
                 }
 
                 if let errorMessage {
@@ -294,9 +328,14 @@ struct AddToFreezerSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Freeze") { save() }
-                        .disabled(isSaving || !canSave)
-                        .fontWeight(.semibold)
+                    if frozenWithoutLabel {
+                        Button("Done") { dismiss() }
+                            .fontWeight(.semibold)
+                    } else {
+                        Button("Freeze") { save() }
+                            .disabled(isSaving || !canSave)
+                            .fontWeight(.semibold)
+                    }
                 }
             }
             .task {
@@ -362,7 +401,7 @@ struct AddToFreezerSheet: View {
                 formatter.timeZone = .current
                 formatter.dateFormat = "yyyy-MM-dd"
                 let trimmedNote = note.trimmingCharacters(in: .whitespaces)
-                _ = try await session.api.addToFreezer(
+                let item = try await session.api.addToFreezer(
                     mealId: kind == .meal ? pickedMeal?.id : nil,
                     recipeId: kind == .recipe ? pickedRecipe?.id : nil,
                     label: kind == .text ? label.trimmingCharacters(in: .whitespaces) : nil,
@@ -371,6 +410,17 @@ struct AddToFreezerSheet: View {
                     frozenOn: formatter.string(from: frozenOn)
                 )
                 await onSaved()
+                if canPrintLabel && printLabel {
+                    do {
+                        _ = try await session.api.printFreezerLabel(id: item.id)
+                    } catch {
+                        // The batch is in; only the label failed, and saying
+                        // so here would read as the freeze having failed.
+                        errorMessage = "Frozen, but no label: \(error.localizedDescription)"
+                        frozenWithoutLabel = true
+                        return
+                    }
+                }
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

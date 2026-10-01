@@ -684,6 +684,16 @@ extension APIClient {
         )
     }
 
+    /// Print a label for a batch on the household's label printer. Only
+    /// offered when `FreezerPayload.canPrintLabels` is true; a refusal (printer
+    /// off, no token) is an ordinary sentence from the server.
+    func printFreezerLabel(id: UUID, copies: Int = 1) async throws -> FreezerLabelResult {
+        try await send(
+            "POST", "/freezer/\(id.uuidString.lowercased())/label", json: ["copies": copies],
+            as: FreezerLabelResult.self
+        )
+    }
+
     /// A whole batch out, whatever was left of it.
     func removeFromFreezer(id: UUID) async throws {
         try await raw("DELETE", "/freezer/\(id.uuidString.lowercased())")

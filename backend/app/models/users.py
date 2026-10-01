@@ -132,6 +132,13 @@ class Household(Base):
     # never deleted without a warning it could have acted on.
     reap_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
+    # The household's bearer token for the label service (LABEL_SERVICE_URL,
+    # services/labels.py). Stored as given because it has to be sent; it is
+    # never returned by any endpoint, never logged and never exported. Null
+    # means this household has no printer, which is every household on a
+    # server with no label service.
+    label_printer_token: Mapped[str | None] = mapped_column(String(200), default=None)
+
     # Two foreign keys now join these tables (a user's household, a household's
     # lead), so both relationships have to say which one they travel.
     users: Mapped[list["User"]] = relationship(back_populates="household", foreign_keys="User.household_id")

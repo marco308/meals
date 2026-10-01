@@ -87,7 +87,7 @@ class TestReadingItBack:
         assert [item["label"] for item in stock["items"]] == ["old", "middle", "new"]
 
     async def test_an_empty_freezer_is_an_empty_list(self, auth_client):
-        assert await freezer(auth_client) == {"items": [], "total_portions": 0}
+        assert await freezer(auth_client) == {"items": [], "total_portions": 0, "can_print_labels": False}
 
     async def test_another_household_cannot_see_or_touch_it(self, client):
         mine = await register(client, email="a@example.com")
