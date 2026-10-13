@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 20 -->
+<!-- playbook-version: 21 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v20, and this file is a snapshot** — once installed it never
+**This is playbook v21, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -66,7 +66,10 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   notes stripped: "onions, finely chopped" → "onion"), `quantity` + `unit`
   normalised per the convention; omit both for "to taste" lines
 - `instructions` (numbered steps, newline-separated), `tags`, `image_url`
-  (worth including — the app shows the photo on the recipe and in the library)
+  (worth including — the app shows the photo on the recipe and in the library;
+  without one it shows a placeholder). It must be a direct https link to the
+  image file itself that anyone can load without signing in — the page's
+  `og:image` or JSON-LD `image` usually is — never the recipe page's own URL
 - Include `source_url` so the parse is cached for next time
 
 ## Shopping list conventions
@@ -148,6 +151,11 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   follows the new ingredients. A recipe the household has edited is refused;
   `force=True` overrides it, so ask first — those edits are somebody's
   deliberate correction and re-parsing throws them away.
+- **A recipe has no photo, or the wrong one** — `set_recipe_image(title, url)`
+  sets or replaces it (same https rule as above), and `url=""` removes it.
+  Over REST it is `PATCH /recipes/{id} {"image_url": ...}`, where `null`
+  removes the photo and leaving the key out leaves it alone. Like any edit it
+  marks the recipe as the household's, so `reparse_recipe` then needs `force`.
 - **Deleting a meal** — `delete_meal(name)`; it comes off the plan and the
   list first.
 - **Deleting a recipe** — `delete_recipe(title)`. Refused while a meal still

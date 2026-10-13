@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse, Response
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 20
+PLAYBOOK_VERSION = 21
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -243,11 +243,18 @@ async def submit_recipe(
     cook_minutes: int | None = None,
     instructions: str | None = None,
     tags: list[str] | None = None,
+    image_url: str | None = None,
 ) -> str:
     """Save a recipe you parsed yourself (from a page without JSON-LD) or a
     manual/family recipe. Each ingredient: {"name": str, "quantity": number,
     "unit": str} — metric (g/kg/ml/l) or natural counts ('tin', 'clove',
-    'item'); omit quantity+unit for 'to taste' lines."""
+    'item'); omit quantity+unit for 'to taste' lines.
+
+    image_url is the recipe's photo, shown on the recipe and in the library —
+    worth including. It must be a direct https link to the image file itself
+    (the page's og:image or the JSON-LD image usually is), loadable by anyone
+    without signing in: not the recipe page, and not a link that only works in
+    your session. Without one the app shows a placeholder."""
     payload = {
         "title": title,
         "ingredients": ingredients,
@@ -257,6 +264,7 @@ async def submit_recipe(
         "cook_minutes": cook_minutes,
         "instructions": instructions,
         "tags": tags or [],
+        "image_url": (image_url or "").strip() or None,
         "parse_source": "ai" if source_url else "manual",
     }
     try:
@@ -264,6 +272,28 @@ async def submit_recipe(
     except ApiError as exc:
         return str(exc)
     return f"Recipe saved: {_fmt_recipe_summary(recipe)}"
+
+
+@mcp.tool()
+async def set_recipe_image(recipe: str, image_url: str) -> str:
+    """Give an existing recipe a photo, change it, or take it away ("" removes
+    it). `recipe` is a title or id. The URL must be a direct https link to the
+    image file itself, loadable by anyone without signing in — the same rule as
+    submit_recipe's image_url.
+
+    Only the photo changes, but like any edit it marks the recipe as edited by
+    the household, so reparse_recipe will then refuse it without force=True."""
+    url = image_url.strip()
+    try:
+        found = (await _resolve_recipes([recipe]))[0]
+        # PATCH leaves out what isn't sent and clears a nullable field sent as
+        # null, so {"image_url": null} is how a photo is removed.
+        updated = await _call("PATCH", f"/recipes/{found['id']}", json={"image_url": url or None})
+    except ApiError as exc:
+        return str(exc)
+    if not updated.get("image_url"):
+        return f"Removed the photo from '{updated['title']}'; the app shows a placeholder."
+    return f"Photo set on '{updated['title']}' — the app shows it on the recipe and in the library."
 
 
 @mcp.tool()
