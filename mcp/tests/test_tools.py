@@ -414,6 +414,23 @@ class TestRecipes:
 
         assert json.loads(route.calls.last.request.content)["parse_source"] == "ai"
 
+    @respx.mock
+    async def test_submit_recipe_sends_the_photo(self):
+        """Without it a hand-saved recipe shows the 🍳 placeholder in the apps."""
+        route = respx.post(f"{API}/recipes").mock(
+            return_value=httpx.Response(201, json={"id": "r2", "title": "Stew", "servings": None})
+        )
+        await server.submit_recipe("Stew", [], image_url=" https://x.com/stew.jpg ")
+        assert json.loads(route.calls.last.request.content)["image_url"] == "https://x.com/stew.jpg"
+
+    @respx.mock
+    async def test_submit_recipe_sends_a_blank_photo_as_none(self):
+        route = respx.post(f"{API}/recipes").mock(
+            return_value=httpx.Response(201, json={"id": "r2", "title": "Stew", "servings": None})
+        )
+        await server.submit_recipe("Stew", [], image_url="")
+        assert json.loads(route.calls.last.request.content)["image_url"] is None
+
 
 def _library_recipe(id: str, title: str, **extra) -> dict:
     return {"id": id, "title": title, "servings": None, "times_cooked": 0, "last_cooked_at": None, **extra}
@@ -998,6 +1015,50 @@ class TestSupermarkets:
         )
         result = await server.save_supermarket("Aldi", ["🧀"])
         assert "unknown aisle(s) 🧀" in result
+
+
+class TestRecipeImage:
+    """Setting a photo on a recipe that's already in the library."""
+
+    @respx.mock
+    async def test_resolves_by_title_and_patches_only_the_photo(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        route = respx.patch(f"{API}/recipes/r1").mock(
+            return_value=httpx.Response(
+                200, json=_library_recipe("r1", "Chilli", image_url="https://x.com/chilli.jpg", ingredients=[])
+            )
+        )
+        result = await server.set_recipe_image("chilli", "https://x.com/chilli.jpg")
+        # Only the key being changed: PATCH leaves an absent field alone.
+        assert json.loads(route.calls.last.request.content) == {"image_url": "https://x.com/chilli.jpg"}
+        assert "Photo set on 'Chilli'" in result
+
+    @respx.mock
+    async def test_an_empty_url_removes_the_photo_with_an_explicit_null(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        route = respx.patch(f"{API}/recipes/r1").mock(
+            return_value=httpx.Response(200, json=_library_recipe("r1", "Chilli", image_url=None, ingredients=[]))
+        )
+        result = await server.set_recipe_image("r1", " ")
+        assert json.loads(route.calls.last.request.content) == {"image_url": None}
+        assert "Removed the photo" in result
+
+    @respx.mock
+    async def test_unknown_recipe_lists_the_library(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        result = await server.set_recipe_image("tiramisu", "https://x.com/t.jpg")
+        assert "No recipe matching 'tiramisu'" in result
+        assert "Chilli" in result
+
+    @respx.mock
+    async def test_a_refusal_reaches_the_assistant(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        respx.patch(f"{API}/recipes/r1").mock(
+            return_value=httpx.Response(422, json={"detail": "image_url: String should have at most 1000 characters"})
+        )
+        result = await server.set_recipe_image("chilli", "https://x.com/" + "a" * 1000)
+        assert "API error 422" in result
+        assert "1000 characters" in result
 
 
 class TestReparse:

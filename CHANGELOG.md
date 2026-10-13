@@ -20,7 +20,21 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+No migrations, and nothing in the API changed. Guidance changed, so this is
+**playbook v21**.
+
+### Added
+
+- **Recipe photos over MCP.** `submit_recipe` takes an optional `image_url`,
+  which `POST /recipes` always accepted, so a recipe an assistant saves by hand
+  no longer shows the 🍳 placeholder. A new tool, `set_recipe_image(recipe,
+  image_url)`, sets or replaces the photo on a recipe already in the library
+  (by title or id) and removes it when given `""`, taking the server to **34**
+  tools. It PATCHes only `image_url`: an absent key leaves the photo alone and
+  an explicit `null` clears it, as `PATCH /recipes/{id}` already did. Like any
+  edit it marks the recipe as edited, so `reparse_recipe` then needs `force`.
+  The skill and prompt pack say what a usable URL is: a direct https link to
+  the image file that anyone can load, never the recipe page.
 
 ## 2026-10-01: freezer labels
 
