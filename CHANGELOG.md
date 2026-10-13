@@ -20,12 +20,17 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-No migrations, and nothing in the API changed. Guidance changed, so this is
-**playbook v21**.
+Nothing merged since the release below.
+
+## 2026-10-13: recipe photos over MCP
+
+Released as **1.8.1**. No migrations, and nothing in the API changed.
+Guidance changed, so this is **playbook v21**.
 
 ### Added
 
-- **Recipe photos over MCP.** `submit_recipe` takes an optional `image_url`,
+- **Recipe photos over MCP**
+  ([#219](https://github.com/marco308/meals/pull/219)). `submit_recipe` takes an optional `image_url`,
   which `POST /recipes` always accepted, so a recipe an assistant saves by hand
   no longer shows the 🍳 placeholder. A new tool, `set_recipe_image(recipe,
   image_url)`, sets or replaces the photo on a recipe already in the library
