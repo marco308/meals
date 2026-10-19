@@ -720,7 +720,14 @@ Two things follow from the fix and they constrain what you may deploy:
   schema during a rollout.
 
 Postgres stays stop-first on purpose — one replica on one local volume can't
-have two tasks at once.
+have two tasks at once. That is also why **the stack file pins `db` by
+digest** (`postgres:17-alpine@sha256:…`): a floating tag re-resolves on every
+`docker stack deploy`, so the first deploy after upstream republished it
+restarted Postgres in the middle of the api's rollout, and the new task failed
+its migration and rolled back (twice, the second time stopping autodeploy).
+Bump the pin on its own, never with a release: the recipe is in the comment
+above that line, and it ends with redeploying the release already live so
+only `meals_db` rolls.
 
 ### Releases
 
@@ -776,8 +783,11 @@ Two rules constrain anything built on top:
   cherry-picking tables out of a dump can leave rows the app would never have
   produced. `restore.sh` restores into a scratch database for exactly this
   reason; copy out of that if you need surgery.
-- **The image tracks the db image.** `pg_dump` refuses to dump a server newer
-  than itself, so `backup/Dockerfile`'s `FROM postgres:17-alpine` and the `db`
-  service's tag move together.
+- **The image tracks the db image's major version.** `pg_dump` refuses to dump
+  a server of a newer major than itself, so `backup/Dockerfile`'s
+  `FROM postgres:17-alpine` and the `db` service's tag move together. Within a
+  major nothing needs to match, which is why the Dockerfile keeps the floating
+  tag (and its security patches, on every release) while prod's `db` is pinned
+  by digest.
 
 Open items and deferred work live in `BACKLOG.md`.

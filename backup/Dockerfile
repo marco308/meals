@@ -2,8 +2,11 @@
 # for encrypting it.
 #
 # Based on the same image tag as the database itself, and that is load-bearing:
-# pg_dump refuses to dump a server newer than itself, so this tag has to move
-# whenever the db service's does. Nothing else here is version-sensitive.
+# pg_dump refuses to dump a server of a newer major version than itself, so the
+# major here has to move whenever the db service's does. Minor versions need not
+# match, so this stays a floating tag (rebuilt with the newest 17.x on every
+# release) even where a deployment pins its db by digest. Nothing else here is
+# version-sensitive.
 FROM postgres:17-alpine
 
 RUN apk add --no-cache rclone gnupg
