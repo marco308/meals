@@ -281,7 +281,7 @@ async def _checked(request: Request, params: dict[str, str]) -> tuple[oauth.Clie
         client = await oauth.resolve_client(client_id)
     except oauth.ClientRejected as exc:
         log_event("oauth.client_rejected", reason=exc.reason)
-        return _error_page(str(exc)[:1].upper() + str(exc)[1:])
+        return _error_page(exc.message[:1].upper() + exc.message[1:])
     redirect_uri = params.get("redirect_uri")
     if not redirect_uri or not any(oauth.redirect_matches(uri, redirect_uri) for uri in client.redirect_uris):
         log_event("oauth.client_rejected", reason="redirect_uri")

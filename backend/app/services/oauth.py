@@ -89,6 +89,10 @@ class ClientRejected(Exception):
 
     def __init__(self, message: str, reason: str) -> None:
         super().__init__(message)
+        #: What the consent screen shows. Always one of the sentences written
+        #: in this module, never an exception's own text: a library's message
+        #: can carry an address or a traceback, and this page is public.
+        self.message = message
         self.reason = reason
 
 
