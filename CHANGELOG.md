@@ -22,6 +22,31 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-10-19: sign in to the MCP with OAuth
+
+Released as **1.9.0**. One additive migration (a new `oauth_grants` table and
+a nullable `auth_tokens.grant_id`), so it is safe while the old task is still
+serving. Nothing in the skill changed, so this is still **playbook v21**.
+
+### Added
+
+- **OAuth for the remote MCP**
+  ([#223](https://github.com/marco308/meals/pull/223), issue
+  [#8](https://github.com/marco308/meals/issues/8)). With `OAUTH_ENABLED=true`
+  the API is the authorization server for its own `/mcp`, so a claude.ai
+  custom connector (or Claude Code) can be given just the URL and sign
+  somebody in with their YAMP email and password, instead of them minting and
+  pasting an API token. Client ID Metadata Documents ("Use Claude's published
+  identity") and dynamic client registration are both supported, and neither
+  stores a client. PKCE `S256` only, exact redirect match, single-use
+  two-minute codes, tokens bound to this server's `/mcp`, and a password
+  change, password reset or account deletion revokes every connection. An
+  MCP container run on its own needs `MEALS_MCP_OAUTH=1` as well; the one
+  built into the API follows `OAUTH_ENABLED` by itself.
+  **Off by default**: with it unset every `/oauth/*` and
+  `/.well-known/oauth-*` route 404s and `/mcp` behaves exactly as before.
+  Personal API tokens keep working either way.
+
 ## 2026-10-13: recipe photos over MCP
 
 Released as **1.8.1**. No migrations, and nothing in the API changed.
