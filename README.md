@@ -266,9 +266,33 @@ claude mcp add --transport http meals https://your-meals-server.example/mcp \
 
 The remote server holds no credentials of its own: each request's bearer
 token is forwarded to the API, so every connecting client acts as themselves.
-Any MCP client that can send a custom header works the same way (claude.ai
-custom connectors need OAuth, which the server doesn't speak yet — see
-[BACKLOG.md](BACKLOG.md)).
+Any MCP client that can send a custom header works the same way, claude.ai
+custom connectors included (they take a fixed `Authorization` header).
+
+**Signing in instead of pasting a token (OAuth).** With `OAUTH_ENABLED=true`
+the API is also the OAuth authorization server for its own `/mcp`, so a client
+that speaks MCP authorization (a claude.ai custom connector, Claude Code) can
+be given just the URL and will open a YAMP sign-in page: the person sees who is
+asking and where they'll be sent back to, types their email and password, and
+approves. Off by default; personal API tokens keep working either way. To turn
+it on for your own server:
+
+1. Set `OAUTH_ENABLED=true` on the API.
+2. If the MCP runs in its own container, set `MEALS_MCP_OAUTH=1` on that
+   container too (`docker-compose.yml` passes `OAUTH_ENABLED` to both). The
+   built-in `/mcp` follows the API's setting by itself.
+3. Make sure your proxy sends `/.well-known/*` and `/oauth/*` to the API and
+   passes `X-Forwarded-Proto`/`X-Forwarded-Host` (or the real `Host`): the
+   metadata is served under whatever public origin the request came in on.
+4. In claude.ai, add a custom connector with `https://your-server/mcp` and
+   choose **Use Claude's published identity**. Clients that only know dynamic
+   client registration are served too.
+
+Once it is on, `/mcp` answers a request without a valid token with a `401`
+rather than letting it reach the tools, so a health check that runs an MCP
+handshake has to send a token. Changing your password disconnects every
+signed-in assistant; decision Q27 in
+[planning/04-open-questions.md](planning/04-open-questions.md) has the design.
 
 **Local fallback (stdio)** — no deployment needed, runs from the repo:
 

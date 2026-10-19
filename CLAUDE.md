@@ -150,6 +150,23 @@ instrumentation a new feature usually needs.
   that actually went (marked once, never on a relay failure), and a sign-in
   clears it. Keep the emptiness test stricter than `household_has_content`: an
   empty active list is made by merely opening the app.
+- **OAuth for `/mcp` is the API's, and off by default** (Q27, #8,
+  `routers/oauth.py` over `services/oauth.py`). `OAUTH_ENABLED` makes the API
+  the authorization server for its own `/mcp` and nothing else; off, every
+  `/oauth/*` and `/.well-known/oauth-*` route 404s. An access token is
+  `kind="oauth"` (the one kind Q27 added to `AUTHENTICATING_KINDS`), a refresh
+  token `kind="oauth_refresh"` (never a bearer), and the code lives on the
+  `oauth_grants` row, never in `auth_tokens`. No client table: a Client ID
+  Metadata Document is fetched under ingestion's public-address guard and
+  cached in memory, and a dynamic registration is encoded into its own client
+  id, because open registration vouches for nothing and a table of it would
+  only need capping. The rules each have a test in `test_oauth.py`: exact
+  redirect URIs (only a loopback *port* may vary), S256 only, single-use
+  two-minute codes whose replay revokes the grant, the password on every
+  consent, `resource` bound to this origin's `/mcp`, and a refresh token
+  rotated on every use. Changing or resetting a password calls
+  `oauth.revoke_grants`; account deletion takes grants with the user. API
+  tokens are untouched by all of it.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.
@@ -519,7 +536,12 @@ do instead (see the 409 in `routers/shopping.py` for the shape).
 The MCP server (`mcp/meals_mcp/server.py`) runs in two modes: **stdio** with
 `MEALS_API_TOKEN` from the env, and **http** (deployed at `/mcp`) which holds
 no credentials and forwards each request's `Authorization` header to the API
-verbatim — never add a server-side token fallback in http mode. That header
+verbatim — never add a server-side token fallback in http mode. With OAuth on
+(`MEALS_MCP_OAUTH`, or the API's own `OAUTH_ENABLED` when mounted) the http app
+is wrapped in `RequireCallerToken`, which answers a request without a token the
+API accepts (`GET /auth/me`, still with the caller's own header) with the 401 +
+`WWW-Authenticate: Bearer resource_metadata=...` that starts a client's
+sign-in. Build the app through `http_app()` so both deployments get it. That header
 reaches the tools through the `_capture_caller_headers` middleware, which
 publishes them in a contextvar for the life of the request: SDK 2.0 only hands
 the request context to a handler that declares a `Context` parameter, and the

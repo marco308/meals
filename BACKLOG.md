@@ -104,7 +104,7 @@ what it deliberately doesn't do yet:
 - [x] ~~**Premium/budget browse screen in iOS**~~ — ✅ shipped (issue [#58](https://github.com/marco308/meals/issues/58)) in build 21, public since build 23: the Ingredients tab carries the badge and the household's note on every row, filters to ⭐ premium or 💷 budget, and sorts by verdict (Q17), so the verdicts read back on the phone rather than only through the API
 - [ ] **iOS offline breadth** — plan and recipe library are online-only by design (Q11); cache read-only copies so the whole app opens signal-less
 - [x] ~~**Remote MCP multi-user auth**~~ — ✅ shipped (issue #6): the stack serves streamable HTTP at `https://meals.marcuslab.uk/mcp` and forwards each caller's own bearer PAT per request; stdio stays for local dev
-- [ ] **MCP OAuth** — [#8](https://github.com/marco308/meals/issues/8). claude.ai custom connectors want OAuth; the remote MCP is bearer-header-only today
+- [ ] **MCP OAuth** — [#8](https://github.com/marco308/meals/issues/8). Built behind `OAUTH_ENABLED` (Q27): the API is the authorization server for its own `/mcp`, with Client ID Metadata Documents and dynamic registration. Left: turn it on in prod, connect a real claude.ai connector, then drop the README caveat. A "connected apps" list in web Settings (revoke one connection without changing the password) would be the natural next step
 
 ## Later (explicitly deferred in the plan)
 

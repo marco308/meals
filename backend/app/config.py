@@ -116,6 +116,23 @@ class Settings(BaseSettings):
     # origin: loopback on whatever port uvicorn is serving.
     mcp_api_url: str = "http://127.0.0.1:8000"
 
+    # OAuth for the remote MCP (issue #8, decision Q27, `routers/oauth.py`).
+    # **Off unless OAUTH_ENABLED is set**: every /oauth/* and
+    # /.well-known/oauth-* route 404s, and /mcp keeps answering without a
+    # token exactly as it always has. On, this server is the authorization
+    # server for its own /mcp, so a client such as a claude.ai custom
+    # connector can sign somebody in with their password instead of asking
+    # them to mint and paste an API token, and /mcp answers 401 to a request
+    # that carries no valid token. Personal API tokens keep working either way.
+    oauth_enabled: Annotated[bool, BlankIsDefault] = False
+    # Access tokens are short so a leaked one is worth little; the refresh
+    # token is what keeps a connection alive, and each use rotates it and
+    # restarts its clock, so a connection in use never has to sign in again.
+    oauth_access_token_ttl_minutes: Annotated[int, BlankIsDefault] = 60
+    oauth_refresh_token_ttl_days: Annotated[int, BlankIsDefault] = 30
+    # An authorization code only has to survive one redirect and one POST.
+    oauth_code_ttl_seconds: Annotated[int, BlankIsDefault] = 120
+
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
     # New households per hour per IP (issue #122). The per-minute limit above

@@ -23,6 +23,7 @@ from app.routers import (
     household,
     ingredients,
     meals,
+    oauth,
     pages,
     plans,
     recipes,
@@ -210,6 +211,7 @@ app.include_router(pages.router)
 app.include_router(limits_router.router)
 app.include_router(household.router)
 app.include_router(billing.router)
+app.include_router(oauth.router)
 
 # The web client is served by the API itself so it is always same-origin with
 # the endpoints it calls — no CORS, no second host to deploy or certify. Plain

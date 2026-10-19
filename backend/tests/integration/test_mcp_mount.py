@@ -87,3 +87,25 @@ class TestDisabled:
         before = len(blank.router.routes)
         assert mcp_mount.attach(blank) is False
         assert len(blank.router.routes) == before
+
+
+class TestOAuthSwitch:
+    def test_the_mount_requires_a_token_exactly_when_oauth_is_on(self, monkeypatch, settings_override):
+        """The mounted MCP takes its 401 from the API's own OAUTH_ENABLED, not
+        from MEALS_MCP_OAUTH, so one process can't disagree with itself. Built
+        against a stand-in app: a real build would mint a second session
+        manager, and the suite only gets one (see above)."""
+        from meals_mcp import server as mcp_server
+
+        seen: list[bool] = []
+
+        def fake_http_app(*, streamable_http_path: str, require_token: bool):
+            seen.append(require_token)
+            return lambda scope, receive, send: None
+
+        monkeypatch.setattr(mcp_server, "http_app", fake_http_app)
+        monkeypatch.setattr(mcp_mount, "_attached", mcp_mount._attached)
+        for value in ("true", ""):
+            settings_override(OAUTH_ENABLED=value)
+            assert mcp_mount.attach(FastAPI())
+        assert seen == [True, False]

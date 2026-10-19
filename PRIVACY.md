@@ -42,7 +42,10 @@ The server holds an account and a household:
 - **Your account** — email address, display name, a bcrypt hash of your
   password (never the password), and the creation date.
 - **Access tokens** — stored as hashes, not as usable tokens. These are your
-  app sign-in and any personal API tokens you create for AI assistants.
+  app sign-in and any personal API tokens you create for AI assistants. If you
+  connect an assistant by signing in to it instead (where a server offers
+  that), the server also keeps the name the assistant gave and the address it
+  sent you back to, so the connection can be recognised and ended.
 - **Invites** — if someone invited you into their household, a record of who
   invited whom, so the household knows who has access. The code itself is
   stored hashed.
@@ -91,7 +94,8 @@ asked for:
 
 If you connect an AI assistant to the API with a personal token, that assistant
 sees whatever it asks for. That connection is yours to make and yours to revoke
-— delete the token and it stops working immediately.
+— delete the token and it stops working immediately. A connection you approved
+by signing in is the same, and changing your password ends every one of them.
 
 ## Paying for hosting
 

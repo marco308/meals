@@ -45,6 +45,10 @@ BLANK_IS_DEFAULT = [
     ("SIGNUP_RATE_LIMIT_PER_HOUR", "signup_rate_limit_per_hour"),
     ("EMAIL_VERIFICATION_TTL_HOURS", "email_verification_ttl_hours"),
     ("REAP_WARNING_DAYS", "reap_warning_days"),
+    ("OAUTH_ENABLED", "oauth_enabled"),
+    ("OAUTH_ACCESS_TOKEN_TTL_MINUTES", "oauth_access_token_ttl_minutes"),
+    ("OAUTH_REFRESH_TOKEN_TTL_DAYS", "oauth_refresh_token_ttl_days"),
+    ("OAUTH_CODE_TTL_SECONDS", "oauth_code_ttl_seconds"),
 ]
 
 # A real value for each, different from the default, so "blank falls back" and
@@ -59,6 +63,10 @@ SET_VALUES = {
     "SIGNUP_RATE_LIMIT_PER_HOUR": ("0", 0),
     "EMAIL_VERIFICATION_TTL_HOURS": ("12", 12),
     "REAP_WARNING_DAYS": ("30", 30),
+    "OAUTH_ENABLED": ("true", True),
+    "OAUTH_ACCESS_TOKEN_TTL_MINUTES": ("15", 15),
+    "OAUTH_REFRESH_TOKEN_TTL_DAYS": ("7", 7),
+    "OAUTH_CODE_TTL_SECONDS": ("60", 60),
 }
 
 
