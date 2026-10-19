@@ -17,6 +17,12 @@ Config (env):
     MEALS_API_TOKEN      stdio mode only: a personal API token from POST /auth/tokens
     MEALS_MCP_TRANSPORT  stdio (default) or http
     MEALS_MCP_HOST/PORT  http mode bind address (default 0.0.0.0:8000)
+    MEALS_MCP_OAUTH      http mode: set to 1 wherever the API has OAUTH_ENABLED
+                         (decision Q27), and /mcp answers a request without a
+                         valid token with a 401 pointing at the API's OAuth
+                         metadata, which is how a claude.ai connector learns to
+                         sign in. Still no credential of its own: the token is
+                         checked by asking the API who it belongs to.
 """
 
 import os
@@ -27,8 +33,11 @@ from typing import Any
 
 import httpx
 from mcp.server import MCPServer, ServerRequestContext
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from starlette.datastructures import Headers
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # Mirrors the <!-- playbook-version: N --> stamp in skill/SKILL.md (a test fails if
 # they drift, and the backend suite fails if the guidance changes without a bump).
@@ -1191,14 +1200,124 @@ def http_app_settings() -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------- OAuth (Q27)
+
+#: The one scope the API's authorization server issues (app/services/oauth.py).
+OAUTH_SCOPE = "meals"
+
+
+class ApiTokenVerifier(TokenVerifier):
+    """Asks the API whose token this is, by presenting it to `GET /auth/me`.
+
+    That is the whole check, and it is deliberately the API's rather than
+    ours: an OAuth access token and a personal API token are both just
+    credentials the API accepts, so both pass here unchanged, and this server
+    never learns anything it could misuse. The API is the authorization server
+    for exactly one resource, this one, and refuses to issue a token naming
+    any other, which is the audience binding (RFC 8707) the spec asks for.
+    A transport failure raises rather than answering None: an API that is down
+    must not tell every connected client to sign in again."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        async with httpx.AsyncClient(
+            base_url=os.environ.get("MEALS_API_URL", "http://localhost:8000"), timeout=10
+        ) as client:
+            response = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 401:
+            return None
+        response.raise_for_status()
+        return AccessToken(token=token, client_id="meals", scopes=[OAUTH_SCOPE], subject=str(response.json().get("id")))
+
+
+def _public_base(headers: Headers, scope: Scope) -> str:
+    """The origin the caller used, through Traefik or not: the same reading of
+    the forwarded headers as the API's `base_url`, so the 401 names the
+    metadata URL the API will actually answer on."""
+    scheme = (headers.get("x-forwarded-proto") or scope.get("scheme", "http")).split(",")[0].strip()
+    host = (headers.get("x-forwarded-host") or headers.get("host") or "localhost").split(",")[0].strip()
+    return f"{scheme}://{host}"
+
+
+class RequireCallerToken:
+    """ASGI wrapper: requests to the MCP endpoint need a token the API accepts.
+
+    Without one the answer is a real HTTP 401 with `WWW-Authenticate: Bearer
+    resource_metadata=...` (RFC 9728), which is what starts an MCP client's
+    OAuth flow; a tool-level "authentication failed" string never would. The
+    SDK has its own version of this, but it fixes the resource URL when the
+    app is built, and this one is served under whatever public origin the
+    request came in on, like `/skill`. Only the MCP path is guarded, so the
+    container's /healthz stays open to the load balancer."""
+
+    def __init__(self, app: ASGIApp, verifier: TokenVerifier, path: str) -> None:
+        self.app = app
+        self.verifier = verifier
+        self.path = path
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] != self.path or scope["method"] == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+        headers = Headers(scope=scope)
+        scheme, _, token = headers.get("authorization", "").partition(" ")
+        token = token.strip()
+        if scheme.lower() != "bearer" or not token:
+            await self._challenge(scope, receive, send, headers, None)
+            return
+        try:
+            verified = await self.verifier.verify_token(token)
+        except httpx.HTTPError:
+            response = JSONResponse(
+                {"error": "temporarily_unavailable", "error_description": "could not reach the API to check the token"},
+                status_code=503,
+            )
+            await response(scope, receive, send)
+            return
+        if verified is None:
+            await self._challenge(scope, receive, send, headers, "invalid_token")
+            return
+        await self.app(scope, receive, send)
+
+    async def _challenge(self, scope: Scope, receive: Receive, send: Send, headers: Headers, error: str | None) -> None:
+        metadata = f"{_public_base(headers, scope)}/.well-known/oauth-protected-resource{self.path}"
+        challenge = f'Bearer resource_metadata="{metadata}", scope="{OAUTH_SCOPE}"'
+        description = "sign in to connect, or send a personal API token as 'Authorization: Bearer <token>'"
+        if error is not None:
+            # RFC 6750 §3: a request that sent no credentials gets no error code.
+            description = "that token is invalid, expired or revoked; sign in again"
+            challenge += f', error="{error}", error_description="{description}"'
+        response = JSONResponse(
+            {"error": error or "invalid_request", "error_description": description},
+            status_code=401,
+            headers={"WWW-Authenticate": challenge},
+        )
+        await response(scope, receive, send)
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def http_app(*, streamable_http_path: str = "/mcp", require_token: bool | None = None) -> ASGIApp:
+    """The streamable-HTTP app exactly as it is deployed, in its own container
+    (main) or mounted in the API (app/mcp_mount.py). `require_token` defaults
+    to MEALS_MCP_OAUTH; the API passes its own OAUTH_ENABLED instead, so the
+    two can never disagree inside one process."""
+    app = mcp.streamable_http_app(streamable_http_path=streamable_http_path, **http_app_settings())
+    if require_token is None:
+        require_token = _env_flag("MEALS_MCP_OAUTH")
+    if require_token:
+        return RequireCallerToken(app, ApiTokenVerifier(), streamable_http_path)
+    return app
+
+
 def main() -> None:
     transport = os.environ.get("MEALS_MCP_TRANSPORT", "stdio")
     if transport == "http":
-        mcp.run(
-            transport="streamable-http",
-            port=int(os.environ.get("MEALS_MCP_PORT", "8000")),
-            **http_app_settings(),
-        )
+        import uvicorn
+
+        settings = http_app_settings()
+        uvicorn.run(http_app(), host=settings["host"], port=int(os.environ.get("MEALS_MCP_PORT", "8000")))
     else:
         mcp.run()
 

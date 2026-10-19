@@ -18,8 +18,11 @@ _bearer = HTTPBearer(auto_error=False)
 
 # Which `AuthToken.kind`s may stand in for a login. Deliberately an allow-list:
 # the table also holds password-reset tokens, and a new kind added later should
-# have to opt in rather than silently become a credential.
-AUTHENTICATING_KINDS = ("session", "api")
+# have to opt in rather than silently become a credential. "oauth" opted in
+# with Q27: the access tokens `routers/oauth.py` issues for the remote MCP.
+# Their refresh tokens ("oauth_refresh") did not and must never: one is only
+# ever traded at POST /oauth/token.
+AUTHENTICATING_KINDS = ("session", "api", "oauth")
 
 
 async def get_current_user(

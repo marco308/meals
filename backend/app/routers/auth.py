@@ -46,7 +46,7 @@ from app.schemas.auth import (
     TokenOut,
     UserOut,
 )
-from app.services import entitlements
+from app.services import entitlements, oauth
 from app.services.accounts import (
     WouldEmptyHousehold,
     delete_user,
@@ -432,7 +432,9 @@ async def change_password(
     code goes too, or an emailed code from before the change could undo it.
     Personal API tokens are separate credentials and deliberately survive:
     rotating a password shouldn't silently break every AI client. Revoke those
-    via DELETE /auth/tokens/{id}."""
+    via DELETE /auth/tokens/{id}. OAuth connections (an assistant connected
+    through the sign-in page, Q27) do not survive: each was approved by typing
+    this password, so whoever else knew it could have made one."""
     if not await verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="current password is incorrect")
     if payload.current_password == payload.new_password:
@@ -440,6 +442,7 @@ async def change_password(
     forgive_auth_attempt(request)  # current password checked out; not a brute-force attempt
     user.password_hash = await hash_password(payload.new_password)
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("session", "reset"))))
+    await oauth.revoke_grants(db, user_id=user.id)
     token = _session_token(user)
     db.add(token)
     await db.commit()
@@ -543,7 +546,7 @@ async def confirm_password_reset(
     Every existing session token is revoked, which is the point: if someone else
     knew the old password, this is what evicts them. Personal API tokens survive,
     matching `POST /auth/password` — rotating a password shouldn't silently break
-    every AI client."""
+    every AI client — and OAuth connections go, matching it too."""
     result = await db.execute(
         select(AuthToken).where(AuthToken.token_hash == hash_short_code(payload.code), AuthToken.kind == "reset")
     )
@@ -565,6 +568,7 @@ async def confirm_password_reset(
     user.password_hash = password_hash
     # Drop any other reset code and every session token, then issue one.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("reset", "session"))))
+    await oauth.revoke_grants(db, user_id=user.id)
     token = _session_token(user)
     db.add(token)
     await db.commit()
@@ -631,7 +635,8 @@ async def delete_account(
       added and meals they cooked stay, because those belong to the household
       rather than to the person; the records simply stop naming them.
 
-    Every token the account holds, session and API, stops working immediately.
+    Every token the account holds, session, API and OAuth, stops working
+    immediately.
     """
     if not await verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")

@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -175,7 +175,13 @@ class AuthToken(Base):
     """Opaque bearer tokens, stored hashed. kind='session' for app logins,
     kind='api' for the per-user PATs that AI clients use (decision Q7/Q15),
     kind='reset' for password-reset codes and kind='verify' for email
-    verification codes, neither of which is a credential (Q20, Q26)."""
+    verification codes, neither of which is a credential (Q20, Q26).
+
+    Since Q27, kind='oauth' for the access tokens an OAuth client is issued
+    for the remote MCP, which *are* credentials, and kind='oauth_refresh' for
+    the refresh tokens beside them, which are not: a refresh token is only
+    ever traded at `POST /oauth/token`, never presented as a bearer. Both hang
+    off an `OAuthGrant`, and revoking the grant takes both."""
 
     __tablename__ = "auth_tokens"
 
@@ -191,8 +197,50 @@ class AuthToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # The OAuth connection this token was issued under; null for every other
+    # kind. CASCADE so revoking a connection can never strand a live token,
+    # though `services/oauth.revoke_grants` deletes them explicitly first.
+    grant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("oauth_grants.id", ondelete="CASCADE", name="auth_tokens_grant_id_fkey"), default=None, index=True
+    )
 
     user: Mapped[User] = relationship(back_populates="tokens", lazy="selectin")
+
+
+class OAuthGrant(Base):
+    """One OAuth connection: a person approving one client, once (Q27).
+
+    Made on the consent screen, and it carries that authorization's code until
+    the code is traded: stored hashed like every other secret here, single-use
+    (`code_used_at`), and kept after use so a replayed code can be recognised
+    and the connection it opened revoked. The access and refresh tokens the
+    trade issues are `AuthToken` rows pointing back here.
+
+    A connection belongs to one user and nothing else: there is no household
+    column on purpose, because what the token can reach is decided where every
+    other credential's is, by `user.household_id` at request time. Moving
+    household moves the connection with the person, exactly as it moves their
+    API tokens."""
+
+    __tablename__ = "oauth_grants"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # A Client ID Metadata Document URL, or a self-describing id from
+    # `POST /oauth/register` (`services/oauth.py`), so it can be long.
+    client_id: Mapped[str] = mapped_column(Text)
+    # What the consent screen called the client, kept for whoever lists their
+    # connections later; never trusted for anything.
+    client_name: Mapped[str] = mapped_column(String(200))
+    redirect_uri: Mapped[str] = mapped_column(Text)
+    # The RFC 8707 resource the tokens are bound to: this server's /mcp.
+    resource: Mapped[str] = mapped_column(String(500))
+    scope: Mapped[str] = mapped_column(String(200))
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    code_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    code_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class HouseholdInvite(Base):

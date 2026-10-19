@@ -427,3 +427,44 @@ a commercial one.
   no household is reaped on a warning it did not get. Deletion is the same
   `delete_user` that `DELETE /auth/me` uses. Off unless the setting is given,
   like every number that could take something away on a self-hosted box.
+
+**Q27 — OAuth for the remote MCP: a minimal authorization server in the API**
+(2026-10-19, issue #8). claude.ai custom connectors sign people in with OAuth,
+and asking somebody to mint and paste an API token is a poor first step. The
+API becomes the authorization server for its own `/mcp` and nothing else; the
+MCP server stays a resource server with no credentials.
+
+- **Behind `OAUTH_ENABLED`, off by default.** Off, every `/oauth/*` and
+  `/.well-known/oauth-*` route 404s and `/mcp` answers as it always has. On,
+  `/mcp` without a token the API accepts is a real 401 naming the
+  protected-resource metadata, which is what starts a client's sign-in.
+  Personal API tokens work unchanged either way.
+- **Tokens are rows we already have.** An access token is `auth_tokens.kind =
+  "oauth"`, the one kind added to `AUTHENTICATING_KINDS`, so it is read by the
+  same code path as an API token and reaches exactly what one does, including
+  `household_id` scoping and the rule that it cannot mint another credential.
+  A refresh token is `kind="oauth_refresh"` and is never a bearer. The code
+  lives on the `oauth_grants` row (one per approval) and never in
+  `auth_tokens`. Opaque throughout: no JWTs, no signing keys.
+- **Client ID Metadata Documents first, registration second, and neither
+  stores a client.** The MCP spec now prefers the document (the `client_id`
+  is an HTTPS URL to the client's own metadata), and claude.ai's
+  "Use Claude's published identity" is exactly that. It is fetched under
+  recipe ingestion's public-address guard and cached for its own max-age.
+  Dynamic registration is kept for older clients, but open registration
+  vouches for nothing, so the registration is encoded into the client id
+  rather than written to a table that would need a cap and an expiry. The
+  consent screen says only what is checked: the host that served a document,
+  and for everybody where the code will be sent.
+- **The footguns are refused, one test each**: exact redirect URIs (only a
+  loopback port may vary, RFC 8252), S256 only, codes single-use and two
+  minutes long with a replay revoking what the code opened, explicit consent
+  with the password every time (which also makes the form CSRF-proof), and
+  every token bound to this server's `/mcp` (RFC 8707). `/oauth/authorize`
+  and `/oauth/token` charge the auth rate limit; a success is refunded,
+  because a client's servers exchange codes for everybody who connects
+  through them.
+- **Revocation follows the password.** Changing or resetting it ends every
+  OAuth connection (each was approved by typing it), deleting the account ends
+  them with everything else, and a client can disconnect itself at
+  `/oauth/revoke`. API tokens still survive a password change, as before.

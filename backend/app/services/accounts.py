@@ -24,6 +24,7 @@ from app.models import (
     HouseholdInvite,
     Ingredient,
     Meal,
+    OAuthGrant,
     Plan,
     Recipe,
     ShoppingList,
@@ -206,6 +207,8 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
         await db.flush()
     members = select(User.id).where(User.household_id == household_id)
     await db.execute(update(Household).where(Household.billing_user_id.in_(members)).values(billing_user_id=None))
+    await db.execute(delete(AuthToken).where(AuthToken.user_id.in_(members)))
+    await db.execute(delete(OAuthGrant).where(OAuthGrant.user_id.in_(members)))
     await db.execute(delete(User).where(User.household_id == household_id))
     await db.execute(delete(Household).where(Household.id == household_id))
 
@@ -242,8 +245,10 @@ async def delete_user(db: AsyncSession, user: User) -> bool:
     # cannot open a portal. `DELETE /auth/me` refuses while it would still
     # charge them, so what is left behind here has stopped renewing.
     await db.execute(update(Household).where(Household.billing_user_id == user.id).values(billing_user_id=None))
-    # Session and API tokens cascade from the user row, but be explicit: this is
-    # the one part where leaving a stale credential behind would matter.
+    # Session, API and OAuth tokens cascade from the user row, and OAuth
+    # connections with them, but be explicit: this is the one part where
+    # leaving a stale credential behind would matter.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))
+    await db.execute(delete(OAuthGrant).where(OAuthGrant.user_id == user.id))
     await db.delete(user)
     return False

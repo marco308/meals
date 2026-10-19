@@ -16,7 +16,8 @@ loopback call inside one process.
 
 Settings: MCP_ENABLED=false removes the route entirely; MCP_API_URL is the
 base URL the embedded server calls back on (default http://127.0.0.1:8000,
-which is right whenever uvicorn serves this app on the container's port).
+which is right whenever uvicorn serves this app on the container's port);
+OAUTH_ENABLED makes the route require a token (`routers/oauth.py`).
 """
 
 import contextlib
@@ -82,10 +83,10 @@ def attach(app: FastAPI) -> bool:
     # unless the operator has said otherwise.
     os.environ.setdefault("MEALS_API_URL", settings.mcp_api_url)
 
-    asgi = mcp_server.mcp.streamable_http_app(
-        streamable_http_path=MCP_PATH,
-        **mcp_server.http_app_settings(),
-    )
+    # With OAuth on, a request without a token the API accepts gets the 401
+    # that starts a client's sign-in (decision Q27). Our own setting decides,
+    # rather than MEALS_MCP_OAUTH, so this process can't disagree with itself.
+    asgi = mcp_server.http_app(streamable_http_path=MCP_PATH, require_token=settings.oauth_enabled)
     app.router.routes.append(Route(MCP_PATH, endpoint=_MountedMcp(asgi, MCP_PATH), methods=MCP_METHODS))
     _attached = True
     return True

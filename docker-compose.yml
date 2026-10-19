@@ -43,6 +43,9 @@ services:
       # auth rate limit sees one client: the proxy. uvicorn reads it itself;
       # see README, "Behind a reverse proxy".
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # OAuth sign-in for /mcp (README, "Signing in instead of pasting a
+      # token"). Blank is off; the mcp service below follows the same variable.
+      OAUTH_ENABLED: ${OAUTH_ENABLED:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -78,6 +81,7 @@ services:
     build: ./mcp
     environment:
       MEALS_API_URL: http://api:8000
+      MEALS_MCP_OAUTH: ${OAUTH_ENABLED:-}
     ports:
       - "8100:8000"
     depends_on:
