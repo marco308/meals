@@ -146,3 +146,17 @@ class TestFingerprint:
 )
 def test_spoken_text(text, spoken):
     assert spoken_text(text) == spoken
+
+
+def test_a_word_shared_with_a_product_of_it_names_the_food():
+    steps = matched_steps("Return the chicken to the pan.", _lines("chicken thigh", "chicken stock"))
+    assert _names(steps[0]) == ["chicken thigh"]
+
+
+def test_two_products_of_one_food_leave_it_unmatched():
+    steps = matched_steps("Add the coconut.", _lines("coconut milk", "coconut oil"))
+    assert _names(steps[0]) == []
+
+
+def test_a_sentence_ending_in_a_unit_keeps_its_full_stop():
+    assert spoken_text("Fry for 5 mins. Add the garlic.") == "Fry for 5 minutes. Add the garlic."

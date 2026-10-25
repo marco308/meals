@@ -96,6 +96,15 @@ _DESCRIPTORS = frozenset(
     """.split()  # noqa: SIM905 - a word list reads better as words
 )
 
+# Last words that make a name a product of its first: chicken stock is made
+# from chicken but is not "the chicken" a step means.
+_PRODUCTS = frozenset(
+    """
+    stock broth gravy sauce paste puree purée ketchup powder flakes granules cube
+    oil vinegar juice zest extract essence milk cream water seeds
+    """.split()  # noqa: SIM905 - a word list reads better as words
+)
+
 _WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
 
 
@@ -128,7 +137,9 @@ def _words(text: str) -> list[str]:
 def _aliases(lines: list[Line]) -> dict[tuple[str, ...], uuid.UUID]:
     """Each food's full name, and every word of it that names that food and
     no other in this recipe: "olive oil" is also "oil" unless there is a
-    second oil, and "red onion" is "onion" but never "red"."""
+    second oil, and "red onion" is "onion" but never "red". A word shared
+    with something made from it still names the food itself: "chicken" is the
+    chicken thigh, not the chicken stock."""
     foods: dict[uuid.UUID, tuple[str, ...]] = {}
     for line in lines:
         foods.setdefault(line.ingredient_id, tuple(_words(line.name)))
@@ -140,7 +151,13 @@ def _aliases(lines: list[Line]) -> dict[tuple[str, ...], uuid.UUID]:
         for word in words:
             owners.setdefault(word, set()).add(ingredient_id)
     for word, ids in owners.items():
-        if len(ids) == 1 and word not in _DESCRIPTORS and len(word) > 2:
+        if word in _DESCRIPTORS or len(word) <= 2:
+            continue
+        if len(ids) > 1:
+            # Shared by several: it still means the one that isn't a product
+            # made from it, when there is exactly one of those.
+            ids = {i for i in ids if foods[i][-1] == word or foods[i][-1] not in _PRODUCTS}
+        if len(ids) == 1:
             aliases.setdefault((word,), next(iter(ids)))
     return aliases
 
@@ -255,7 +272,7 @@ _NUMBER = r"\d+(?:[.,]\d+)?"
 _FRACTIONS = "|".join(re.escape(f) for f in _FRACTION_WORDS)
 _UNITS = "|".join(sorted(_UNIT_WORDS, key=len, reverse=True))
 # A unit abbreviation's own full stop goes with it, but not a sentence's.
-_UNIT = rf"({_UNITS})\b(?:\.(?=\s+[a-z]))?"
+_UNIT = rf"({_UNITS})\b(?:\.(?=\s+(?-i:[a-z])))?"
 _MIXED_AMOUNT = re.compile(rf"\b(\d+)\s+({_FRACTIONS})\s*{_UNIT}", re.IGNORECASE)
 _FRACTION_AMOUNT = re.compile(rf"(?<![\d/])({_FRACTIONS})\s*{_UNIT}", re.IGNORECASE)
 _AMOUNT = re.compile(rf"\b({_NUMBER})\s*{_UNIT}", re.IGNORECASE)

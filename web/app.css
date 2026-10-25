@@ -668,6 +668,98 @@ fieldset.slot-picker legend { padding: 0; width: 100%; }
 
 .meta-chips { display: flex; gap: .45rem; flex-wrap: wrap; margin: .6rem 0 0; }
 
+/* ── cook mode ──────────────────────────────────────────────────────── */
+/* One step big, its ingredients pinned beside it, the rest dimmed below.
+   Sized to be read from arm's length at the hob. */
+
+.cook .page-head h1 .of { color: var(--ink-mute); font-weight: 700; font-size: .6em; }
+.cook-voice { align-items: center; }
+.cook-voice select { width: auto; max-width: 14rem; }
+.cook-main { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
+.cook-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 1.2rem;
+  align-items: start;
+  margin-bottom: 1.2rem;
+}
+@media (max-width: 860px) {
+  /* One column on a phone: the step, what it uses, then the rest. */
+  .cook-grid { grid-template-columns: 1fr; }
+  .cook-main { display: contents; }
+  .cook-now { order: 1; padding: 1.2rem; }
+  .cook-side { order: 2; }
+  .cook-steps { order: 3; }
+}
+.cook-now { padding: 1.6rem 1.8rem; }
+.cook-section {
+  margin: 0 0 .5rem;
+  font-family: var(--display);
+  font-weight: 800;
+  color: var(--tomato);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: .8rem;
+}
+.cook-text {
+  margin: 0 0 1.4rem;
+  font-family: var(--display);
+  font-size: clamp(1.35rem, 1rem + 1.4vw, 2rem);
+  line-height: 1.35;
+  font-weight: 600;
+}
+.cook-nav { display: flex; gap: .6rem; flex-wrap: wrap; }
+.cook-nav .btn { font-size: 1rem; padding: .7rem 1.2rem; }
+.cook-nav [data-next] { margin-left: auto; }
+.cook-keys { margin: .9rem 0 0; font-size: .78rem; }
+@media (hover: none) { .cook-keys { display: none; } }
+.cook-side { display: flex; flex-direction: column; gap: 1rem; }
+.cook-side h2 { font-size: 1rem; margin-bottom: .5rem; }
+.cook-pinned { border: 2px solid var(--leek); background: var(--tint-green); }
+.cook-ings { list-style: none; margin: 0; padding: 0; }
+.cook-ings li {
+  display: flex;
+  gap: .7rem;
+  align-items: baseline;
+  padding: .4rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+.cook-ings li:last-child { border-bottom: 0; }
+.cook-ings .amt {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 5rem;
+  text-align: right;
+  flex: none;
+}
+.cook-pinned .cook-ings li { font-size: 1.15rem; font-weight: 600; }
+.cook-pinned .cook-ings .amt { color: var(--leek); }
+.cook-ings.dim li { color: var(--ink-mute); font-size: .9rem; }
+.cook-ings.dim li.used { text-decoration: line-through; opacity: .6; }
+.cook-ings.dim .amt { font-size: .8rem; }
+.cook-assistant .sub { margin: 0 0 .7rem; font-size: .85rem; }
+.cook-source { margin: 0; font-size: .85rem; }
+.cook-prompt { width: 100%; min-height: 7rem; margin-top: .6rem; font: inherit; font-size: .82rem; }
+.cook-steps { list-style: none; margin: 0; padding: .4rem; }
+.cook-step {
+  display: flex;
+  gap: .8rem;
+  align-items: baseline;
+  width: 100%;
+  padding: .6rem .7rem;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cook-step:hover, .cook-step:focus-visible { background: var(--cream-2); }
+.cook-step .num { font-family: var(--display); font-weight: 800; color: var(--tomato); min-width: 1.6rem; flex: none; }
+.cook-steps li.done .cook-step { color: var(--ink-mute); }
+.cook-steps li.now .cook-step { background: var(--tint-butter); font-weight: 600; }
+
 /* ── plain rows (meals, ingredients, settings tables) ───────────────── */
 
 .row-list { list-style: none; margin: 0; padding: 0; }

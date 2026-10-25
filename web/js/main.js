@@ -3,6 +3,7 @@
 
 import { api, session } from "./api.js";
 import { html, render, toast } from "./dom.js";
+import { renderCookMode } from "./views/cook.js";
 import { renderFreezer } from "./views/freezer.js";
 import { renderIngredients } from "./views/ingredients.js";
 import { renderLogin } from "./views/login.js";
@@ -32,6 +33,7 @@ const ROUTES = [
   [/^#\/recipes\/new$/, (root) => renderRecipeEditor(root, null), "New recipe"],
   [/^#\/recipes\/([0-9a-f-]+)$/, (root, m) => renderRecipeDetail(root, m[1]), "Recipe"],
   [/^#\/recipes\/([0-9a-f-]+)\/edit$/, (root, m) => renderRecipeEditor(root, m[1]), "Edit recipe"],
+  [/^#\/recipes\/([0-9a-f-]+)\/cook$/, (root, m) => renderCookMode(root, m[1]), "Cook"],
   [/^#\/meals$/, (root) => renderMeals(root), "Meals"],
   [/^#\/meals\/new$/, (root) => renderMealEditor(root, null), "New meal"],
   [/^#\/meals\/([0-9a-f-]+)$/, (root, m) => renderMealDetail(root, m[1]), "Meal"],
