@@ -154,6 +154,15 @@ _WORD_AMOUNT_RE = re.compile(
     rf"^(?P<word>{'|'.join(_WORD_AMOUNTS)})\s+(?!(?:{_VAGUE_AFTER_WORD_AMOUNT})\b)(?=\S)",
     re.IGNORECASE,
 )
+# "juice of 1 lemon", "zest and juice 1 lemon", "finely grated zest of an
+# orange": the shop is the fruit, so the lead-in goes and the line reads as
+# "1 lemon". Only when an amount follows, so "juice 500ml" or a name that
+# merely starts with "juice" is left alone.
+_JUICE_OR_ZEST_OF_RE = re.compile(
+    r"^(?:(?:finely\s+)?(?:grated\s+)?zest|juice)(?:\s+(?:and|&)\s+(?:(?:finely\s+)?(?:grated\s+)?zest|juice))?"
+    r"\s+(?:of\s+)?(?=(?:\d|[½⅓⅔¼¾]|(?:a|an|one|two|three)\s))",
+    re.IGNORECASE,
+)
 # "2 x tins tomatoes", "2 x large onions": the 'x' multiplies nothing, so it
 # goes, and the line reads as "2 tins tomatoes".
 _BARE_TIMES_RE = re.compile(r"^(?P<count>\d+)\s*x\s+(?=[a-z])", re.IGNORECASE)
@@ -189,6 +198,7 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
     raw = html.unescape(raw)[:_MAX_LINE_CHARS]
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
+    cleaned = _JUICE_OR_ZEST_OF_RE.sub("", cleaned, count=1)
     cleaned = _WORD_AMOUNT_RE.sub(lambda m: _WORD_AMOUNTS[m.group("word").lower()] + " ", cleaned, count=1)
     cleaned = _BARE_TIMES_RE.sub(r"\g<count> ", cleaned, count=1)
     cleaned = _SIZED_PIECE_RE.sub(r"\g<count> ", cleaned, count=1)
@@ -204,7 +214,7 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
             quantity, unit = _convert_unit(inner_qty * count, unit_token)
             # "2 x 400g tins chopped tomatoes": drop the container word, the
             # metric amount already carries the quantity
-            rest = re.sub(rf"^(?:{_CONTAINER})\s+(?:of\s+)?", "", rest, flags=re.IGNORECASE)
+            rest = _drop_container(rest)
             return ParsedIngredient(raw=raw, name=_clean_name(rest), quantity=quantity, unit=unit)
         # "2 x 1 large onion", "4 x 150 salmon fillets": the inner number is a
         # count in one and a weight with its unit left off in the other, and
@@ -236,6 +246,8 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
         unit_token = (match.group("unit") or "").lower()
         rest = match.group("rest")
         if quantity is not None:
+            if unit_token in METRIC_UNITS or unit_token in INGEST_CONVERSIONS:
+                rest = _drop_container(rest)
             name = _clean_name(rest)
             if unit_token:
                 quantity, unit = _convert_unit(quantity, unit_token)
@@ -251,6 +263,15 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
         return ParsedIngredient(raw=raw, name=_clean_name(glued.group("rest")), quantity=quantity, unit=unit)
 
     return ParsedIngredient(raw=raw, name=_clean_name(cleaned), quantity=None, unit=None)
+
+
+def _drop_container(rest: str) -> str:
+    """'tins chopped tomatoes' → 'chopped tomatoes', once a weight or volume
+    already says how much. BBC Good Food writes "400g can chopped tomatoes"
+    on nearly every tin, and the can used to become part of the food: "can
+    chopped tomato", which never merged with the tin bought as "chopped
+    tomatoes"."""
+    return re.sub(rf"^(?:{_CONTAINER})\s+(?:of\s+)?", "", rest, flags=re.IGNORECASE)
 
 
 def _convert_unit(quantity: float, unit_token: str) -> tuple[float, str]:
@@ -291,12 +312,50 @@ def _lift_trailing_unit(name: str) -> tuple[str, str | None]:
 # Comma segments that are only preparation, never a food: the lead-in of
 # "cooked, peeled king prawns". Q21's modifier vocabulary plus the states a
 # recipe writes before the food but nobody ever shops for on their own.
-_PREP_ONLY_WORDS = MODIFIERS | {"and", "then", "cooked", "raw", "defrosted", "thawed", "boiled", "toasted", "cooled"}
+# The juice/zest/seed words are prep a recipe asks of a fruit or a chilli you
+# still buy whole: "1 lemon, zested and juiced" is one lemon.
+_PREP_ONLY_WORDS = MODIFIERS | {
+    "and",
+    "then",
+    "cooked",
+    "raw",
+    "defrosted",
+    "thawed",
+    "boiled",
+    "toasted",
+    "cooled",
+    "juiced",
+    "zested",
+    "deseeded",
+    "cored",
+    "crumbled",
+    "mashed",
+}
 
 
 def _is_prep_segment(segment: str) -> bool:
     words = [word.strip("()") for word in segment.lower().split()]
     return bool(words) and all(word in _PREP_ONLY_WORDS for word in words)
+
+
+def _drop_trailing_prep(name: str) -> str:
+    """'orange juiced' → 'orange', 'red chilli deseeded and finely chopped' →
+    'red chilli'.
+
+    BBC Good Food's JSON-LD drops the comma between the food and its prep on
+    every line ("2 garlic cloves crushed"), so the comma rule never saw the
+    prep and words the canonical name doesn't fold ("juiced") reached the
+    catalogue as part of the food. Worse, a trailing "crushed" hid "cloves"
+    from `_lift_trailing_unit`, so the garlic was counted in items and never
+    shared a list line with garlic counted in cloves. Only a trailing run is
+    dropped, never the last word of the food itself, and "toasted sesame oil"
+    keeps its leading "toasted" because it leads.
+    """
+    words = name.split()
+    end = len(words)
+    while end > 1 and words[end - 1].lower() in _PREP_ONLY_WORDS:
+        end -= 1
+    return " ".join(words[:end]) if end < len(words) else name
 
 
 def _clean_name(name: str) -> str:
@@ -313,4 +372,4 @@ def _clean_name(name: str) -> str:
     # words — not blindly the first one.
     segments = [segment.strip() for segment in name.split(",")]
     name = next((segment for segment in segments if segment and not _is_prep_segment(segment)), segments[0])
-    return " ".join(name.split()).lower().strip(" .")
+    return _drop_trailing_prep(" ".join(name.split()).lower().strip(" ."))

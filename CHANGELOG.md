@@ -20,7 +20,14 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+### Fixed
+
+- Ingredient lines written the BBC Good Food way import as the food they name
+  (part of #208). "400g can chopped tomatoes" is no longer the food "can
+  chopped tomato", which never shared a list line with the tin. Prep after the
+  food with no comma ("1 orange juiced", "100g feta crumbled") leaves the name.
+  "2 garlic cloves crushed" is counted in cloves, not items. "Juice of 1
+  lemon" and "zest and juice 1 lemon" buy one lemon.
 
 ## 2026-10-25: the list re-sync runs on Postgres
 
