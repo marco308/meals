@@ -299,9 +299,7 @@ struct MealEditorView: View {
                 chosenSlots = Set(meal.allSlots)
                 selectedRecipes = Set(meal.recipes.map(\.id))
                 scales = Dictionary(uniqueKeysWithValues: meal.recipes.map { ($0.id, $0.scale ?? 1) })
-                looseLines = meal.looseIngredients.map {
-                    LooseLine(name: $0.name, quantity: $0.quantity, unit: $0.unit)
-                }
+                looseLines = meal.looseIngredients.map(\.editable)
             }
             baseline = snapshot
         }

@@ -161,6 +161,7 @@ def _recipe(recipe: Recipe) -> dict:
                 "name": line.ingredient.name,
                 "quantity": line.quantity,
                 "unit": line.unit,
+                "display_unit": line.display_unit,
                 "raw_text": line.raw_text,
                 "position": line.position,
             }
@@ -187,6 +188,7 @@ def _meal(meal: Meal) -> dict:
                 "name": link.ingredient.name,
                 "quantity": link.quantity,
                 "unit": link.unit,
+                "display_unit": link.display_unit,
             }
             for link in meal.ingredient_links
         ],

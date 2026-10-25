@@ -187,7 +187,23 @@ final class ShoppingListStore {
 
     var sections: [(aisle: String, label: String, items: [ListItem])] { grouped(displayItems) }
 
-    var stapleCheckSections: [(aisle: String, label: String, items: [ListItem])] { grouped(stapleCheckItems) }
+    /// The staples check's rows: one per staple, in list order.
+    var stapleCheckEntries: [StapleCheckEntry] {
+        var order: [UUID] = []
+        var lines: [UUID: [ListItem]] = [:]
+        for item in stapleCheckItems {
+            if lines[item.ingredientId] == nil { order.append(item.ingredientId) }
+            lines[item.ingredientId, default: []].append(item)
+        }
+        return order.map { StapleCheckEntry(items: lines[$0]!) }
+    }
+
+    var stapleCheckSections: [(aisle: String, label: String, entries: [StapleCheckEntry])] {
+        grouped(stapleCheckItems).map { section in
+            let ids = Set(section.items.map(\.ingredientId))
+            return (section.aisle, section.label, stapleCheckEntries.filter { ids.contains($0.id) })
+        }
+    }
 
     private func aisleSorted(_ items: [ListItem]) -> [ListItem] {
         let order = aisleOrder
@@ -312,6 +328,7 @@ final class ShoppingListStore {
         case "ml" where quantity >= 1000: return "\(trim(quantity / 1000)) l"
         case "g", "ml": return "\(trim(quantity)) \(unit)"
         case "item", "items": return "×\(trim(quantity))"
+        case "tsp", "tbsp": return "\(trim(quantity)) \(unit)"
         // don't double-pluralise units the user already typed as plural
         default: return "\(trim(quantity)) \(unit)\(quantity == 1 || unit.hasSuffix("s") ? "" : "s")"
         }
@@ -368,6 +385,13 @@ final class ShoppingListStore {
     /// "Have it after all" — the staple goes back to hidden.
     func unmarkStapleNeeded(_ item: ListItem) {
         enqueue(.setStapleNeeded(id: UUID(), itemID: item.id, value: false))
+    }
+
+    /// The staples check's tap: every line of the staple, so none is left behind.
+    func setStapleNeeded(_ entry: StapleCheckEntry, _ value: Bool) {
+        for item in entry.items where item.isNeededStaple != value {
+            enqueue(.setStapleNeeded(id: UUID(), itemID: item.id, value: value))
+        }
     }
 
     /// Excluded items with pending ops applied — for the "already have" view.

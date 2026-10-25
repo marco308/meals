@@ -81,6 +81,7 @@ class MealIngredient(Base):
     ingredient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ingredients.id"))
     quantity: Mapped[float | None] = mapped_column(Float, default=None)
     unit: Mapped[str | None] = mapped_column(String(50), default=None)
+    display_unit: Mapped[str | None] = mapped_column(String(10), default=None)  # "tsp" | "tbsp" (Q28)
 
     meal: Mapped[Meal] = relationship(back_populates="ingredient_links")
     ingredient: Mapped[Ingredient] = relationship(lazy="selectin")

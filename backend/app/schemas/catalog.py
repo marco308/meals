@@ -82,8 +82,9 @@ class RecipeLineOut(BaseModel):
     value_tier: str
     value_note: str | None
     quantity: float | None
-    unit: str | None
-    display: str
+    unit: str | None  # canonical: g, ml or a natural unit
+    display_unit: str | None = None  # "tsp"/"tbsp" when the line was written in spoons (Q28)
+    display: str  # for cooking: small volumes in spoons
     raw: str | None
 
 

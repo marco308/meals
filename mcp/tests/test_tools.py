@@ -121,6 +121,29 @@ class TestShoppingList:
         assert json.loads(patch.calls.last.request.content) == {"staple_needed": False}
 
     @respx.mock
+    async def test_need_staple_marks_every_line_of_the_staple(self):
+        grams = {
+            **_item("salt", "🌶️", "Herbs & spices", "9 g", is_staple=True),
+            "id": "a" * 8 + "-1111-1111-1111-111111111111",
+        }
+        taste = {
+            **_item("salt", "🌶️", "Herbs & spices", "", is_staple=True),
+            "id": "b" * 8 + "-1111-1111-1111-111111111111",
+        }
+        respx.get(f"{API}/shopping-list").mock(
+            return_value=httpx.Response(200, json={"items": [grams, taste], "hidden_staples": 0})
+        )
+        first = respx.patch(f"{API}/shopping-list/items/{grams['id']}").mock(
+            return_value=httpx.Response(200, json=grams)
+        )
+        second = respx.patch(f"{API}/shopping-list/items/{taste['id']}").mock(
+            return_value=httpx.Response(200, json=taste)
+        )
+        result = await server.need_staple("salt")
+        assert "added to this shop's list" in result
+        assert first.called and second.called
+
+    @respx.mock
     async def test_need_staple_rejects_non_staples(self):
         respx.get(f"{API}/shopping-list").mock(
             return_value=httpx.Response(

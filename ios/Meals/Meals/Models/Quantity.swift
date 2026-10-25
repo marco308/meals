@@ -8,8 +8,9 @@ import Foundation
 /// still be typed, sent and displayed.
 enum MealsUnits {
     /// Metric first (canonical g/ml, plus the kg/l the API converts for us),
-    /// then the natural counts people actually shop in.
-    static let common = ["g", "kg", "ml", "l", "item", "tin", "pack", "clove", "bunch", "slice", "jar", "bottle"]
+    /// then spoons (stored as ml and shown back as spoons, Q28), then the
+    /// natural counts people actually shop in.
+    static let common = ["g", "kg", "ml", "l", "tsp", "tbsp", "item", "tin", "pack", "clove", "bunch", "slice", "jar", "bottle"]
 
     /// Units the API rejects, with the conversion it will quote back. Checked
     /// as the user types so the correction arrives at the field rather than
@@ -21,12 +22,6 @@ enum MealsUnits {
     /// iOS job in CI, so `backend/tests/unit/test_ios_units.py` keeps the two
     /// in step from the side that does run.
     static let rejected: [String: String] = [
-        "tsp": "1 tsp = 5 ml",
-        "teaspoon": "1 tsp = 5 ml",
-        "teaspoons": "1 tsp = 5 ml",
-        "tbsp": "1 tbsp = 15 ml",
-        "tablespoon": "1 tbsp = 15 ml",
-        "tablespoons": "1 tbsp = 15 ml",
         "cup": "1 cup = 240 ml",
         "cups": "1 cup = 240 ml",
         "oz": "1 oz = 28 g",
@@ -49,6 +44,9 @@ enum MealsUnits {
     /// refused every stick, which was stricter than the server but never
     /// queued anything it would drop.
     static let butterStick = "1 stick of butter = 113 g"
+
+    /// What a spoon holds; the server stores spoons as ml at these (Q28).
+    static let spoonML: [String: Double] = ["tsp": 5, "tbsp": 15]
 
     /// nil when the unit is fine; otherwise the conversion to show.
     ///

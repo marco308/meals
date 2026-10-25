@@ -305,3 +305,18 @@ def test_html_entities_fold_onto_the_plain_spelling(written):
     """#170: an escaped JSON-LD page, or an AI that copied one, must not make a
     second mustard; and rows already stored that way are found as duplicates."""
     assert canonical_ingredient_name(written) == "dijon mustard"
+
+
+@pytest.mark.parametrize(
+    "written,canonical",
+    [
+        ("extra-virgin olive oil", "extra virgin olive oil"),
+        ("extra virgin olive oil", "extra virgin olive oil"),
+        ("self-raising flour", "self raising flour"),
+        ("whole-grain mustard", "whole grain mustard"),
+        ("good-quality olive oil", "olive oil"),  # the modifier still goes, as one word
+    ],
+)
+def test_hyphens_and_spaces_are_one_spelling(written, canonical):
+    """Q28: a hyphen was enough to file one oil twice."""
+    assert canonical_ingredient_name(written) == canonical

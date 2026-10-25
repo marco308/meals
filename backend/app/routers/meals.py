@@ -92,7 +92,15 @@ async def _set_loose_ingredients(
         await db.delete(link)
     for line in lines:
         ingredient = await get_or_create_ingredient(db, household_id, line.name)
-        db.add(MealIngredient(meal_id=meal.id, ingredient_id=ingredient.id, quantity=line.quantity, unit=line.unit))
+        db.add(
+            MealIngredient(
+                meal_id=meal.id,
+                ingredient_id=ingredient.id,
+                quantity=line.quantity,
+                unit=line.unit,
+                display_unit=line.display_unit,
+            )
+        )
     await db.flush()
 
 

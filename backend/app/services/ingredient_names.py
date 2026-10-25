@@ -253,7 +253,14 @@ def canonical_ingredient_name(name: str) -> str:
     "3 garlic cloves" has already become "garlic cloves" by the time it gets
     here; this turns it into "garlic". A form noun is never stripped when it
     is all there is: "cloves" on its own is the spice, and folds to "clove".
-    """
+
+    Hyphens become spaces last of all, so "extra-virgin olive oil" and "extra
+    virgin olive oil" are one food however a page spelled it, while a hyphenated
+    modifier ("good-quality") is still recognised as one word on the way."""
+    return " ".join(_fold_name(name).replace("-", " ").split())
+
+
+def _fold_name(name: str) -> str:
     # An HTML entity is never part of a food (#170): a page that escaped its
     # JSON-LD, or an AI that copied one, must fold onto the plain spelling.
     cleaned = " ".join(html.unescape(name).lower().split()).strip(" .")

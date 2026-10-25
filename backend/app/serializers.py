@@ -8,7 +8,7 @@ from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, Superm
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
 from app.services.scaling import scaled_servings
 from app.services.slots import meal_slots
-from app.services.units import format_buy_quantity, format_quantity
+from app.services.units import format_buy_quantity, format_cooking_quantity
 from app.services.values import value_tier_label
 
 _AISLE_LABELS = dict(AISLES)
@@ -31,7 +31,9 @@ def ingredient_out(ingredient: Ingredient) -> IngredientOut:
     )
 
 
-def _line_out(ingredient: Ingredient, quantity: float | None, unit: str | None, raw: str | None) -> RecipeLineOut:
+def _line_out(
+    ingredient: Ingredient, quantity: float | None, unit: str | None, display_unit: str | None, raw: str | None
+) -> RecipeLineOut:
     return RecipeLineOut(
         ingredient_id=ingredient.id,
         name=ingredient.name,
@@ -41,7 +43,8 @@ def _line_out(ingredient: Ingredient, quantity: float | None, unit: str | None, 
         value_note=ingredient.value_note,
         quantity=quantity,
         unit=unit,
-        display=format_quantity(quantity, unit),
+        display_unit=display_unit,
+        display=format_cooking_quantity(quantity, unit, display_unit),
         raw=raw,
     )
 
@@ -64,7 +67,8 @@ def recipe_out(recipe: Recipe) -> RecipeOut:
         times_cooked=recipe.times_cooked,
         last_cooked_at=recipe.last_cooked_at,
         ingredients=[
-            _line_out(link.ingredient, link.quantity, link.unit, link.raw_text) for link in recipe.ingredient_links
+            _line_out(link.ingredient, link.quantity, link.unit, link.display_unit, link.raw_text)
+            for link in recipe.ingredient_links
         ],
     )
 
@@ -99,7 +103,8 @@ def meal_out(meal: Meal) -> MealOut:
             for link in meal.recipe_links
         ],
         loose_ingredients=[
-            _line_out(link.ingredient, link.quantity, link.unit, None) for link in meal.ingredient_links
+            _line_out(link.ingredient, link.quantity, link.unit, link.display_unit, None)
+            for link in meal.ingredient_links
         ],
         created_at=meal.created_at,
         times_cooked=meal.times_cooked,

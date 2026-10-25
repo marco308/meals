@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 21 -->
+<!-- playbook-version: 22 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v21, and this file is a snapshot** — once installed it never
+**This is playbook v22, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -23,13 +23,16 @@ conversation, and tell the user to replace their installed copy.
 1. **Plans are pools of options, not schedules.** Never assign meals to days.
    "This week: spag bol, cottage pie, stir-fry" is a complete plan.
 2. **Quantities follow a strict convention.** Everything you write is either
-   **metric** — g, kg, ml, l — or a **count of a natural unit** — "2 tins",
-   "3 cloves", "1 bunch", "4 items". Convert before writing:
-   - 1 tsp = 5 ml · 1 tbsp = 15 ml · 1 cup = 240 ml
-   - 1 oz = 28 g · 1 lb = 454 g · 1 UK pint = 568 ml
-   - 1 US quart = 946 ml · 1 US gallon = 3785 ml · 1 stick of butter = 113 g
-   - Never submit cups, oz, lb, tsp, tbsp, pints, quarts, gallons, or sticks
-     of butter. A stick of celery or cinnamon is a natural unit: "2 sticks".
+   **metric** — g, kg, ml, l — a **spoon** — tsp, tbsp — or a **count of a
+   natural unit** — "2 tins", "3 cloves", "1 bunch", "4 items".
+   - Send spoons as the recipe wrote them (`{"quantity": 0.5, "unit": "tsp"}`):
+     the server stores them as ml and shows them back as spoons for cooking.
+     Don't turn a spoon of salt into grams yourself.
+   - Convert everything else before writing: 1 cup = 240 ml · 1 oz = 28 g ·
+     1 lb = 454 g · 1 UK pint = 568 ml · 1 US quart = 946 ml ·
+     1 US gallon = 3785 ml · 1 stick of butter = 113 g
+   - Never submit cups, oz, lb, fl oz, pints, quarts, gallons, or sticks of
+     butter. A stick of celery or cinnamon is a natural unit: "2 sticks".
 3. **Parse once, reuse forever.** Always try `ingest_recipe(url)` first — the
    library may already have it, and most sites parse for free from JSON-LD.
 4. **The list explains itself.** When reading the shopping list back, keep the
@@ -110,6 +113,12 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   staples check: `get_shopping_list(include_staples=true)`, then
   `need_staple(name)` for anything the user is low on — just that staple
   joins the main list; the rest stay hidden. Undo with `needed=false`.
+- **One line per food, where it can be.** The list adds a spoon of something
+  to grams of it when it knows the food's weight per spoon (salt, pepper,
+  spices, oils, flour, sugar, butter, honey…) and shows the total in whatever
+  the food is sold by; a "to taste" line joins the food's line rather than
+  sitting beside it. A food it doesn't know stays on two lines (mint in g and
+  in ml), which is honest rather than a bug to fix with a merge.
 - **Premium vs budget.** Each ingredient carries the household's verdict on
   whether the posh version is worth it: ⭐ `premium`, 💷 `budget`, or `any`
   (no opinion, the default). It shows on the list beside the item, which is

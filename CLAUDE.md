@@ -47,7 +47,7 @@ is what keeps the API complete and the views consistent.
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
 | `integrations/` | Third-party glue that talks to the public API and ships nothing into the image. `node-red/` drains an Alexa shopping list into the list via `POST /shopping-list/items`. Published as a worked example, so it must stay free of anything host-specific — see its README before adding another |
 | `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
-| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q23, kept live. The rest is the original plan, kept as history, not a roadmap |
+| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q28, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
@@ -187,12 +187,18 @@ instrumentation a new feature usually needs.
   (`plan_meal_id` is `SET NULL` and `meal_name` is kept): a NULL
   `plan_meal_id` no longer means ad hoc, and `ad_hoc` is what says so. Never
   mutate `ListItem.quantity` — it's a derived property.
-- **Unit convention (Q2), enforced in `services/units.py`.** Everything is
-  metric (canonicalised to g/ml) or a count of a singularised natural unit
-  ("tin", "clove"). Imperial and spoon/cup units are rejected for API clients
-  with the exact conversion in the error; the backend's own JSON-LD ingestion
-  converts instead (`INGEST_CONVERSIONS`). Merging only ever happens on an
-  exact canonical-unit match. `units.py` is also the one list of unit words
+- **Unit convention (Q2, amended by Q28), enforced in `services/units.py`.**
+  Everything is stored metric (canonicalised to g/ml) or as a count of a
+  singularised natural unit ("tin", "clove"). Spoons are accepted and stored as
+  ml, with the spoon kept in `display_unit` for rendering only:
+  `format_cooking_quantity` shows recipe and meal lines in spoons, the
+  shopping list stays metric. Imperial and cup units are rejected for API
+  clients with the exact conversion in the error; the backend's own JSON-LD
+  ingestion converts instead (`INGEST_CONVERSIONS`). The list merges on an
+  exact canonical unit after `services/densities.py` has put each share in the
+  unit its food is bought in (salt in ml becomes g), and an amount-less share
+  joins the food's line (`shopping._find_item`). A food missing from the
+  density table keeps a line per dimension, by design. `units.py` is also the one list of unit words
   (`NATURAL_UNITS`, `CONTAINER_UNITS`, `UNIT_SYNONYMS`): the line parser
   (`services/ingredient_lines.py`) builds its regexes from them, so a new unit
   is one entry there, never a second list.

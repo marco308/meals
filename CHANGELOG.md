@@ -20,7 +20,53 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Nothing merged since the release below.
+Metric underneath, spoons on top (decision Q28). **Playbook v22.** One
+migration, additive (`display_unit` on recipe and meal lines, backfilled from
+each recipe line's own text). After deploying, run the one-off re-sync so
+the live list is rebuilt by the new merge rules:
+`.venv/bin/python -m app.resync_lists` to see what would change, then again
+with `--apply`.
+
+### Added
+
+- **Teaspoons and tablespoons are accepted** wherever a quantity is (`tsp`,
+  `tbsp` and their spellings). They are stored as ml (5 and 15) like any
+  volume, and the line remembers the spoon: `display_unit` on recipe lines and
+  a meal's loose lines. An assistant or the ingest parser that converted to ml
+  but kept the words ("1 tsp sea salt") gets the spoon remembered too.
+- **Recipe and meal lines read in spoons for cooking.** `display` shows small
+  volumes as spoons ("½ tsp", "2½ tsp", "1 tbsp + 2 tsp") rather than "2.5 ml";
+  past 60 ml it stays metric unless the recipe said spoons. Weights are never
+  shown as spoons.
+- **One shopping-list line per food where the food allows it.** A food with a
+  known density (salt, pepper, spices, oils, flour, sugar, butter, honey,
+  mustard and so on, `services/densities.py`) has every share converted into
+  the unit it is bought in before lines merge, so "salt 9 g" and "salt 25 ml"
+  are one line of 39 g. A share with no amount ("salt to taste") joins the
+  food's line instead of starting one, and an amount takes over a line that
+  had none.
+- `app.resync_lists`, an operator command that re-syncs live lists after the
+  merge rules change.
+
+### Changed
+
+- **Ingredient names fold hyphens to spaces**, so "extra-virgin olive oil" and
+  "extra virgin olive oil" are one food. Rows already stored with a hyphen show
+  up in `GET /ingredients/duplicates` to be merged.
+- **The staples check shows one row per staple, with no amount**, in the web
+  app and the MCP server's `need_staple`, which now marks every line of the
+  staple rather than refusing a name with two lines. iOS does the same from the
+  next build.
+- `tsp`/`tbsp` left the units the API refuses; cups, oz, lb, fl oz, pints,
+  quarts, gallons and sticks of butter are still refused with their conversion.
+
+### iOS (next build)
+
+- The staples check folds a staple's lines into one row with no amount;
+  marking it low marks every line.
+- The recipe and meal editors offer `tsp`/`tbsp`, and reopen a spoon line in
+  its spoons, so saving it unchanged keeps them. Builds before this one still
+  refuse spoons at the field (stricter than the server, so nothing is lost).
 
 ## 2026-10-25: stop trusting the leaked emSign CA
 

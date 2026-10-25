@@ -2,17 +2,20 @@ import math
 
 import pytest
 
+from app.services.densities import density_for, to_bought_unit
 from app.services.units import (
     CONTAINER_UNITS,
     NATURAL_UNITS,
     UnitNotAllowedError,
     format_buy_quantity,
+    format_cooking_quantity,
     format_quantity,
     normalize_quantity,
     normalize_unit,
     parse_number,
     pluralize,
     singularize,
+    spoon_hint,
 )
 
 
@@ -47,8 +50,6 @@ class TestNormalizeQuantity:
     @pytest.mark.parametrize(
         "unit,hint",
         [
-            ("tbsp", "15 ml"),
-            ("tsp", "5 ml"),
             ("cup", "240 ml"),
             ("oz", "28 g"),
             ("lb", "454 g"),
@@ -185,3 +186,87 @@ class TestSticks:
         assert IngredientLineIn(name="Celery", quantity=2, unit="sticks").unit == "stick"
         with pytest.raises(ValueError, match="113 g"):
             IngredientLineIn(name="Butter", quantity=2, unit="sticks")
+
+
+class TestSpoons:
+    """Q28: spoons are taken, stored as ml, and shown back for cooking."""
+
+    @pytest.mark.parametrize("unit,ml", [("tsp", 5), ("teaspoons", 5), ("tbsp", 15), ("Tablespoon", 15)])
+    def test_a_spoon_is_ml(self, unit, ml):
+        assert normalize_quantity(2, unit) == (2 * ml, "ml")
+
+    @pytest.mark.parametrize(
+        "unit,raw,expected",
+        [
+            ("tsp", None, "tsp"),
+            ("tablespoons", None, "tbsp"),
+            ("ml", "1 Tbsp olive oil", "tbsp"),
+            ("ml", "½ teaspoon salt", "tsp"),
+            ("ml", "15ml stock", None),
+            (None, None, None),
+        ],
+    )
+    def test_the_spoon_is_remembered_from_the_unit_or_the_line(self, unit, raw, expected):
+        assert spoon_hint(unit, raw) == expected
+
+    @pytest.mark.parametrize(
+        "ml,spoon,shown",
+        [
+            (1.25, None, "¼ tsp"),
+            (2.5, None, "½ tsp"),
+            (7.5, None, "1½ tsp"),
+            (12.5, None, "2½ tsp"),
+            (15, None, "1 tbsp"),
+            (20, None, "1 tbsp + 1 tsp"),
+            (22.5, None, "1½ tbsp"),
+            (25, None, "1 tbsp + 2 tsp"),
+            (60, None, "4 tbsp"),
+            (75, None, "75 ml"),
+            (75, "tbsp", "5 tbsp"),
+            (15, "tsp", "3 tsp"),
+            (3, None, "3 ml"),
+            (3, "tsp", "3 ml"),
+            (1500, None, "1.5 l"),
+        ],
+    )
+    def test_cooking_volumes_read_as_spoons(self, ml, spoon, shown):
+        assert format_cooking_quantity(ml, "ml", spoon) == shown
+
+    def test_weights_and_counts_are_never_spoons(self):
+        assert format_cooking_quantity(5, "g", "tsp") == "5 g"
+        assert format_cooking_quantity(2, "clove") == "2 cloves"
+        assert format_cooking_quantity(None, None) == ""
+
+
+class TestDensities:
+    @pytest.mark.parametrize(
+        "name,bought_in",
+        [
+            ("salt", "g"),
+            ("flaky sea salt", "g"),
+            ("ground black pepper", "g"),
+            ("chilli flakes", "g"),
+            ("extra-virgin olive oil", "ml"),
+            ("unsalted butter", "g"),
+            ("pure maple syrup", "ml"),
+            ("red wine vinegar", "ml"),
+        ],
+    )
+    def test_a_food_is_known_by_its_last_words(self, name, bought_in):
+        density = density_for(name)
+        assert density is not None and density.bought_in == bought_in
+
+    @pytest.mark.parametrize("name", ["green bell pepper", "mint", "fresh coriander", "garlic", ""])
+    def test_a_food_not_measured_both_ways_has_none(self, name):
+        assert density_for(name) is None
+
+    def test_peanut_butter_is_not_butter(self):
+        assert density_for("peanut butter") != density_for("butter")
+
+    def test_a_share_moves_into_the_unit_it_is_bought_in(self):
+        assert to_bought_unit("salt", 25, "ml") == (30, "g")
+        assert to_bought_unit("olive oil", 92, "g") == (100, "ml")
+        assert to_bought_unit("salt", 9, "g") == (9, "g")
+        assert to_bought_unit("mint", 45, "ml") == (45, "ml")
+        assert to_bought_unit("salt", None, None) == (None, None)
+        assert to_bought_unit("salt", 2, "pinch") == (2, "pinch")

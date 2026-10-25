@@ -15,6 +15,8 @@ No cups, oz, sticks of butter, etc. — the AI (or human) converts before writin
 
 *Amended (#187):* a stick is a natural unit when it is celery or cinnamon, and 113 g when it is butter, so the API refuses `stick` only for butter and the ingest parser converts butter sticks to grams. Every unit the API refuses has to have an ingest conversion (quart and gallon had none, and were stored as the food "quart stock"); a test holds the two lists together.
 
+> ⚠️ **AMENDED by Q28 (2026-10-25):** tsp and tbsp are accepted and stored as ml with the spoon remembered for display, and weight and volume shares merge where the ingredient has a density. Metric storage and "no imperial" stand.
+
 **Q3 — Manual (no-URL) recipes: yes, in v1.** Title + ingredients minimum; steps optional.
 
 **Q4 — Plans are weekly-ish entities.** A plan has a loose label/date-range ("w/c 20 July"), can be archived, and a new plan can be started by copying a previous one ("same as two weeks ago"). Still no per-day/per-meal scheduling inside a plan — just grouped options.
@@ -468,3 +470,49 @@ MCP server stays a resource server with no credentials.
   OAuth connection (each was approved by typing it), deleting the account ends
   them with everything else, and a client can disconnect itself at
   `/oauth/revoke`. API tokens still survive a password change, as before.
+
+**Q28 — Metric underneath, spoons on top** (2026-10-25). The staples check
+showed salt three times and black pepper three times: "to taste", 9 g and
+25 ml are all metric under Q2, but a weight and a volume can't be added, and
+an amount-less share started a line of its own. Meanwhile a cook measuring
+½ tsp of chilli flakes was handed "2.5 ml". Decisions:
+
+- **Storage stays metric, so every comparison stays metric.** Canonical
+  amounts are still g, ml or a count of a natural unit. Nothing that adds,
+  nets or merges ever reads anything else.
+- **Teaspoons and tablespoons are accepted on the way in, and remembered.**
+  `tsp`/`tbsp` (and their spellings) left `BANNED_UNITS`: they are stored as
+  ml at UK measures (5 ml and 15 ml), and the line keeps a nullable
+  `display_unit` ("tsp" or "tbsp") saying how it was written, taken from the
+  unit as sent or else from the line's raw text. Cups, oz, lb, pints, quarts
+  and sticks of butter are still refused with their conversion hint. **No
+  fluid ounces, in or out**: the UK and US ones differ, and metric plus spoons
+  is all anybody here measures with.
+- **One formatter, on the server.** A recipe line's or a meal's loose line's
+  `display` is the cooking form (`format_cooking_quantity`), and clients show
+  it rather than each reimplementing it. Spoons are used when the line says
+  so, or when an ml amount is 60 ml or less and lands on a quarter teaspoon:
+  teaspoons below a tablespoon or when the recipe said teaspoons, tablespoons
+  when they come out in halves, otherwise a tablespoon count plus teaspoons
+  ("1 tbsp + 2 tsp"), with ¼ ½ ¾ fractions. Anything else stays metric, and
+  weights are never shown as spoons. Editors reopen a spoon line in spoons, so
+  saving it unchanged doesn't turn it into ml.
+- **The shopping list stays metric** (or counts), because that is how things
+  are sold. The staples check shows one row per staple and no amount, with the
+  meals that need it; marking it low marks every line of it.
+- **Weight and volume merge only when the food says how.** A table in code
+  (`services/densities.py`, not a column a household edits) gives common foods
+  a density and the dimension they are bought in, matched on a name's last
+  words; every share of such a food is converted into that dimension before
+  lines merge. A food with no entry keeps two lines, as before: a duplicate
+  line is cheaper than a wrong total.
+- **An amount-less share joins the food's line** ("salt to taste" onto
+  "salt 9 g") and starts its own only when there is none; an amount takes over
+  a line that had none, and a line left with only amount-less shares loses its
+  unit again.
+- **Hyphens are spaces in an ingredient's name**, so "extra-virgin olive oil"
+  and "extra virgin olive oil" are one food.
+- **Existing lists are rebuilt by an operator command**, `app.resync_lists`,
+  run once after the release; recipes already stored had their spoon
+  backfilled from their raw text by the migration. The playbook is v22, so
+  assistants send spoons as written instead of converting them.

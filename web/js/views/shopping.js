@@ -274,8 +274,12 @@ function bind(root, list, markets) {
 // marked low joins the main list in its aisle (staple_needed); the rest stay
 // hidden from the shop. Staples appear here once something has ever put them
 // on the list — that's the server's model, and the skill's.
+//
+// One row per staple, however many lines it has (salt in grams and salt "to
+// taste" are still one thing to check), and no amount: whether you have it is
+// the whole question (Q28). Marking it low marks every line of it.
 function renderStaplesCheck(root, list) {
-  const staples = list.items.filter((i) => i.is_staple);
+  const staples = stapleRows(list.items.filter((i) => i.is_staple));
   const low = staples.filter((i) => i.staple_needed).length;
 
   render(root, html`
@@ -357,7 +361,9 @@ function renderStaplesCheck(root, list) {
     button.onclick = async () => {
       const needed = button.dataset.needed === "true";
       try {
-        await api(`/shopping-list/items/${button.dataset.low}`, { method: "PATCH", body: { staple_needed: !needed } });
+        for (const id of button.dataset.low.split(",")) {
+          await api(`/shopping-list/items/${id}`, { method: "PATCH", body: { staple_needed: !needed } });
+        }
         if (!needed) toast("On the list, in its aisle.", "ok");
         renderShopping(root);
       } catch (error) {
@@ -367,19 +373,40 @@ function renderStaplesCheck(root, list) {
   }
 }
 
+// A staple's lines folded into one row, in list order: low if any line is.
+function stapleRows(items) {
+  const rows = new Map();
+  for (const item of items) {
+    const row = rows.get(item.ingredient_id);
+    if (row) {
+      row.ids.push(item.id);
+      row.staple_needed ||= item.staple_needed;
+      row.meals.push(...item.sources.map((source) => source.meal_name).filter(Boolean));
+    } else {
+      rows.set(item.ingredient_id, {
+        ...item,
+        ids: [item.id],
+        meals: item.sources.map((source) => source.meal_name).filter(Boolean),
+      });
+    }
+  }
+  return [...rows.values()].map((row) => ({ ...row, meals: [...new Set(row.meals)].sort() }));
+}
+
 function stapleRow(item) {
+  const ids = item.ids.join(",");
   return html`
     <div class="shop-item">
-      <span class="qty">${item.display}</span>
       <div class="i-main">
         <span class="i-name">${item.name}</span>${valueBadge(item)}
+        ${item.meals.length > 0 && html`<div class="i-why">for ${item.meals.join(", ")}</div>`}
       </div>
       ${item.staple_needed
         ? html`
             <span class="chip butter">on the list</span>
-            <button class="icon-btn" data-low="${item.id}" data-needed="true">stocked after all</button>
+            <button class="icon-btn" data-low="${ids}" data-needed="true">stocked after all</button>
           `
-        : html`<button class="btn small" data-low="${item.id}" data-needed="false">Low — add it</button>`}
+        : html`<button class="btn small" data-low="${ids}" data-needed="false">Low — add it</button>`}
       <button class="icon-btn" data-unstaple="${item.ingredient_id}" data-name="${item.name}">not a staple</button>
     </div>
   `;

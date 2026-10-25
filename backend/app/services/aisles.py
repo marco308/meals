@@ -244,7 +244,7 @@ _KEYWORDS: dict[str, str] = {
     "lentils": "🍝",
     "flour": "🍝",
     "plain flour": "🍝",
-    "self-raising flour": "🍝",
+    "self raising flour": "🍝",  # canonical names fold hyphens to spaces
     "sugar": "🍝",
     "caster sugar": "🍝",
     "brown sugar": "🍝",
