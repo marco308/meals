@@ -318,8 +318,46 @@ struct Recipe: Codable, Identifiable, Equatable, Sendable {
     let ingredients: [RecipeLine]
     var timesCooked: Int? = nil
     var lastCookedAt: String? = nil
+    // Cook mode (Q29). Optional so an older server and an older cache still
+    // decode; a recipe without them simply has no Cook button.
+    var steps: [RecipeStep]? = nil
+    /// "matched" (found by name on the server) or "ai" (the household's
+    /// assistant wrote them). A plain string: a server vocabulary.
+    var stepsSource: String? = nil
+    var stepsOutdated: Bool? = nil
+    var stepsRequestedAt: String? = nil
 
     var cookedSummary: String? { CookedHistory.summary(times: timesCooked, lastCookedAt: lastCookedAt) }
+    var cookSteps: [RecipeStep] { steps ?? [] }
+    var stepsWrittenByAssistant: Bool { stepsSource == "ai" }
+}
+
+/// One step of a recipe's method, with the ingredients it uses (Q29).
+struct RecipeStep: Codable, Identifiable, Equatable, Sendable {
+    let number: Int
+    let section: String?
+    let text: String
+    /// The step as it should be read aloud: "200 grams", "half a teaspoon".
+    let spoken: String
+    let ingredients: [StepIngredient]
+
+    var id: Int { number }
+}
+
+struct StepIngredient: Codable, Identifiable, Equatable, Sendable {
+    let ingredientId: UUID
+    let name: String
+    /// How much this step uses; nil when it uses it again without more.
+    let amount: String?
+
+    var id: UUID { ingredientId }
+}
+
+/// The household's own assistant, as GET /household/assistant describes it.
+struct AssistantState: Codable, Equatable, Sendable {
+    let configured: Bool
+    let host: String?
+    let autoPrepare: Bool
 }
 
 struct IngestResponse: Codable, Sendable {

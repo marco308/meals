@@ -463,6 +463,21 @@ extension APIClient {
         try await send("GET", "/recipes/\(id.uuidString.lowercased())", as: Recipe.self)
     }
 
+    /// Ask the household's assistant to write this recipe's cook-mode steps
+    /// (Q29). A 409 says no assistant is set up, and how to set one up.
+    func askAssistantForSteps(recipeId: UUID) async throws -> Recipe {
+        try await send("POST", "/recipes/\(recipeId.uuidString.lowercased())/steps/ask", as: Recipe.self)
+    }
+
+    /// Nil on a server older than cook mode, which has no such endpoint.
+    func assistant() async throws -> AssistantState? {
+        do {
+            return try await send("GET", "/household/assistant", as: AssistantState.self)
+        } catch APIError.server(status: 404, detail: _) {
+            return nil
+        }
+    }
+
     /// 409 when a meal still uses the recipe — the detail names the way out.
     func deleteRecipe(id: UUID) async throws {
         try await raw("DELETE", "/recipes/\(id.uuidString.lowercased())")
