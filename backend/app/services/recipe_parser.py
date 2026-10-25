@@ -222,6 +222,17 @@ def _pin_transport_dial(transport: httpx.AsyncHTTPTransport, pins: dict[str, lis
     pool._network_backend = _PinnedDialBackend(inner, pins)
 
 
+async def public_transport(url: str) -> httpx.AsyncHTTPTransport:
+    """A transport that dials only the public addresses `url` resolves to, or
+    RecipeFetchError. For the other outbound call to an address somebody typed
+    in, a household's assistant webhook (services/assistant.py)."""
+    pins: dict[str, list[str]] = {}
+    await _validate_and_pin(pins, url)
+    transport = _fetch_transport()
+    _pin_transport_dial(transport, pins)
+    return transport
+
+
 def _too_big(url: str, limit: int) -> RecipeFetchError:
     megabytes = limit / (1024 * 1024)
     return RecipeFetchError(

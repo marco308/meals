@@ -48,6 +48,15 @@ class Recipe(Base):
     image_url: Mapped[str | None] = mapped_column(String(1000), default=None)
     instructions: Mapped[str | None] = mapped_column(Text, default=None)
     tags: Mapped[list] = mapped_column(JSON, default=list)
+    # Cook mode (Q29): steps an assistant wrote for this recipe, and the
+    # fingerprint of the method and ingredients they were written against.
+    # Stale once those change, and then the matched steps are served instead.
+    cook_steps: Mapped[list | None] = mapped_column(JSON, default=None)
+    cook_steps_fingerprint: Mapped[str | None] = mapped_column(String(32), default=None)
+    # When the household's assistant was last asked to write them
+    # (services/assistant.py): what the web app's "asked" state and the
+    # per-household rate limit are read from.
+    cook_steps_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     parse_source: Mapped[str] = mapped_column(String(20), default="manual")  # jsonld | ai | manual
     edited: Mapped[bool] = mapped_column(Boolean, default=False)
     # Denormalised read model over cooked_events (never incremented blindly —

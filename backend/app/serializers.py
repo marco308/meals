@@ -1,10 +1,18 @@
 """Model → response-schema conversion, including display strings and aisle labels."""
 
 from app.models import FreezerItem, Ingredient, ListItem, Meal, Plan, PlanMeal, Recipe, ShoppingList, Supermarket
-from app.schemas.catalog import IngredientOut, RecipeLineOut, RecipeOut, RecipeSummary
+from app.schemas.catalog import (
+    IngredientOut,
+    RecipeLineOut,
+    RecipeOut,
+    RecipeStepOut,
+    RecipeSummary,
+    StepIngredientOut,
+)
 from app.schemas.freezer import FreezerItemOut
 from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
+from app.services import cook_steps
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
 from app.services.scaling import scaled_servings
 from app.services.slots import meal_slots
@@ -49,6 +57,54 @@ def _line_out(
     )
 
 
+def _cook_lines(recipe: Recipe) -> list[cook_steps.Line]:
+    return [
+        cook_steps.Line(
+            link.ingredient_id,
+            link.ingredient.name,
+            format_cooking_quantity(link.quantity, link.unit, link.display_unit),
+        )
+        for link in recipe.ingredient_links
+    ]
+
+
+def recipe_fingerprint(recipe: Recipe) -> str:
+    return cook_steps.fingerprint(recipe.instructions, [link.ingredient_id for link in recipe.ingredient_links])
+
+
+def _steps_fields(recipe: Recipe) -> dict:
+    """Cook mode's half of a recipe: the assistant's steps while they still
+    describe this recipe, the matched ones otherwise."""
+    lines = _cook_lines(recipe)
+    current = recipe_fingerprint(recipe)
+    has_ai = bool(recipe.cook_steps)
+    fresh = has_ai and recipe.cook_steps_fingerprint == current
+    steps = (
+        cook_steps.stored_steps(recipe.cook_steps, lines)
+        if fresh
+        else cook_steps.matched_steps(recipe.instructions, lines)
+    )
+    return {
+        "steps": [
+            RecipeStepOut(
+                number=number,
+                section=step.section,
+                text=step.text,
+                spoken=step.spoken,
+                ingredients=[
+                    StepIngredientOut(ingredient_id=i.ingredient_id, name=i.name, amount=i.amount)
+                    for i in step.ingredients
+                ],
+            )
+            for number, step in enumerate(steps, start=1)
+        ],
+        "steps_source": "ai" if fresh else "matched",
+        "steps_fingerprint": current,
+        "steps_outdated": has_ai and not fresh,
+        "steps_requested_at": recipe.cook_steps_requested_at,
+    }
+
+
 def recipe_out(recipe: Recipe) -> RecipeOut:
     return RecipeOut(
         id=recipe.id,
@@ -70,6 +126,7 @@ def recipe_out(recipe: Recipe) -> RecipeOut:
             _line_out(link.ingredient, link.quantity, link.unit, link.display_unit, link.raw_text)
             for link in recipe.ingredient_links
         ],
+        **_steps_fields(recipe),
     )
 
 

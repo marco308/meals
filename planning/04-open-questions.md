@@ -516,3 +516,52 @@ an amount-less share started a line of its own. Meanwhile a cook measuring
   run once after the release; recipes already stored had their spoon
   backfilled from their raw text by the migration. The playbook is v22, so
   assistants send spoons as written instead of converting them.
+
+**Q29 — Cook mode: steps that know their ingredients, read aloud** (2026-10-25).
+Following a recipe at the hob meant scrolling between a block of method text
+and a list of ingredients with floury hands. Decisions:
+
+- **The method stays one text field, and steps are derived from it on every
+  read.** Every client already reads `instructions`, and the contract is
+  additive-only, so `RecipeOut` gains `steps` beside it rather than replacing
+  it. Numbering is stripped and a short line ending in a colon ("For the
+  sauce:") heads the steps below it.
+- **Which ingredients a step uses comes from the server first, by name.**
+  `services/cook_steps.py` finds each food's name in the step (either number),
+  or a single word of the name that no other food in the recipe shares and
+  that is not a descriptor ("onion" for red onion, never "red"). It runs on
+  every server with no AI involved, which is why it is the baseline. Its
+  limits are deliberate: no splitting an amount, no "the remaining
+  ingredients", and an ambiguous word matches nothing rather than a guess. A
+  food's whole amount goes on the first step that names it.
+- **An assistant can do better, and the backend still never calls an LLM.**
+  `PUT /recipes/{id}/steps` stores steps an assistant wrote, with per-step
+  amounts, against a fingerprint of the method and the set of foods. Changing
+  either makes them stale (`steps_outdated`), and the recipe falls back to
+  matched steps rather than describing a recipe that no longer exists. The PUT
+  must quote the fingerprint it read, so a recipe edited mid-write is a 409,
+  not a silent mismatch. Steps point at the food (`ingredient_id`), not the
+  line, because lines are recreated on every edit. Writing steps is
+  annotation, not correction: it does not mark the recipe `edited`.
+- **The household's assistant can be asked by webhook.** Settings takes a URL
+  and bearer token (shaped for OpenClaw's `/hooks/agent`; anything that takes
+  a JSON POST works). The cook-mode button sends one sentence, and an optional
+  auto-prepare sends it after any edit that changes the fingerprint, debounced
+  so a burst of saves is one message. The message carries ids and this
+  server's address, never the recipe; the assistant reads and writes through
+  the public API with its own credentials. Because the address is the
+  household's, it gets ingestion's guard (https, public addresses, pinned
+  dial), except for hosts the operator lists in
+  `ASSISTANT_WEBHOOK_PRIVATE_HOSTS`; it needs a verified email (Q26); and a
+  household is asked at most `ASSISTANT_REQUESTS_PER_HOUR` times an hour,
+  because every message spends its own AI usage. The token is treated like the
+  label printer's: never returned, logged or exported.
+- **Speaking is the client's, with the server's words.** Each step carries
+  `spoken`, with units, temperatures, ranges and fractions written out ("half
+  a teaspoon", "200 degrees, or 180 degrees fan"), so every client says it the
+  same way. The voice itself is the device's: the web app uses the browser's
+  speech synthesis and the iPhone app the best installed system voice,
+  premium first, as gymtrack's coach does.
+- **Cook mode is its own screen, and it pins rather than re-sorts.** The
+  current step's ingredients sit at the top with their amounts and the rest
+  are dimmed below, so nothing jumps about while somebody is reading it.

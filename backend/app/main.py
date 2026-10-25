@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app import client_gate, limits, mcp_mount, metrics, observability
 from app.config import get_settings
 from app.observability import log_event
+from app.routers import assistant as assistant_router
 from app.routers import (
     auth,
     billing,
@@ -210,6 +211,7 @@ app.include_router(skill.router)
 app.include_router(pages.router)
 app.include_router(limits_router.router)
 app.include_router(household.router)
+app.include_router(assistant_router.router)
 app.include_router(billing.router)
 app.include_router(oauth.router)
 
