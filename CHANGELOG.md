@@ -20,7 +20,11 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-Metric underneath, spoons on top (decision Q28). **Playbook v22.** One
+Nothing merged since the release below.
+
+## 2026-10-25: metric underneath, spoons on top
+
+Released as **1.10.0**. Decision Q28. **Playbook v22.** One
 migration, additive (`display_unit` on recipe and meal lines, backfilled from
 each recipe line's own text). After deploying, run the one-off re-sync so
 the live list is rebuilt by the new merge rules:
