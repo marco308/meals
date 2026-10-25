@@ -22,6 +22,19 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-10-25: the list re-sync runs on Postgres
+
+Released as **1.10.1**. No migrations, **playbook v22**.
+
+### Fixed
+
+- `app.resync_lists` failed on Postgres ("could not identify an equality
+  operator for type json"): it selected whole meal rows `DISTINCT`, which
+  Postgres can't do over the json `slots` column. It now selects ids. SQLite
+  never minded, which is why the tests passed.
+- The `docker exec` examples for `app.resync_lists` and `app.merge_meals` now
+  set `DATABASE_URL` from the secret, as the service's own command does.
+
 ## 2026-10-25: metric underneath, spoons on top
 
 Released as **1.10.0**. Decision Q28. **Playbook v22.** One

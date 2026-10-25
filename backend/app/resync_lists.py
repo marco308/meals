@@ -5,9 +5,13 @@ already on a list keep the units they were built in until their meal is next
 edited; this moves every planned meal's shares to the line it would land on
 now (salt in ml onto salt in g, "to taste" onto the line with an amount).
 
-    docker exec -i <api-container> .venv/bin/python -m app.resync_lists            # what would change
-    ... -m app.resync_lists --apply                                                # do it
-    ... -m app.resync_lists --household <uuid> [--apply]                           # one household
+    ssh zaphod 'docker exec $(docker ps -q -f name=meals_api | head -1) sh -c \
+      "DATABASE_URL=postgresql+asyncpg://meals:\$(cat /run/secrets/postgres_password)@db:5432/meals \
+       .venv/bin/python -m app.resync_lists [--apply] [--household <uuid>]"'
+
+`docker exec` doesn't run the service's start-up command, which is what builds
+DATABASE_URL from the secret; without it the script opens an empty SQLite
+file and fails on "no such table". The API runs on zaphod, not HomeBase.
 
 Without --apply nothing is written. Safe to run twice: a second run changes
 nothing.

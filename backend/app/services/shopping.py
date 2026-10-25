@@ -379,15 +379,18 @@ async def resync_active_list(db: AsyncSession, household_id: uuid.UUID) -> tuple
 
     active_list = await get_active_list(db, household_id)
     before = len((await get_list_full(db, active_list.id)).items)
+    # DISTINCT over ids only: Postgres can't compare the json `slots` column,
+    # so DISTINCT over whole meal rows fails there (SQLite doesn't mind).
     result = await db.execute(
-        select(Meal)
-        .join(PlanMeal, PlanMeal.meal_id == Meal.id)
+        select(PlanMeal.meal_id)
         .join(Plan, PlanMeal.plan_id == Plan.id)
         .where(Plan.household_id == household_id, Plan.status == "active")
         .distinct()
     )
-    for meal in result.scalars().all():
-        await resync_meal_contributions(db, household_id, meal)
+    for meal_id in result.scalars().all():
+        meal = await db.get(Meal, meal_id)
+        if meal is not None:
+            await resync_meal_contributions(db, household_id, meal)
 
     shopping_list = await get_list_full(db, active_list.id)
     by_food: defaultdict[uuid.UUID, list[ListItem]] = defaultdict(list)
