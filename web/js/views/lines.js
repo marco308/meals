@@ -1,17 +1,26 @@
 // Repeatable ingredient-line rows, shared by the recipe editor and the meal
 // editor's loose ingredients. Quantities follow the server's convention:
-// metric (g/kg/ml/l) or a count of a natural unit — the API's 422 explains
-// any conversion, so the editor doesn't police units itself.
+// metric (g/kg/ml/l), spoons (stored as ml, Q28) or a count of a natural
+// unit — the API's 422 explains any conversion, so the editor doesn't police
+// units itself.
 
 import { html, render } from "../dom.js";
 
-const UNIT_SUGGESTIONS = ["g", "kg", "ml", "l", "item", "tin", "clove", "bunch", "head", "pack", "jar", "slice", "stick", "sprig", "leaf", "sheet", "sausage", "egg"];
+const UNIT_SUGGESTIONS = ["g", "kg", "ml", "l", "tsp", "tbsp", "item", "tin", "clove", "bunch", "head", "pack", "jar", "slice", "stick", "sprig", "leaf", "sheet", "sausage", "egg"];
+
+const SPOON_ML = { tsp: 5, tbsp: 15 };
+
+// A line written in spoons comes back as ml with the spoon beside it (Q28):
+// edit it in the spoons it was written in, so saving it unchanged keeps them.
+function editable(line) {
+  const size = line.unit === "ml" && line.quantity !== null ? SPOON_ML[line.display_unit] : undefined;
+  return size ? { quantity: line.quantity / size, unit: line.display_unit } : { quantity: line.quantity, unit: line.unit };
+}
 
 export function linesEditor(container, initial = []) {
   let lines = initial.map((line) => ({
     name: line.name,
-    quantity: line.quantity,
-    unit: line.unit,
+    ...editable(line),
     raw: line.raw ?? null,
     dirty: false,
   }));

@@ -287,9 +287,20 @@ struct RecipeLine: Codable, Identifiable, Equatable, Sendable {
     // Optional so responses from an older backend still decode.
     var valueTier: String? = nil
     var valueNote: String? = nil
+    /// "tsp"/"tbsp" when an ml amount was written in spoons (Q28).
+    var displayUnit: String? = nil
 
     var id: UUID { ingredientId }
     var tier: ValueTier { ValueTier(raw: valueTier) }
+
+    /// The line as an editor holds it: back in the spoons it was written in,
+    /// so saving it unchanged keeps "1 tsp" rather than turning it into 5 ml.
+    var editable: LooseLine {
+        if unit == "ml", let quantity, let spoon = displayUnit, let size = MealsUnits.spoonML[spoon] {
+            return LooseLine(name: name, quantity: quantity / size, unit: spoon)
+        }
+        return LooseLine(name: name, quantity: quantity, unit: unit)
+    }
 }
 
 struct Recipe: Codable, Identifiable, Equatable, Sendable {
@@ -445,6 +456,19 @@ struct ListItem: Codable, Identifiable, Equatable, Sendable {
     /// Deletable: nothing but hand-adds put it here (matches the server's own
     /// `is_adhoc_only` — a meal-sourced line would 409).
     var isAdhocOnly: Bool { sources.allSatisfy(\.adHoc) }
+}
+
+/// One staple in the staples check, however many lines it has on the list
+/// (Q28): salt in grams and salt "to taste" are still one thing to look for
+/// in the cupboard. Marking it low marks every line of it.
+struct StapleCheckEntry: Identifiable, Equatable, Sendable {
+    let items: [ListItem]
+
+    var id: UUID { items[0].ingredientId }
+    var name: String { items[0].name }
+    var aisle: String { items[0].aisle }
+    var isNeededStaple: Bool { items.contains(where: \.isNeededStaple) }
+    var neededBy: [String] { Array(Set(items.flatMap(\.neededBy))).sorted() }
 }
 
 struct ShoppingListPayload: Codable, Equatable, Sendable {

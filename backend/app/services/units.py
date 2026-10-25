@@ -1,13 +1,15 @@
 """Quantity/unit convention (decision Q2).
 
-Every quantity in the API is either **metric** (g/kg/ml/l) or a **count of a
-natural unit** ("2 tins", "3 cloves"). Imperial and volumetric-spoon units are
-rejected with an error that tells the client (usually an AI) exactly how to
-convert — error messages here end up in an agent's context, so they must be
-actionable.
+Every quantity in the API is either **metric** (g/kg/ml/l), a **spoon**
+(tsp/tbsp, stored as ml — Q28) or a **count of a natural unit** ("2 tins",
+"3 cloves"). Imperial units and cups are rejected with an error that tells the
+client (usually an AI) exactly how to convert — error messages here end up in
+an agent's context, so they must be actionable.
 
 Canonical storage form: mass in g, volume in ml, natural units as singular
-lowercase words. The shopping list merges exact-matching canonical units only.
+lowercase words. Nothing that adds or merges amounts reads anything else; the
+shopping list converts between g and ml only through a food's density
+(`services/densities.py`).
 """
 
 import math
@@ -36,14 +38,22 @@ METRIC_UNITS: dict[str, tuple[str, float]] = {
     "litres": ("ml", 1000),
 }
 
+# Spoons are accepted and stored as ml at UK measures (Q28); the spoon itself is
+# kept beside the line (`display_unit`) so a recipe reads back as it was written.
+SPOON_ML: dict[str, float] = {"tsp": 5, "tbsp": 15}
+SPOON_UNITS: dict[str, str] = {
+    "tsp": "tsp",
+    "tsps": "tsp",
+    "teaspoon": "tsp",
+    "teaspoons": "tsp",
+    "tbsp": "tbsp",
+    "tbsps": "tbsp",
+    "tablespoon": "tbsp",
+    "tablespoons": "tbsp",
+}
+
 # Units the API refuses, mapped to the conversion hint we return.
 BANNED_UNITS: dict[str, str] = {
-    "tsp": "convert to ml first (1 tsp = 5 ml)",
-    "teaspoon": "convert to ml first (1 tsp = 5 ml)",
-    "teaspoons": "convert to ml first (1 tsp = 5 ml)",
-    "tbsp": "convert to ml first (1 tbsp = 15 ml)",
-    "tablespoon": "convert to ml first (1 tbsp = 15 ml)",
-    "tablespoons": "convert to ml first (1 tbsp = 15 ml)",
     "cup": "convert to ml first (1 cup = 240 ml)",
     "cups": "convert to ml first (1 cup = 240 ml)",
     "oz": "convert to g first (1 oz = 28 g)",
@@ -203,6 +213,8 @@ def normalize_unit(unit: str) -> tuple[str, float]:
         )
     if cleaned in METRIC_UNITS:
         return METRIC_UNITS[cleaned]
+    if cleaned in SPOON_UNITS:
+        return "ml", SPOON_ML[SPOON_UNITS[cleaned]]
     if not cleaned.replace(" ", "").replace("-", "").isalpha():
         raise UnitNotAllowedError(
             f"unit '{cleaned}' is not recognised; use g/kg/ml/l or a simple natural unit word like 'tin', 'clove', 'bunch'"
@@ -304,6 +316,71 @@ def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
     if unit not in ("g", "ml"):
         quantity = float(math.ceil(round(quantity, 3)))
     return format_quantity(quantity, unit)
+
+
+_SPOON_IN_TEXT = re.compile(r"\b(tsps?|teaspoons?|tbsps?|tablespoons?)\b", re.IGNORECASE)
+
+#: The largest volume shown in spoons when the recipe didn't say spoons (Q28):
+#: four tablespoons. Past it a jug is the easier measure.
+SPOON_SHOWN_UP_TO_ML = 60
+_QUARTER_TSP_ML = 1.25
+_FRACTIONS = {0: "", 1: "¼", 2: "½", 3: "¾"}
+
+
+def spoon_hint(unit: str | None, raw: str | None = None) -> str | None:
+    """The spoon a line was written in ("tsp"/"tbsp"), or None.
+
+    The unit as submitted wins; failing that, the line's own text, because the
+    ingest parser and most assistants convert spoons to ml before writing but
+    keep the words ("1 tsp sea salt")."""
+    if unit is not None and unit.strip().lower() in SPOON_UNITS:
+        return SPOON_UNITS[unit.strip().lower()]
+    if raw:
+        found = _SPOON_IN_TEXT.search(raw)
+        if found:
+            return SPOON_UNITS.get(found.group(1).lower())
+    return None
+
+
+def _quarters(quantity: float, size: float) -> int | None:
+    """`quantity` as a whole number of quarter-`size`s, or None if it isn't one."""
+    count = quantity / (size / 4)
+    whole = round(count)
+    return whole if whole > 0 and abs(count - whole) < 0.01 else None
+
+
+def _spoons(quarters: int, spoon: str) -> str:
+    whole, part = divmod(quarters, 4)
+    number = f"{whole or ''}{_FRACTIONS[part]}" or "0"
+    return f"{number} {spoon}"
+
+
+def format_cooking_quantity(quantity: float | None, unit: str | None, spoon: str | None = None) -> str:
+    """Rendering for cooking from (a recipe, a meal's loose lines): small
+    volumes in spoons, "2½ tsp" rather than "12.5 ml" (Q28).
+
+    Only ever a rendering: the stored amount stays ml. Spoons are used when the
+    line was written in them, or when the amount is no more than
+    SPOON_SHOWN_UP_TO_ML and lands on a quarter teaspoon. Tablespoons from one
+    upward when they come out in halves, a tablespoon count plus teaspoons
+    when they don't ("1 tbsp + 2 tsp"), teaspoons below a tablespoon or when the
+    recipe said teaspoons. Anything else, weights always, is format_quantity."""
+    if unit != "ml" or quantity is None or not math.isfinite(quantity):
+        return format_quantity(quantity, unit)
+    if spoon is None and quantity > SPOON_SHOWN_UP_TO_ML:
+        return format_quantity(quantity, unit)
+    quarter_tsps = _quarters(quantity, SPOON_ML["tsp"])
+    if quarter_tsps is None:
+        return format_quantity(quantity, unit)
+    if spoon == "tsp" or quantity < SPOON_ML["tbsp"]:
+        return _spoons(quarter_tsps, "tsp")
+    quarter_tbsps = _quarters(quantity, SPOON_ML["tbsp"])
+    if quarter_tbsps is not None and quarter_tbsps % 2 == 0:
+        return _spoons(quarter_tbsps, "tbsp")
+    tbsps, rest = divmod(quarter_tsps, 12)
+    if rest == 0:
+        return _spoons(tbsps * 4, "tbsp")
+    return f"{_spoons(tbsps * 4, 'tbsp')} + {_spoons(rest, 'tsp')}"
 
 
 def pluralize(unit: str) -> str:

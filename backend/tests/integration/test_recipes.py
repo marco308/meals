@@ -53,10 +53,10 @@ class TestCreateRecipe:
     async def test_banned_unit_422_with_conversion_hint(self, auth_client):
         response = await auth_client.post(
             "/recipes",
-            json={"title": "Bad units", "ingredients": [{"name": "butter", "quantity": 2, "unit": "tbsp"}]},
+            json={"title": "Bad units", "ingredients": [{"name": "flour", "quantity": 2, "unit": "cups"}]},
         )
         assert response.status_code == 422
-        assert "15 ml" in response.text
+        assert "240 ml" in response.text
 
     async def test_quantity_without_unit_422(self, auth_client):
         response = await auth_client.post(

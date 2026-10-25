@@ -402,6 +402,29 @@ final class ShoppingListStoreTests: XCTestCase {
         XCTAssertTrue(store.displayItems.isEmpty, "have-it-after-all hides the staple again")
     }
 
+    func testStapleCheckFoldsAStaplesLinesIntoOneRow() async {
+        let tasteSalt = TestData.item(name: "salt", isStaple: true, quantity: nil, unit: nil)
+        let gramSalt = ListItem(
+            id: UUID(), ingredientId: tasteSalt.ingredientId, name: "salt", aisle: "🥬", aisleLabel: "Aisle",
+            isStaple: true, quantity: 9, unit: "g", display: "9 g", checked: false, excluded: false,
+            sources: [ItemSource(adHoc: false, mealName: "Chicken", recipeTitle: nil, quantity: 9)]
+        )
+        let oil = TestData.item(name: "olive oil", isStaple: true)
+        let api = FakeShoppingAPI(list: TestData.payload([tasteSalt, gramSalt, oil]))
+        let store = makeStore(api)
+        await store.sync()
+
+        XCTAssertEqual(store.stapleCheckEntries.map(\.name), ["olive oil", "salt"], "one row per staple")
+        let salt = store.stapleCheckEntries.first { $0.name == "salt" }!
+        XCTAssertEqual(salt.items.count, 2)
+        XCTAssertEqual(salt.neededBy, ["Chicken"])
+
+        api.failWith = .offline
+        store.setStapleNeeded(salt, true)
+        XCTAssertEqual(store.displayItems.filter { $0.name == "salt" }.count, 2, "low marks every line of it")
+        XCTAssertTrue(store.stapleCheckEntries.first { $0.name == "salt" }!.isNeededStaple)
+    }
+
     func testStapleNeededReplaysToServer() async {
         let oil = TestData.item(name: "olive oil", isStaple: true)
         let api = FakeShoppingAPI(list: TestData.payload([oil]))
@@ -1204,14 +1227,14 @@ final class QuickAddAndDisplayTests: XCTestCase {
     @MainActor
     func testQuickAddCatchesWhatTheServerWouldRefuse() {
         let refused = [
-            "milk 4 pints", "butter 2 sticks", "mince 1 lbs", "flour 2 cups", "oil 3 tablespoons",
+            "milk 4 pints", "butter 2 sticks", "mince 1 lbs", "flour 2 cups",
             "milk 0 l", "milk -1 l", "milk inf l", "milk nan ml", "rice 1 kg,",
         ]
         for text in refused {
             let (name, quantity, unit) = ShoppingListView.parseQuickAdd(text)
             XCTAssertNotNil(ShoppingListStore.adhocRejection(name: name, quantity: quantity, unit: unit), text)
         }
-        for text in ["milk 2 l", "bin bags", "6 eggs", "2 tins chopped tomatoes", "frozen peas 200g"] {
+        for text in ["milk 2 l", "oil 3 tablespoons", "bin bags", "6 eggs", "2 tins chopped tomatoes", "frozen peas 200g"] {
             let (name, quantity, unit) = ShoppingListView.parseQuickAdd(text)
             XCTAssertNil(ShoppingListStore.adhocRejection(name: name, quantity: quantity, unit: unit), text)
         }

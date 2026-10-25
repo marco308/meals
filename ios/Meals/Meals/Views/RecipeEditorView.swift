@@ -44,14 +44,14 @@ struct RecipeEditorView: View {
         _imageUrl = State(initialValue: recipe.imageUrl ?? "")
         _instructions = State(initialValue: recipe.instructions ?? "")
         _lines = State(
-            initialValue: recipe.ingredients.map { LooseLine(name: $0.name, quantity: $0.quantity, unit: $0.unit) }
+            initialValue: recipe.ingredients.map(\.editable)
         )
     }
 
     /// The original lines, in the shape the editor holds them, so "did an
     /// ingredient actually change?" is a straight comparison.
     private var originalLines: [(String, Double?, String?)] {
-        recipe.ingredients.map { ($0.name, $0.quantity, $0.unit) }
+        recipe.ingredients.map(\.editable).map { ($0.name, $0.quantity, $0.unit) }
     }
 
     private var ingredientsChanged: Bool {

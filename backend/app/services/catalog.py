@@ -106,6 +106,7 @@ async def set_recipe_ingredients(db: AsyncSession, recipe: Recipe, lines: list[I
                 ingredient_id=ingredient.id,
                 quantity=line.quantity,
                 unit=line.unit,
+                display_unit=line.display_unit,
                 raw_text=line.raw,
                 position=position,
             )

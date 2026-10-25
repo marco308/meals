@@ -2,8 +2,11 @@
 
 Every line links back to the meal(s)/recipe(s) that need it via
 ListItemSource rows; ad-hoc rows are flagged as such. Adding a meal to the
-plan merges its contributions into existing lines (exact canonical unit match
-only, decision Q2); removing the meal decrements exactly what it added and
+plan merges its contributions into existing lines (decision Q2, as amended by
+Q28): a share is first put in the unit its food is bought in when the food's
+density is known (salt in ml becomes salt in g), lines then merge on an exact
+canonical unit, and a share with no amount ("salt to taste") joins whatever
+line the food already has rather than starting its own. Removing the meal decrements exactly what it added and
 never touches ad-hoc contributions; editing it re-syncs by difference, so a
 line keeps its id for as long as anything needs it.
 """
@@ -18,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import ListItem, ListItemSource, Meal, PlanMeal, ShoppingList
 from app.schemas.shopping import AdhocItemIn
 from app.services.catalog import get_or_create_ingredient
+from app.services.densities import to_bought_unit
 
 Contribution = tuple[uuid.UUID, float | None, str | None, uuid.UUID | None]  # ingredient, quantity, unit, recipe
 Key = tuple[uuid.UUID, str | None]  # (ingredient, unit): a line's identity on one list
@@ -49,26 +53,51 @@ def _meal_contributions(meal: Meal) -> list[Contribution]:
     Recipe lines are multiplied by their link's scale (Q18); loose ingredients
     are already stated as the absolute amount the meal needs, so they aren't.
     The exact float is what gets stored — rounding a half tin up here would
-    make two meals each needing half a tin buy two."""
+    make two meals each needing half a tin buy two.
+
+    Each share is in the unit its food is bought in where that is known (Q28),
+    so the salt in grams and the salt in spoons land on one line."""
     contributions = []
     for recipe_link in meal.recipe_links:
         for line in recipe_link.recipe.ingredient_links:
             quantity = None if line.quantity is None else line.quantity * recipe_link.scale
-            contributions.append((line.ingredient_id, quantity, line.unit, recipe_link.recipe_id))
+            quantity, unit = to_bought_unit(line.ingredient.name, quantity, line.unit)
+            contributions.append((line.ingredient_id, quantity, unit, recipe_link.recipe_id))
     for loose in meal.ingredient_links:
-        contributions.append((loose.ingredient_id, loose.quantity, loose.unit, None))
+        quantity, unit = to_bought_unit(loose.ingredient.name, loose.quantity, loose.unit)
+        contributions.append((loose.ingredient_id, quantity, unit, None))
     return contributions
 
 
 async def _find_item(
     db: AsyncSession, list_id: uuid.UUID, ingredient_id: uuid.UUID, unit: str | None
 ) -> ListItem | None:
+    """The line a share in `unit` lands on, if the list has one (Q28).
+
+    The same unit first. A share with no unit has no amount to add, so it joins
+    whatever line the food has. A share with an amount takes over a line that
+    has none ("salt" becomes "salt 9 g") rather than sitting beside it."""
     result = await db.execute(
-        select(ListItem).where(
-            ListItem.list_id == list_id, ListItem.ingredient_id == ingredient_id, ListItem.unit == unit
-        )
+        select(ListItem)
+        .where(ListItem.list_id == list_id, ListItem.ingredient_id == ingredient_id)
+        .order_by(ListItem.created_at)
     )
-    return result.scalars().first()
+    lines = result.scalars().all()
+    if (same := next((line for line in lines if line.unit == unit), None)) is not None:
+        return same
+    if unit is None:
+        return lines[0] if lines else None
+    amountless = next((line for line in lines if line.unit is None), None)
+    if amountless is not None:
+        amountless.unit = unit
+    return amountless
+
+
+def _settle_unit(item: ListItem) -> None:
+    """A line left holding only amount-less shares has no unit to show or to
+    merge on, so it goes back to having none, ready to be taken over again."""
+    if item.unit is not None and item.sources and all(source.quantity is None for source in item.sources):
+        item.unit = None
 
 
 async def add_meal_contributions(
@@ -107,6 +136,8 @@ async def remove_meal_contributions(db: AsyncSession, shopping_list: ShoppingLis
         item.sources[:] = [s for s in item.sources if s.plan_meal_id != plan_meal_id]
         if not item.sources:
             await db.delete(item)
+        else:
+            _settle_unit(item)
     await db.flush()
 
 
@@ -136,7 +167,8 @@ async def add_adhoc_item(
     # any op the server refuses, so a cap here would destroy what someone typed
     # in a supermarket rather than reduce their features (Q11).
     ingredient = await get_or_create_ingredient(db, household_id, payload.name, count_against_limits=False)
-    item = await _find_item(db, shopping_list.id, ingredient.id, payload.unit)
+    quantity, unit = to_bought_unit(ingredient.name, payload.quantity, payload.unit)
+    item = await _find_item(db, shopping_list.id, ingredient.id, unit)
     if item is None:
         # Honour the client-generated id (offline-first sync) unless it is
         # already taken, e.g. by an item on an archived list.
@@ -144,7 +176,7 @@ async def add_adhoc_item(
         item = ListItem(
             list_id=shopping_list.id,
             ingredient_id=ingredient.id,
-            unit=payload.unit,
+            unit=unit,
             **({"id": payload.id} if reuse_id else {}),
         )
         db.add(item)
@@ -155,7 +187,7 @@ async def add_adhoc_item(
         ListItemSource(
             item_id=item.id,
             ad_hoc=True,
-            quantity=payload.quantity,
+            quantity=quantity,
             client_key=str(payload.id) if payload.id is not None else None,
         )
     )
@@ -277,12 +309,17 @@ async def _resync_plan_meal(
     # nothing stops two racing ad-hoc adds from making the same line twice.
     held: dict[Key, list[tuple[ListItem, ListItemSource]]] = {}
     bought: dict[Key, list[Share]] = {}
+    # A share is keyed as it is wanted: an amount-less one by no unit, whatever
+    # line it joined, and a bought one in the unit its food is bought in now.
     for item, source, list_status in result.all():
-        key = (item.ingredient_id, item.unit)
         if item.list_id == active_list.id:
-            held.setdefault(key, []).append((item, source))
+            unit = None if source.quantity is None else item.unit
+            held.setdefault((item.ingredient_id, unit), []).append((item, source))
         elif list_status == "archived":
-            bought.setdefault(key, []).append((source.recipe_id, source.quantity))
+            quantity, unit = to_bought_unit(item.ingredient.name, source.quantity, item.unit)
+            bought.setdefault((item.ingredient_id, None if quantity is None else unit), []).append(
+                (source.recipe_id, quantity)
+            )
 
     for key in [*wanted, *(key for key in held if key not in wanted)]:
         shares = _still_to_buy(wanted.get(key, []), bought.get(key, []))
@@ -315,6 +352,8 @@ async def _resync_plan_meal(
         for touched in dict.fromkeys([item, *(line for line, _ in old)]):
             if not touched.sources:
                 await db.delete(touched)
+            else:
+                _settle_unit(touched)
     await db.flush()
 
 
@@ -325,3 +364,48 @@ async def get_list_full(db: AsyncSession, list_id: uuid.UUID) -> ShoppingList:
         select(ShoppingList).where(ShoppingList.id == list_id).execution_options(populate_existing=True)
     )
     return result.scalar_one()
+
+
+async def resync_active_list(db: AsyncSession, household_id: uuid.UUID) -> tuple[int, int]:
+    """Bring a household's live list up to the rules it would be built by now,
+    for an operator after the rules change (Q28). Returns its line count
+    before and after.
+
+    Every meal on an active plan is re-synced, which moves each share to the
+    line it would land on today. A line holding only amount-less shares stays
+    where it is in a re-sync, so those are then folded into the food's line
+    with an amount, shop state combined as `ingredient_merge` combines it."""
+    from app.models import Plan
+
+    active_list = await get_active_list(db, household_id)
+    before = len((await get_list_full(db, active_list.id)).items)
+    result = await db.execute(
+        select(Meal)
+        .join(PlanMeal, PlanMeal.meal_id == Meal.id)
+        .join(Plan, PlanMeal.plan_id == Plan.id)
+        .where(Plan.household_id == household_id, Plan.status == "active")
+        .distinct()
+    )
+    for meal in result.scalars().all():
+        await resync_meal_contributions(db, household_id, meal)
+
+    shopping_list = await get_list_full(db, active_list.id)
+    by_food: defaultdict[uuid.UUID, list[ListItem]] = defaultdict(list)
+    for item in sorted(shopping_list.items, key=lambda item: item.created_at):
+        by_food[item.ingredient_id].append(item)
+    for lines in by_food.values():
+        target = next((line for line in lines if line.unit is not None), None)
+        if target is None:
+            continue
+        for line in lines:
+            if line.unit is not None or line is target:
+                continue
+            target.checked = target.checked and line.checked
+            target.excluded = target.excluded and line.excluded
+            target.staple_needed = target.staple_needed or line.staple_needed
+            for source in list(line.sources):
+                line.sources.remove(source)
+                target.sources.append(source)
+            await db.delete(line)
+    await db.flush()
+    return before, len((await get_list_full(db, active_list.id)).items)

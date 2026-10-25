@@ -133,7 +133,7 @@ struct ShoppingListView: View {
                         Button {
                             showStaplesCheck = true
                         } label: {
-                            Label("Check staples (\(store.stapleCheckItems.count))", systemImage: "cabinet")
+                            Label("Check staples (\(store.stapleCheckEntries.count))", systemImage: "cabinet")
                                 .font(.callout)
                         }
                     }
@@ -412,8 +412,8 @@ struct StaplesCheckView: View {
 
                 ForEach(store.stapleCheckSections, id: \.aisle) { section in
                     Section("\(section.aisle) \(section.label)") {
-                        ForEach(section.items) { item in
-                            StapleCheckRow(item: item)
+                        ForEach(section.entries) { entry in
+                            StapleCheckRow(entry: entry)
                         }
                     }
                 }
@@ -437,17 +437,16 @@ struct StaplesCheckView: View {
     }
 }
 
+/// One staple, with no amount: whether it's in the cupboard is the whole
+/// question, and the recipes' spoonfuls only cluttered it (Q28).
 struct StapleCheckRow: View {
     @Environment(ShoppingListStore.self) private var store
-    let item: ListItem
+    let entry: StapleCheckEntry
 
     var body: some View {
+        let item = entry
         Button {
-            if item.isNeededStaple {
-                store.unmarkStapleNeeded(item)
-            } else {
-                store.markStapleNeeded(item)
-            }
+            store.setStapleNeeded(entry, !entry.isNeededStaple)
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -463,9 +462,6 @@ struct StapleCheckRow: View {
                     }
                 }
                 Spacer()
-                Text(item.display)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
                 Image(systemName: item.isNeededStaple ? "checkmark.circle.fill" : "cart.badge.plus")
                     .foregroundStyle(item.isNeededStaple ? AnyShapeStyle(.green) : AnyShapeStyle(.tint))
             }

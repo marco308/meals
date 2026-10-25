@@ -74,6 +74,8 @@ class RecipeIngredient(Base):
     ingredient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ingredients.id"))
     quantity: Mapped[float | None] = mapped_column(Float, default=None)
     unit: Mapped[str | None] = mapped_column(String(50), default=None)
+    # How the recipe wrote an ml amount, "tsp" or "tbsp" (Q28): rendering only.
+    display_unit: Mapped[str | None] = mapped_column(String(10), default=None)
     raw_text: Mapped[str | None] = mapped_column(String(500), default=None)
     position: Mapped[int] = mapped_column(Integer, default=0)
 

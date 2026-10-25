@@ -64,13 +64,16 @@ final class QuantityParserTests: XCTestCase {
 /// field rather than when the whole meal fails to save.
 final class UnitVocabularyTests: XCTestCase {
     func testRejectedUnitsCarryTheConversion() {
-        XCTAssertEqual(MealsUnits.rejection(for: "tbsp"), "1 tbsp = 15 ml")
+        XCTAssertEqual(MealsUnits.rejection(for: "oz"), "1 oz = 28 g")
         XCTAssertEqual(MealsUnits.rejection(for: "  CUP "), "1 cup = 240 ml")
     }
 
     func testAcceptedUnitsPassThrough() {
         XCTAssertNil(MealsUnits.rejection(for: "g"))
         XCTAssertNil(MealsUnits.rejection(for: "tin"))
+        // Spoons are taken and stored as ml since Q28.
+        XCTAssertNil(MealsUnits.rejection(for: "tsp"))
+        XCTAssertNil(MealsUnits.rejection(for: "tablespoons"))
         XCTAssertNil(MealsUnits.rejection(for: nil))
         // A unit this build has never heard of is the server's business, not
         // the app's — never a client-side block.
@@ -82,7 +85,7 @@ final class UnitVocabularyTests: XCTestCase {
     /// `backend/tests/unit/test_ios_units.py` holds the list to the server's.
     func testThePluralsTheServerBansAreRefusedHereToo() {
         for unit in [
-            "teaspoons", "tablespoons", "ounces", "lbs", "pounds", "pints", "quart", "gallon",
+            "cups", "ounces", "lbs", "pounds", "pints", "quart", "gallon",
             "fl oz", "floz", "PINTS",
         ] {
             XCTAssertNotNil(MealsUnits.rejection(for: unit), unit)

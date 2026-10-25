@@ -43,7 +43,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 21
+PLAYBOOK_VERSION = 22
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -78,8 +78,8 @@ mcp = MCPServer(
         f"Meal planning and shopping tools. Playbook v{PLAYBOOK_VERSION} is current: if "
         "an installed meal-planner skill or prompt pack states a lower version, it is "
         "stale — re-fetch /skill or /prompt-pack from this deployment and tell the user. "
-        "Quantities must be metric (g/kg/ml/l) or a count of a natural unit ('2 tins', "
-        "'3 cloves') — convert before writing. The shopping list is aisle-sorted and "
+        "Quantities must be metric (g/kg/ml/l), a spoon (tsp/tbsp, sent as written) or a "
+        "count of a natural unit ('2 tins', '3 cloves') — convert anything else before writing. The shopping list is aisle-sorted and "
         "knows which meal needs every item."
     ),
 )
@@ -256,8 +256,8 @@ async def submit_recipe(
 ) -> str:
     """Save a recipe you parsed yourself (from a page without JSON-LD) or a
     manual/family recipe. Each ingredient: {"name": str, "quantity": number,
-    "unit": str} — metric (g/kg/ml/l) or natural counts ('tin', 'clove',
-    'item'); omit quantity+unit for 'to taste' lines.
+    "unit": str} — metric (g/kg/ml/l), spoons as written (tsp/tbsp) or natural
+    counts ('tin', 'clove', 'item'); omit quantity+unit for 'to taste' lines.
 
     image_url is the recipe's photo, shown on the recipe and in the library —
     worth including. It must be a direct https link to the image file itself
@@ -804,8 +804,8 @@ async def get_shopping_list(include_staples: bool = False) -> str:
 
 @mcp.tool()
 async def add_to_list(name: str, quantity: float | None = None, unit: str | None = None) -> str:
-    """Quickly add an ad-hoc item ('we're out of milk'). Metric or natural
-    units only: add_to_list('milk', 2, 'l') or add_to_list('bin bags')."""
+    """Quickly add an ad-hoc item ('we're out of milk'). Metric, spoons or
+    natural units: add_to_list('milk', 2, 'l') or add_to_list('bin bags')."""
     payload: dict[str, Any] = {"id": str(uuid.uuid4()), "name": name}
     if quantity is not None:
         payload["quantity"] = quantity
@@ -865,12 +865,21 @@ async def need_staple(item_name: str, needed: bool = True) -> str:
     shop — just that item joins the main list in its aisle; the other staples
     stay hidden. Undo with needed=false ('have it after all')."""
     try:
-        item = await _find_item(item_name)
-        if not item.get("is_staple"):
-            return f"{item['name']} isn't a staple — it's on the main list already."
-        await _call("PATCH", f"/shopping-list/items/{item['id']}", json={"staple_needed": needed})
+        data = await _call("GET", "/shopping-list", params={"include_staples": True, "include_excluded": True})
+        wanted = item_name.lower().strip()
+        # A staple is one thing to look for in the cupboard however many lines
+        # it has (salt in g and in ml), so every line of it is marked (Q28).
+        lines = [i for i in data["items"] if i["name"] == wanted and i.get("is_staple")]
+        if not lines:
+            item = await _find_item(item_name)
+            if not item.get("is_staple"):
+                return f"{item['name']} isn't a staple — it's on the main list already."
+            lines = [item]
+        for line in lines:
+            await _call("PATCH", f"/shopping-list/items/{line['id']}", json={"staple_needed": needed})
     except ApiError as exc:
         return str(exc)
+    item = lines[0]
     if needed:
         return f"{item['name']}{_fmt_qty(item)} added to this shop's list ({item['aisle']} {item['aisle_label']})."
     return f"{item['name']} hidden again — it'll wait for the next staples check."
