@@ -347,10 +347,9 @@ class TestDualMeasureLines:
 
     def test_a_real_fraction_keeps_its_slash(self):
         """The strip needs a metric unit before the slash, so a bare fraction
-        is not mistaken for a dual measure."""
+        is not mistaken for a dual measure: it is half a lemon."""
         parsed = parse_ingredient_line("juice of 1/2 lemon")
-        assert parsed.quantity is None
-        assert parsed.name == "juice of 1/2 lemon"
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("lemon", 0.5, "item")
 
     def test_length_dual_measures_strip_too(self):
         parsed = parse_ingredient_line("2.5cm/1in piece of fresh root ginger")
@@ -362,6 +361,67 @@ class TestDualMeasureLines:
         not the shop."""
         parsed = parse_ingredient_line("200g cooked, peeled king prawns")
         assert parsed.name == "peeled king prawns"
+
+
+class TestBbcGoodFoodLines:
+    """BBC Good Food's JSON-LD leaves out the comma before the prep and writes
+    the pack size before a bare container word."""
+
+    @pytest.mark.parametrize(
+        ("line", "name", "quantity", "unit"),
+        [
+            ("400g can chopped tomatoes", "chopped tomatoes", 400, "g"),
+            ("400g tin chickpeas, drained", "chickpeas", 400, "g"),
+            ("432g can  pineapple drained", "pineapple", 432, "g"),
+            ("400ml can coconut milk", "coconut milk", 400, "ml"),
+        ],
+    )
+    def test_container_after_a_metric_amount_is_not_the_food(self, line, name, quantity, unit):
+        """ "can chopped tomato" never merged with the tin of chopped tomatoes."""
+        parsed = parse_ingredient_line(line)
+        assert (parsed.name, parsed.quantity, parsed.unit) == (name, quantity, unit)
+
+    @pytest.mark.parametrize(
+        ("line", "name"),
+        [
+            ("1 orange juiced", "orange"),
+            ("1 lemon zested and juiced", "lemon"),
+            ("1 red chilli deseeded and finely chopped", "red chilli"),
+            ("100g feta crumbled", "feta"),
+            ("2 eggs beaten", "eggs"),
+            ("½ red onion finely chopped", "red onion"),
+        ],
+    )
+    def test_trailing_prep_without_a_comma_is_dropped(self, line, name):
+        assert parse_ingredient_line(line).name == name
+
+    @pytest.mark.parametrize(
+        ("line", "name", "quantity"),
+        [
+            ("juice of ½ lemon", "lemon", 0.5),
+            ("finely grated zest of an orange", "orange", 1),
+            ("zest & juice 2 limes", "limes", 2),
+        ],
+    )
+    def test_juice_or_zest_of_buys_the_fruit(self, line, name, quantity):
+        parsed = parse_ingredient_line(line)
+        assert (parsed.name, parsed.quantity, parsed.unit) == (name, quantity, "item")
+
+    def test_juice_without_an_amount_is_left_alone(self):
+        assert parse_ingredient_line("juice from the tin").name == "juice from the tin"
+
+    def test_trailing_prep_no_longer_hides_the_unit(self):
+        """ "crushed" hid "cloves", so the garlic was counted in items and sat on
+        its own list line beside garlic counted in cloves (Q2)."""
+        parsed = parse_ingredient_line("2 garlic cloves crushed")
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("garlic", 2, "clove")
+
+    @pytest.mark.parametrize(
+        ("line", "name"),
+        [("melted butter", "melted butter"), ("1 tbsp toasted sesame oil", "toasted sesame oil")],
+    )
+    def test_leading_prep_words_are_left_to_the_canonical_name(self, line, name):
+        assert parse_ingredient_line(line).name == name
 
 
 class TestTrailingUnitWord:
