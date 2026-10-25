@@ -1,10 +1,16 @@
 # Build from the repo root so the skill/prompt pack ship in the image (issue #5):
 #   docker build -f backend/Dockerfile .
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+# python:3.13-slim-bookworm rather than the uv image built on it: that tag
+# stopped being rebuilt (uv 0.9.30, pip 25.3) and still trusts emSign ECC Root
+# CA - G3, whose intermediate keys leaked. The Docker Hub base drops G3 and
+# ships pip 26.2.2; uv comes from its own pinned minor (0.13.4+ has the fixed
+# bundle). Build with --pull so the base is never a stale local copy.
+FROM python:3.13-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /uvx /usr/local/bin/
 
 WORKDIR /srv/meals
 
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 
 # The MCP server is a path dependency of the backend (it is mounted at /mcp by
 # app/mcp_mount.py), so its source has to be here before the sync resolves it.
