@@ -3,9 +3,13 @@
 An operator command on the box, like app.entitlements, never an endpoint.
 What counts as identical, and what moves, is in services/meal_merge.py.
 
-    docker exec -i <api-container> .venv/bin/python -m app.merge_meals            # what would merge
-    ... -m app.merge_meals --apply                                                # do it
-    ... -m app.merge_meals --household <uuid> [--apply]                           # one household
+    ssh zaphod 'docker exec $(docker ps -q -f name=meals_api | head -1) sh -c \
+      "DATABASE_URL=postgresql+asyncpg://meals:\$(cat /run/secrets/postgres_password)@db:5432/meals \
+       .venv/bin/python -m app.merge_meals [--apply] [--household <uuid>]"'
+
+`docker exec` doesn't run the service's start-up command, which is what builds
+DATABASE_URL from the secret; without it the script opens an empty SQLite
+file and fails on "no such table". The API runs on zaphod, not HomeBase.
 
 Without --apply nothing is written. Safe to run twice: a second run finds
 nothing to merge.
