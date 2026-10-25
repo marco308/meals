@@ -94,7 +94,7 @@ Nobody picked these directly. They are holding the thing up all the same.
 The images are made of software too, and the backup sidecar is mostly other
 people's programs wired together.
 
-- [Python](https://www.python.org/) (PSF-2.0) and [Debian](https://www.debian.org/) (many licences, GPL-compatible), by way of the [uv](https://github.com/astral-sh/uv) base image (MIT OR Apache-2.0). `uv` also resolves and locks everything in the two tables above.
+- [Python](https://www.python.org/) (PSF-2.0) and [Debian](https://www.debian.org/) (many licences, GPL-compatible), by way of the official `python` base image, with the [uv](https://github.com/astral-sh/uv) binary copied in (MIT OR Apache-2.0). `uv` also resolves and locks everything in the two tables above.
 - [SQLite](https://www.sqlite.org/) (public domain), the default database of a one-container install, reached through `aiosqlite`.
 - [PostgreSQL](https://www.postgresql.org/) (PostgreSQL Licence), the database the reference deployment runs, and the `pg_dump` and `pg_restore` the whole of `backup/` is built around.
 - [Alpine Linux](https://alpinelinux.org/) (MIT), underneath the backup sidecar via `postgres:17-alpine`.

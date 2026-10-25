@@ -22,6 +22,28 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 Nothing merged since the release below.
 
+## 2026-10-25: stop trusting the leaked emSign CA
+
+Released as **1.9.1**. No migrations, nothing in the API or the skill changed,
+so this is still **playbook v21**.
+
+### Security
+
+- **The images no longer trust emSign ECC Root CA - G3.** Private keys for
+  eight eMudhra intermediates under it are recoverable, so anyone could forge
+  a certificate the API or the MCP server would accept when fetching a recipe
+  page or calling the API
+  ([advisory](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576)).
+  The api and mcp images are now built on `python:3.13-slim-bookworm` with the
+  uv binary copied in (uv 0.13), instead of the `ghcr.io/astral-sh/uv`
+  combined image, whose tag had stopped being rebuilt and still shipped G3,
+  pip 25.3 and uv 0.9.30. The system store no longer has G3, pip is 26.2.2,
+  and `certifi` is 2026.10.23
+  ([#230](https://github.com/marco308/meals/pull/230)).
+- **Dependabot alerts**: PyJWT 2.15.1 and Mako 1.4.3
+  ([#227](https://github.com/marco308/meals/pull/227)), opentelemetry-api
+  ([#230](https://github.com/marco308/meals/pull/230)).
+
 ## 2026-10-19: sign in to the MCP with OAuth
 
 Released as **1.9.0**. One additive migration (a new `oauth_grants` table and
