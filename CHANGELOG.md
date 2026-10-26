@@ -20,6 +20,31 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+## 2026-10-26: cook mode
+
+Released as **1.11.0**. One additive migration (`d2f6a8c41e93`), **playbook
+v23**. Decision Q29.
+
+### Added
+
+- **Cook mode.** Every recipe now carries `steps`: its method as steps, each
+  with the ingredients it uses and an amount, plus a `spoken` form for reading
+  aloud ("200 grams", "half a teaspoon"). The server matches ingredients by
+  name; an assistant can write better steps with split amounts through
+  `PUT /recipes/{id}/steps` or the new `annotate_recipe_steps` MCP tool
+  (`get_cook_steps` reads what it needs). Steps an assistant wrote last until
+  the method or the ingredients change.
+- The web app's **Cook it** button: one step at a time, its ingredients pinned
+  beside it, the rest ticked off as they are used, read aloud in the best
+  voice the browser has, screen kept on. iOS build 36 has the same.
+- **Your assistant** in web Settings: a webhook (shaped for OpenClaw's
+  `/hooks/agent`) that cook mode can ask to write a recipe's steps, and
+  optionally asks after every edit. It sends the recipe's id, never the
+  recipe; only public https addresses unless the operator lists a host in
+  `ASSISTANT_WEBHOOK_PRIVATE_HOSTS`.
+- `current_ios_build` is 36, so older installs are told about the cook-mode
+  build.
+
 ### Fixed
 
 - Ingredient lines written the BBC Good Food way import as the food they name
