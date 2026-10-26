@@ -21,7 +21,7 @@ import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, ske
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, household, invites, tokens, markets, allowances, subscription, printer] = await Promise.all([
+  const [user, household, invites, tokens, markets, allowances, subscription, printer, helper] = await Promise.all([
     api("/auth/me"),
     api("/auth/household"),
     api("/auth/invites"),
@@ -32,6 +32,7 @@ export async function renderSettings(root) {
     // all of them, and it is the server's own answer rather than a guess.
     api("/billing/subscription").catch(() => null),
     api("/household/label-printer").catch(() => null),
+    api("/household/assistant").catch(() => null),
   ]);
   session.saveUser(user);
   const youLead = household.lead_user_id === user.id;
@@ -190,6 +191,7 @@ export async function renderSettings(root) {
       </div>
 
       ${printer?.available ? labelPrinterSection(printer) : ""}
+      ${helper ? assistantSection(helper) : ""}
 
       <div class="section card">
         <h2>Password</h2>
@@ -288,6 +290,42 @@ export async function renderSettings(root) {
     });
     if (!ok) return;
     await api("/household/label-printer", { method: "DELETE" });
+    renderSettings(root);
+  });
+  root.querySelector("[data-assistant]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.target);
+    const body = {
+      url: data.get("url").trim(),
+      token: data.get("token").trim(),
+      auto_prepare: data.get("auto_prepare") === "on",
+    };
+    try {
+      await api("/household/assistant", { method: "PUT", body });
+      toast("✨ Assistant saved. Cook mode can ask it to write a recipe's steps now.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  });
+  root.querySelector("[data-assistant-auto]")?.addEventListener("change", async (event) => {
+    try {
+      await api("/household/assistant", { method: "PATCH", body: { auto_prepare: event.target.checked } });
+      toast(event.target.checked ? "Your assistant will be asked after every edit." : "Only when you ask, then.", "ok");
+    } catch (error) {
+      event.target.checked = !event.target.checked;
+      toast(error.detail || error.message, "error");
+    }
+  });
+  root.querySelector("[data-assistant-forget]")?.addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: "Forget your assistant?",
+      body: "Cook mode stops asking it. Steps it has already written stay.",
+      confirmLabel: "Forget it",
+      danger: true,
+    });
+    if (!ok) return;
+    await api("/household/assistant", { method: "DELETE" });
     renderSettings(root);
   });
   root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household);
@@ -1093,6 +1131,40 @@ function deleteAccountDialog() {
 // Freezer labels. Only on a server with a label service at all, which is the
 // operator's to set up (LABEL_SERVICE_URL); the token is the household's, and
 // it is written here and never read back.
+function assistantSection(helper) {
+  return html`
+    <div class="section card">
+      <h2>✨ Your assistant</h2>
+      <p class="sub">
+        ${helper.configured
+          ? html`Messages go to <b>${helper.host}</b>. Cook mode can ask it to write a recipe's steps with the amount each one
+            needs, and it answers through this server's API with its own access.`
+          : html`Cook mode matches each step's ingredients by name. An AI assistant you already run (OpenClaw, say) can do
+            better, splitting amounts between steps. Give it a webhook here and cook mode can ask it. This server only
+            sends the recipe's id; your assistant reads the rest with its own access.`}
+      </p>
+      ${helper.configured &&
+      html`<label class="check-line"><input type="checkbox" data-assistant-auto ${helper.auto_prepare ? "checked" : ""}>
+        Ask it automatically whenever a recipe's method or ingredients change</label>`}
+      <form data-assistant>
+        <label class="field"><span>Webhook URL</span>
+          <input type="url" name="url" maxlength="500" required placeholder="https://your-gateway/hooks/agent" autocomplete="off"></label>
+        <label class="field"><span>${helper.configured ? "Replace the token" : "Token"}</span>
+          <input type="password" name="token" maxlength="500" required autocomplete="off"></label>
+        ${!helper.configured &&
+        html`<label class="check-line"><input type="checkbox" name="auto_prepare">
+          Ask it automatically whenever a recipe's method or ingredients change</label>`}
+        <p class="sub">For OpenClaw, the URL ends <code>/hooks/agent</code> and the token is its hook token, not the gateway's.
+          Every message uses your assistant's AI allowance.</p>
+        <div class="dialog-actions">
+          ${helper.configured && html`<button class="btn ghost" type="button" data-assistant-forget>Forget it</button>`}
+          <button class="btn" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 function labelPrinterSection(printer) {
   return html`
     <div class="section card">

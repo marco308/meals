@@ -221,6 +221,7 @@ struct RecipeDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteError: String?
     @State private var showEditor = false
+    @State private var cooking: Recipe?
 
     /// "×1.5 — serves 6" when the meal this screen stands in for scales the
     /// recipe, nil when it doesn't or when the recipe was opened from the
@@ -260,6 +261,17 @@ struct RecipeDetailView: View {
                 Section {
                     RecipeHeroImage(imageUrl: recipe.imageUrl)
                         .listRowInsets(EdgeInsets())
+                }
+            }
+
+            if !recipe.cookSteps.isEmpty {
+                Section {
+                    Button {
+                        cooking = recipe
+                    } label: {
+                        Label("Cook it, step by step", systemImage: "frying.pan")
+                            .font(.headline)
+                    }
                 }
             }
 
@@ -399,6 +411,9 @@ struct RecipeDetailView: View {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+        }
+        .fullScreenCover(item: $cooking) { recipe in
+            CookModeView(recipe: recipe)
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack {

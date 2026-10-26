@@ -1342,3 +1342,52 @@ class TestFreezer:
         assert "at least 1" in await server.add_to_freezer("chilli", portions=0)
         assert "what went in" in await server.add_to_freezer("  ")
         assert not freezer.called and not meals.called
+
+
+class TestCookSteps:
+    RECIPE = {
+        "id": "r1",
+        "title": "Chilli",
+        "instructions": "1. Melt the butter.",
+        "ingredients": [{"name": "butter", "display": "50 g", "ingredient_id": "i1"}],
+        "steps_fingerprint": "abc123",
+        "steps_source": "matched",
+        "steps_outdated": False,
+        "steps": [
+            {
+                "number": 1,
+                "section": None,
+                "text": "Melt the butter.",
+                "spoken": "Melt the butter.",
+                "ingredients": [{"ingredient_id": "i1", "name": "butter", "amount": "50 g"}],
+            }
+        ],
+    }
+
+    @respx.mock
+    async def test_reading_shows_what_annotating_needs(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        respx.get(f"{API}/recipes/r1").mock(return_value=httpx.Response(200, json=self.RECIPE))
+        result = await server.get_cook_steps("chilli")
+        assert "steps_fingerprint=abc123" in result
+        assert "butter (50 g) ingredient_id=i1" in result
+        assert "matched by name" in result and "uses: butter 50 g" in result
+
+    @respx.mock
+    async def test_annotating_sends_the_fingerprint_and_steps(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        written = {**self.RECIPE, "steps_source": "ai"}
+        route = respx.put(f"{API}/recipes/r1/steps").mock(return_value=httpx.Response(200, json=written))
+        steps = [{"text": "Melt half the butter.", "ingredients": [{"ingredient_id": "i1", "amount": "25 g"}]}]
+        result = await server.annotate_recipe_steps("chilli", "abc123", steps)
+        assert json.loads(route.calls.last.request.content) == {"fingerprint": "abc123", "steps": steps}
+        assert "written by an assistant" in result
+
+    @respx.mock
+    async def test_a_stale_fingerprint_is_explained(self):
+        respx.get(f"{API}/recipes").mock(return_value=httpx.Response(200, json=[_library_recipe("r1", "Chilli")]))
+        respx.put(f"{API}/recipes/r1/steps").mock(
+            return_value=httpx.Response(409, json={"detail": "'Chilli' has changed since you read it"})
+        )
+        result = await server.annotate_recipe_steps("chilli", "old", [{"text": "x"}])
+        assert "changed since you read it" in result

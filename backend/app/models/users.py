@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -138,6 +138,17 @@ class Household(Base):
     # means this household has no printer, which is every household on a
     # server with no label service.
     label_printer_token: Mapped[str | None] = mapped_column(String(200), default=None)
+
+    # The household's own AI assistant (services/assistant.py, Q29): a webhook
+    # this server tells when a recipe's cook-mode steps want writing. The
+    # assistant does the work through the public API with its own token, so
+    # this server never calls an LLM. The token is the receiver's (OpenClaw's
+    # hook token, say) and is treated like the label printer's: never
+    # returned, logged or exported. Auto-prepare is off until somebody turns
+    # it on, because every message costs the household's own AI usage.
+    assistant_webhook_url: Mapped[str | None] = mapped_column(String(500), default=None)
+    assistant_webhook_token: Mapped[str | None] = mapped_column(String(500), default=None)
+    assistant_auto_prepare: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Two foreign keys now join these tables (a user's household, a household's
     # lead), so both relationships have to say which one they travel.

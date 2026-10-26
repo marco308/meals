@@ -204,6 +204,7 @@ export async function renderRecipeDetail(root, recipeId) {
           </div>
         </div>
         <div class="page-actions">
+          ${recipe.steps.length ? html`<a class="btn leek" href="#/recipes/${recipe.id}/cook">👩‍🍳 Cook it</a>` : ""}
           <button class="btn" data-plan-it>🍲 Put it on the plan</button>
           <a class="btn ghost" href="#/recipes/${recipe.id}/edit">Edit</a>
           ${recipe.source_url

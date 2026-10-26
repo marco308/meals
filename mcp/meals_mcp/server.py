@@ -43,7 +43,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 22
+PLAYBOOK_VERSION = 23
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -240,6 +240,59 @@ async def reparse_recipe(recipe: str, force: bool = False) -> str:
         return str(exc)
     lines = "\n".join(f"  - {line['name']}{_fmt_qty(line)}" for line in fresh["ingredients"])
     return f"Re-parsed from the source page: {_fmt_recipe_summary(fresh)}\nIngredients now:\n{lines}"
+
+
+def _fmt_steps(recipe: dict) -> str:
+    source = "written by an assistant" if recipe.get("steps_source") == "ai" else "matched by name"
+    note = " (an assistant's steps exist for an older version)" if recipe.get("steps_outdated") else ""
+    rows = []
+    for step in recipe.get("steps", []):
+        uses = ", ".join(f"{i['name']} {i['amount']}" if i.get("amount") else i["name"] for i in step["ingredients"])
+        section = f"[{step['section']}] " if step.get("section") else ""
+        rows.append(f"  {step['number']}. {section}{step['text']}" + (f"\n     uses: {uses}" if uses else ""))
+    return f"Cook-mode steps, {source}{note}:\n" + ("\n".join(rows) or "  (no method written down)")
+
+
+@mcp.tool()
+async def get_cook_steps(recipe: str) -> str:
+    """Show a recipe's cook-mode steps and everything annotate_recipe_steps
+    needs to rewrite them: the method, each ingredient line with its
+    ingredient_id and amount, and the steps_fingerprint to quote back."""
+    try:
+        found = (await _resolve_recipes([recipe]))[0]
+        full = await _call("GET", f"/recipes/{found['id']}")
+    except ApiError as exc:
+        return str(exc)
+    lines = "\n".join(
+        f"  - {line['name']} ({line['display'] or 'no amount'}) ingredient_id={line['ingredient_id']}"
+        for line in full["ingredients"]
+    )
+    return (
+        f"{full['title']} [id: {full['id']}] steps_fingerprint={full['steps_fingerprint']}\n"
+        f"Method:\n{full['instructions'] or '(none)'}\nIngredients:\n{lines}\n{_fmt_steps(full)}"
+    )
+
+
+@mcp.tool()
+async def annotate_recipe_steps(recipe: str, fingerprint: str, steps: list[dict]) -> str:
+    """Write a recipe's cook-mode steps: the method as steps, each with the
+    ingredients it uses and how much of each *that step* needs, which is what
+    cook mode pins beside the step. Call get_cook_steps first for the
+    ingredient ids and the fingerprint.
+
+    Each step: {"text": str, "section": str | None, "ingredients":
+    [{"ingredient_id": str, "amount": str | None}]}. Keep the recipe's own
+    wording (split a long step or join two short ones if it reads better), list
+    every ingredient a step touches, and say "amount" when the step uses part
+    of a line ("25 g", "half") or is the first to use it; leave it null when
+    the food is coming back ("return the chicken"). A 409 means the recipe
+    changed since you read it: call get_cook_steps again."""
+    try:
+        found = (await _resolve_recipes([recipe]))[0]
+        fresh = await _call("PUT", f"/recipes/{found['id']}/steps", json={"fingerprint": fingerprint, "steps": steps})
+    except ApiError as exc:
+        return str(exc)
+    return f"Saved. {_fmt_steps(fresh)}"
 
 
 @mcp.tool()

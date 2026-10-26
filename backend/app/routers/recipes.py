@@ -3,7 +3,7 @@ import uuid
 from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import nullsfirst, select
 from sqlalchemy.exc import IntegrityError
 
@@ -11,9 +11,19 @@ from app import limits
 from app.deps import CurrentUser, DbSession, require_verified_email
 from app.models import MealRecipe, Recipe
 from app.observability import log_event
-from app.schemas.catalog import IngestIn, IngestOut, RecipeCreate, RecipeOut, RecipeSummary, RecipeUpdate, ReparseIn
-from app.serializers import recipe_out, recipe_summary
-from app.services import recipe_parser
+from app.routers.skill import base_url
+from app.schemas.catalog import (
+    IngestIn,
+    IngestOut,
+    RecipeCreate,
+    RecipeOut,
+    RecipeSummary,
+    RecipeUpdate,
+    ReparseIn,
+    StepsIn,
+)
+from app.serializers import recipe_fingerprint, recipe_out, recipe_summary
+from app.services import assistant, recipe_parser
 from app.services.catalog import (
     create_recipe_from_payload,
     get_recipe,
@@ -66,6 +76,22 @@ async def _resync_meals_using(db: DbSession, household_id: uuid.UUID, recipe: Re
             await resync_meal_contributions(db, household_id, meal)
 
 
+def _ask_assistant_if_wanted(request: Request, db: DbSession, user, recipe: Recipe, before: str | None) -> None:
+    """After a write: if what cook mode is made from changed and the household
+    asked for it, have its assistant write the steps once the edits stop
+    (services/assistant.py). Never on an unverified account, which may not
+    make this server reach outward (Q26)."""
+    household = user.household
+    if not household.assistant_auto_prepare or not assistant.configured(household):
+        return
+    if user.email_verification_pending:
+        return
+    fingerprint = recipe_fingerprint(recipe)
+    if fingerprint == before:
+        return
+    assistant.schedule(db.bind, recipe.id, fingerprint, base_url(request))
+
+
 def _sort_order(sort: str) -> tuple:
     """Title is always the tiebreak so ordering is stable across requests."""
     if sort == "most_cooked":
@@ -78,7 +104,7 @@ def _sort_order(sort: str) -> tuple:
 
 
 @router.post("/ingest", response_model=IngestOut)
-async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession) -> IngestOut:
+async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession, request: Request) -> IngestOut:
     """Submit a recipe URL. A URL already in the library returns the cached
     recipe instantly (parse once, reuse forever). New URLs are fetched and
     parsed from their schema.org/Recipe JSON-LD — no LLM involved. Only public
@@ -150,11 +176,14 @@ async def ingest_recipe_url(payload: IngestIn, user: CurrentUser, db: DbSession)
     log_event("recipe.ingested", outcome="parsed", host=host, recipe_id=recipe.id)
     fresh = await get_recipe(db, household_id, recipe.id)
     assert fresh is not None
+    _ask_assistant_if_wanted(request, db, user, fresh, None)
     return IngestOut(recipe=recipe_out(fresh), cached=False)
 
 
 @router.post("", response_model=RecipeOut, status_code=status.HTTP_201_CREATED)
-async def create_recipe(payload: RecipeCreate, user: CurrentUser, db: DbSession, response: Response) -> RecipeOut:
+async def create_recipe(
+    payload: RecipeCreate, user: CurrentUser, db: DbSession, response: Response, request: Request
+) -> RecipeOut:
     """Create a recipe: manual entry (no URL) or a structured recipe an AI
     parsed from a page (set parse_source='ai' and include source_url).
     Submitting a source_url that already exists returns the stored recipe
@@ -181,6 +210,7 @@ async def create_recipe(payload: RecipeCreate, user: CurrentUser, db: DbSession,
         log_event("recipe.ingested", outcome="ai_parsed", host=_host_of(payload.source_url), recipe_id=recipe.id)
     fresh = await get_recipe(db, household_id, recipe.id)
     assert fresh is not None
+    _ask_assistant_if_wanted(request, db, user, fresh, None)
     return recipe_out(fresh)
 
 
@@ -220,13 +250,18 @@ async def get_recipe_detail(recipe_id: uuid.UUID, user: CurrentUser, db: DbSessi
 
 
 @router.patch("/{recipe_id}", response_model=RecipeOut)
-async def update_recipe(recipe_id: uuid.UUID, payload: RecipeUpdate, user: CurrentUser, db: DbSession) -> RecipeOut:
+async def update_recipe(
+    recipe_id: uuid.UUID, payload: RecipeUpdate, user: CurrentUser, db: DbSession, request: Request
+) -> RecipeOut:
     """Correct a parsed recipe. Edits mark the recipe as human-edited so
     nothing automated overwrites them. If the recipe is part of a meal on an
-    active plan, the shopping list is re-synced to the new ingredients."""
+    active plan, the shopping list is re-synced to the new ingredients.
+    Changing the method or the ingredients makes any cook-mode steps an
+    assistant wrote outdated (see PUT /recipes/{id}/steps)."""
     recipe = await get_recipe(db, user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
+    before = recipe_fingerprint(recipe)
 
     updates = payload.model_dump(exclude_unset=True, exclude={"ingredients"})
     for field, value in updates.items():
@@ -247,11 +282,14 @@ async def update_recipe(recipe_id: uuid.UUID, payload: RecipeUpdate, user: Curre
     await db.commit()
     fresh = await get_recipe(db, user.household_id, recipe.id)
     assert fresh is not None
+    _ask_assistant_if_wanted(request, db, user, fresh, before)
     return recipe_out(fresh)
 
 
 @router.post("/{recipe_id}/reparse", response_model=RecipeOut)
-async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: CurrentUser, db: DbSession) -> RecipeOut:
+async def reparse_recipe(
+    recipe_id: uuid.UUID, payload: ReparseIn, user: CurrentUser, db: DbSession, request: Request
+) -> RecipeOut:
     """Re-read this recipe from its `source_url` and replace what the page
     says: title, servings, times, image, instructions, tags and ingredients.
 
@@ -317,6 +355,7 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
         log_event("recipe.reparsed", outcome="no_jsonld", host=host, recipe_id=recipe.id)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    before = recipe_fingerprint(recipe)
     await update_recipe_from_payload(db, recipe, recipe_payload)
     recipe.parse_source = "jsonld"
     # The stored recipe is the page again, so it is no longer "edited here" —
@@ -328,6 +367,113 @@ async def reparse_recipe(recipe_id: uuid.UUID, payload: ReparseIn, user: Current
     log_event("recipe.reparsed", outcome="parsed", host=host, recipe_id=recipe.id)
     fresh = await get_recipe(db, user.household_id, recipe.id)
     assert fresh is not None
+    _ask_assistant_if_wanted(request, db, user, fresh, before)
+    return recipe_out(fresh)
+
+
+@router.put("/{recipe_id}/steps", response_model=RecipeOut)
+async def write_recipe_steps(recipe_id: uuid.UUID, payload: StepsIn, user: CurrentUser, db: DbSession) -> RecipeOut:
+    """Write this recipe's cook-mode steps: the method split into steps, each
+    with the ingredients it uses and how much of each *that step* needs.
+
+    Without this the server matches ingredient names in the method's text
+    (`steps_source: "matched"`), which cannot split an amount and misses
+    "the remaining sauce ingredients". This is what an assistant adds:
+    `{"fingerprint": <steps_fingerprint from GET /recipes/{id}>, "steps":
+    [{"text": "Melt half the butter and soften the onion.", "section": null,
+    "ingredients": [{"ingredient_id": <from the recipe's ingredients>,
+    "amount": "25 g"}]}]}`. Keep the recipe's own wording (you may split a long
+    step or join two short ones), list every ingredient a step touches, and
+    give `amount` only when the step uses part of a line or when it is
+    the first step using it, leaving it null for "return the chicken".
+
+    The fingerprint is the method and ingredients you read: if the recipe has
+    been edited since, this is a 409 telling you to read it again. Writing
+    steps changes nothing else about the recipe and does not mark it edited.
+    They last until the method or the ingredients change, after which the
+    recipe reports `steps_outdated: true` and matched steps until you write
+    them again."""
+    recipe = await get_recipe(db, user.household_id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
+    current = recipe_fingerprint(recipe)
+    if payload.fingerprint != current:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{recipe.title}' has changed since you read it, so these steps may describe a method or "
+                f"ingredients it no longer has. GET /recipes/{recipe.id} again and write the steps against "
+                f"its new steps_fingerprint ({current})."
+            ),
+        )
+    known = {link.ingredient_id: link.ingredient.name for link in recipe.ingredient_links}
+    unknown = sorted(
+        {str(entry.ingredient_id) for step in payload.steps for entry in step.ingredients} - {str(i) for i in known}
+    )
+    if unknown:
+        listing = "; ".join(f"{name} = {ingredient_id}" for ingredient_id, name in known.items())
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{', '.join(unknown)} is not an ingredient of '{recipe.title}'. Use the ingredient_id of one of "
+                f"its lines: {listing or 'it has none'}. To add an ingredient, PATCH the recipe first."
+            ),
+        )
+    recipe.cook_steps = [
+        {
+            "text": step.text.strip(),
+            "section": (step.section or "").strip() or None,
+            "ingredients": [
+                {"ingredient_id": str(entry.ingredient_id), "amount": (entry.amount or "").strip() or None}
+                for entry in step.ingredients
+            ],
+        }
+        for step in payload.steps
+    ]
+    recipe.cook_steps_fingerprint = current
+    await db.commit()
+    log_event("recipe.steps_written", recipe_id=recipe.id, steps=len(payload.steps))
+    fresh = await get_recipe(db, user.household_id, recipe.id)
+    assert fresh is not None
+    return recipe_out(fresh)
+
+
+@router.delete("/{recipe_id}/steps", response_model=RecipeOut)
+async def clear_recipe_steps(recipe_id: uuid.UUID, user: CurrentUser, db: DbSession) -> RecipeOut:
+    """Forget the steps an assistant wrote, so cook mode goes back to the
+    matched ones. Nothing else about the recipe changes."""
+    recipe = await get_recipe(db, user.household_id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
+    recipe.cook_steps = None
+    recipe.cook_steps_fingerprint = None
+    await db.commit()
+    fresh = await get_recipe(db, user.household_id, recipe.id)
+    assert fresh is not None
+    return recipe_out(fresh)
+
+
+@router.post("/{recipe_id}/steps/ask", response_model=RecipeOut)
+async def ask_assistant_for_steps(
+    recipe_id: uuid.UUID, user: CurrentUser, db: DbSession, request: Request
+) -> RecipeOut:
+    """Ask the household's own assistant to write this recipe's cook-mode
+    steps, through the webhook in Settings → Your assistant. It answers by
+    calling PUT /recipes/{id}/steps itself, usually within a minute; until
+    then the recipe shows `steps_requested_at`. A 409 means no assistant is
+    set up (paste the prompt into one instead), and asking twice in a row
+    sends one message."""
+    recipe = await get_recipe(db, user.household_id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
+    require_verified_email(user, "asking your assistant")
+    try:
+        await assistant.request_now(db, user.household, recipe, recipe_fingerprint(recipe), base_url(request))
+    except assistant.AssistantError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    fresh = await get_recipe(db, user.household_id, recipe.id)
+    assert fresh is not None
+    await db.refresh(fresh)
     return recipe_out(fresh)
 
 

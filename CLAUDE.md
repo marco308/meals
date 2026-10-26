@@ -264,6 +264,25 @@ instrumentation a new feature usually needs.
   link (QR alphanumeric mode, so it fits the smallest code with the biggest
   modules) that redirects to the web app; free-text batches get none. Keep the
   homelab out of the repo: its URL lives only in the gitignored deploy config.
+- **Cook mode's steps are derived, never stored as the method** (Q29,
+  `services/cook_steps.py`). `instructions` stays one text field; `steps` is
+  computed from it on every read, with each step's ingredients matched by name
+  (a word another food shares matches nothing, unless the other is a product
+  of it: "chicken" is the thigh, not the stock). An assistant may write better
+  steps with `PUT /recipes/{id}/steps`, stored against a `fingerprint` of the
+  method and the set of foods, and served only while that still matches:
+  linking by `ingredient_id`, because lines are recreated on every edit.
+  Writing steps does not mark a recipe `edited`. `spoken` is the server's, so
+  every client reads a step the same way.
+- **The household's assistant webhook is the one outbound call to an address
+  a household typed in** (`services/assistant.py`). It gets ingestion's guard
+  (https, public addresses, pinned dial) unless the operator lists the host in
+  `ASSISTANT_WEBHOOK_PRIVATE_HOSTS`, needs a verified email, sends ids and
+  this server's address but never the recipe, and is capped per household per
+  hour because it spends the household's own AI usage. The token is the
+  label printer's kind of secret: never returned, logged or exported.
+  Auto-prepare is a debounced in-process task (`assistant.schedule`), lost on
+  a restart by design: the button is still there.
 - **Premium vs budget** (`services/values.py`, Q17). An ingredient's
   `value_tier` (`premium`/`budget`/`any`, plus a one-line `value_note`) is the
   household's own verdict — unlike an aisle it is **never guessed**, so no
@@ -551,7 +570,7 @@ sign-in. Build the app through `http_app()` so both deployments get it. That hea
 reaches the tools through the `_capture_caller_headers` middleware, which
 publishes them in a contextvar for the life of the request: SDK 2.0 only hands
 the request context to a handler that declares a `Context` parameter, and the
-alternative is threading one through all 34 tools and their helpers. Keep the
+alternative is threading one through all 36 tools and their helpers. Keep the
 middleware registered — without it every remote call silently drops to the
 stdio env-token path.
 

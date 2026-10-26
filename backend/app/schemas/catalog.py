@@ -134,6 +134,22 @@ class RecipeUpdate(BaseModel):
     ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=MAX_RECIPE_LINES)
 
 
+class StepIngredientOut(BaseModel):
+    ingredient_id: uuid.UUID
+    name: str
+    # How much of it this step uses, as cooking text ("200 g", "half"). None
+    # when the step uses it again without more of it, or no amount is known.
+    amount: str | None
+
+
+class RecipeStepOut(BaseModel):
+    number: int  # 1-based, for "Step 3"
+    section: str | None  # "For the sauce", when the method is in parts
+    text: str
+    spoken: str  # the step as it should be read aloud: "200 grams", not "200g"
+    ingredients: list[StepIngredientOut]
+
+
 class RecipeOut(BaseModel):
     id: uuid.UUID
     title: str
@@ -151,6 +167,17 @@ class RecipeOut(BaseModel):
     times_cooked: int
     last_cooked_at: datetime | None
     ingredients: list[RecipeLineOut]
+    # Cook mode (Q29): the method as steps, each with the ingredients it uses.
+    # steps_source says who decided which: "matched" (this server, by finding
+    # names in the text) or "ai" (the household's assistant, via
+    # PUT /recipes/{id}/steps). steps_fingerprint is what that PUT must quote.
+    # steps_outdated means an assistant wrote steps for an earlier version of
+    # this recipe, so matched ones are being served until it writes them again.
+    steps: list[RecipeStepOut] = Field(default_factory=list)
+    steps_source: Literal["matched", "ai"] = "matched"
+    steps_fingerprint: str = ""
+    steps_outdated: bool = False
+    steps_requested_at: datetime | None = None
 
 
 class RecipeSummary(BaseModel):
@@ -183,6 +210,27 @@ class IngestIn(BaseModel):
 class IngestOut(BaseModel):
     recipe: RecipeOut
     cached: bool  # True when the URL was already in the library (parse once, reuse forever)
+
+
+MAX_COOK_STEPS = 80
+
+
+class StepIngredientIn(BaseModel):
+    ingredient_id: uuid.UUID
+    amount: str | None = Field(default=None, max_length=60)
+
+
+class StepIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    section: str | None = Field(default=None, max_length=120)
+    ingredients: list[StepIngredientIn] = Field(default_factory=list, max_length=MAX_RECIPE_LINES)
+
+
+class StepsIn(BaseModel):
+    """An assistant's cook-mode steps for one recipe (Q29)."""
+
+    fingerprint: str = Field(min_length=1, max_length=32)
+    steps: list[StepIn] = Field(min_length=1, max_length=MAX_COOK_STEPS)
 
 
 class ReparseIn(BaseModel):

@@ -128,8 +128,13 @@ struct SettingsView: View {
             } label: {
                 Label("Meal times", systemImage: "clock")
             }
+            NavigationLink {
+                CookVoiceView()
+            } label: {
+                Label("Cook mode voice", systemImage: "speaker.wave.2")
+            }
         } footer: {
-            Text("What the plan offers for breakfast, lunch and dinner, on the Lock Screen while it's time.")
+            Text("What the plan offers for breakfast, lunch and dinner, on the Lock Screen while it's time, and the voice that reads a recipe's steps aloud.")
         }
     }
 

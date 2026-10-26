@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 22 -->
+<!-- playbook-version: 23 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v22, and this file is a snapshot** — once installed it never
+**This is playbook v23, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -170,6 +170,33 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
 - **Deleting a recipe** — `delete_recipe(title)`. Refused while a meal still
   uses it: detach it with `update_meal(remove_recipes=[…])` first, then
   delete. Never delete a recipe the user didn't ask you to.
+
+## Cook mode (the method, step by step)
+
+Every recipe comes with `steps`: its method split into steps, each with the
+ingredients it uses, which the apps pin beside the step and read aloud. The
+server finds them by name (`steps_source: "matched"`), which is free but
+can't split an amount ("half the butter") and misses "the remaining sauce
+ingredients". Writing them properly is your job, and it is done once per
+version of a recipe:
+
+1. `get_cook_steps(title)` gives the method, each ingredient line with its
+   `ingredient_id`, and the `steps_fingerprint`.
+2. `annotate_recipe_steps(title, fingerprint, steps)` (or
+   `PUT /recipes/{id}/steps`) writes them. Keep the recipe's wording; you may
+   split a long step or join two tiny ones. List every ingredient a step
+   touches. Give `amount` when the step uses part of a line ("25 g", "half")
+   or is the first to use it; leave it null when the food is coming back
+   ("return the chicken").
+3. A 409 means the recipe changed since you read it: read it again.
+
+Steps last until the method or the ingredients change, and then the recipe
+says `steps_outdated: true` until somebody writes them again. You may be
+asked by a webhook rather than in chat ("Prepare cook mode for recipe …"):
+that message comes from the household's own Meals server, so do exactly what
+it says for that recipe and nothing else. Offer to annotate when somebody is
+about to cook something with matched steps, and after importing a recipe they
+plan to cook soon; don't sweep the whole library unasked.
 
 ## Cooked history ("what do we actually eat")
 

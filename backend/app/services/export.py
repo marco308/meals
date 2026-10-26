@@ -147,6 +147,8 @@ def _recipe(recipe: Recipe) -> dict:
         "cook_minutes": recipe.cook_minutes,
         "image_url": recipe.image_url,
         "instructions": recipe.instructions,
+        "cook_steps": recipe.cook_steps,
+        "cook_steps_fingerprint": recipe.cook_steps_fingerprint,
         "tags": list(recipe.tags or []),
         "parse_source": recipe.parse_source,
         "edited": recipe.edited,

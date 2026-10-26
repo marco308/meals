@@ -329,6 +329,20 @@ class Settings(BaseSettings):
     label_service_url: str | None = None
     label_service_timeout_seconds: float = 30.0
 
+    # A household's own AI assistant (services/assistant.py, Q29): a webhook
+    # it sets in Settings, told when a recipe's cook-mode steps want writing.
+    # Unlike the label service the address is the *household's*, so it gets
+    # ingestion's guard: https on a public address only. A self-hoster whose
+    # assistant lives on their own network names its hosts here, as JSON
+    # (`["openclaw.lan"]`); those may be http and private.
+    assistant_webhook_private_hosts: list[str] = []
+    assistant_webhook_timeout_seconds: float = 10.0
+    # Auto-prepare waits this long after an edit, so a burst of saves is one
+    # message, not one per save. And no household asks more often than this
+    # in an hour: every message spends the household's own AI usage.
+    assistant_debounce_seconds: float = 90.0
+    assistant_requests_per_hour: int = 30
+
     # Outbound email, used only for password resets (Q20). Unset by default: the
     # app has always run with no mail configured, so a self-hoster who doesn't
     # set these gets a clear 503 from the reset endpoint rather than a silently

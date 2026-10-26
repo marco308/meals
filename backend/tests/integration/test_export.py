@@ -305,12 +305,18 @@ class TestNothingIsLeftBehind:
             # A credential for somebody else's service, and for a printer in
             # one kitchen: worthless on another box and not to be handed about.
             "label_printer_token",
+            # The same for the household's assistant: its token, the address
+            # that token is for, and whether to call it unasked.
+            "assistant_webhook_token",
+            "assistant_webhook_url",
+            "assistant_auto_prepare",
         },
         # When this server confirmed the address is its own bookkeeping too:
         # the next server will ask again, and should.
         User: {"password_hash", "household_id", "email_verified_at"},
         Ingredient: {"household_id"},
-        Recipe: {"household_id"},
+        # When this server last asked an assistant is its own bookkeeping.
+        Recipe: {"household_id", "cook_steps_requested_at"},
         # Link rows: their own id and their parent are implied by the nesting.
         RecipeIngredient: {"id", "recipe_id"},
         Meal: {"household_id"},
