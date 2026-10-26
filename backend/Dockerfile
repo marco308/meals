@@ -5,7 +5,7 @@
 # CA - G3, whose intermediate keys leaked. The Docker Hub base drops G3 and
 # ships pip 26.2.2; uv comes from its own pinned minor (0.13.4+ has the fixed
 # bundle). Build with --pull so the base is never a stale local copy.
-FROM python:3.13-slim-bookworm
+FROM python:3.15-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /uvx /usr/local/bin/
 
 WORKDIR /srv/meals
