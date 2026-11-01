@@ -112,10 +112,28 @@ async def _set_loose_ingredients(
 
 async def _set_freezer_items(db: AsyncSession, household_id: uuid.UUID, meal: Meal, lines: list[MealFreezerIn]) -> None:
     """Replace what the meal takes from the freezer. A batch is named once;
-    naming it twice adds the portions, because that is what was meant."""
+    naming it twice adds the portions, because that is what was meant. A
+    label keeps one of the meal's eaten-up lines, which have no batch to
+    point at any more (Q30)."""
+    existing = list((await db.execute(select(MealFreezerItem).where(MealFreezerItem.meal_id == meal.id))).scalars())
+    eaten_up = [link for link in existing if link.freezer_item_id is None]
     portions: dict[uuid.UUID, int] = {}
+    kept: list[tuple[str, int]] = []
     for line in lines:
-        portions[line.freezer_item_id] = portions.get(line.freezer_item_id, 0) + line.portions
+        if line.freezer_item_id is not None:
+            portions[line.freezer_item_id] = portions.get(line.freezer_item_id, 0) + line.portions
+            continue
+        match = next((link for link in eaten_up if link.label.lower() == line.label.strip().lower()), None)
+        if match is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"'{line.label}' is not an eaten-up freezer line of this meal; name a batch that is "
+                    "still in the freezer by freezer_item_id from GET /freezer"
+                ),
+            )
+        eaten_up.remove(match)
+        kept.append((match.label, line.portions))
     batches = []
     for item_id, wanted in portions.items():
         batch = await get_freezer_item(db, household_id, item_id)
@@ -125,11 +143,12 @@ async def _set_freezer_items(db: AsyncSession, household_id: uuid.UUID, meal: Me
                 detail=f"freezer batch {item_id} not found; see what is in the freezer via GET /freezer",
             )
         batches.append((batch, wanted))
-    existing = await db.execute(select(MealFreezerItem).where(MealFreezerItem.meal_id == meal.id))
-    for link in existing.scalars():
+    for link in existing:
         await db.delete(link)
     for batch, wanted in batches:
         db.add(MealFreezerItem(meal_id=meal.id, freezer_item_id=batch.id, label=batch.label, portions=wanted))
+    for label, wanted in kept:
+        db.add(MealFreezerItem(meal_id=meal.id, freezer_item_id=None, label=label, portions=wanted))
     await db.flush()
 
 

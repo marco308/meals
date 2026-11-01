@@ -62,10 +62,24 @@ class MealFreezerIn(BaseModel):
     """Portions of a freezer batch the meal is made of (Q30): ids come from
     `GET /freezer`. They are already cooked, so nothing about them reaches the
     shopping list. Taking them out stays its own act, `POST
-    /freezer/{id}/take`, when they are actually eaten."""
+    /freezer/{id}/take`, when they are actually eaten.
 
-    freezer_item_id: uuid.UUID
+    A line whose batch has been eaten up has no id left, so it is sent back
+    as `{label, portions}` to keep it: the label must be one of this meal's
+    eaten-up lines, and leaving it out of the list drops it."""
+
+    freezer_item_id: uuid.UUID | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=300)
     portions: int = Field(default=1, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _one_way_of_naming_it(self) -> "MealFreezerIn":
+        if (self.freezer_item_id is None) == (self.label is None):
+            raise ValueError(
+                "name a freezer line by freezer_item_id (from GET /freezer), or by label to keep "
+                "one of this meal's eaten-up lines; send exactly one of the two"
+            )
+        return self
 
 
 class MealFreezerOut(BaseModel):

@@ -139,3 +139,57 @@ class TestChangingIt:
         async with async_sessionmaker(engine)() as session:
             count = (await session.execute(select(func.count()).select_from(MealFreezerItem))).scalar_one()
         assert count == 0
+
+
+class TestEatenUpLinesSurviveEdits:
+    async def _eaten_up_meal(self, client) -> dict:
+        batch = await freeze(client, label="Chilli", portions=1)
+        meal = await create_meal(client, name="Chilli night", from_freezer=[{"freezer_item_id": batch["id"]}])
+        taken = await client.post(f"/freezer/{batch['id']}/take", json={})
+        assert taken.status_code == 200, taken.text
+        return meal
+
+    async def test_a_label_keeps_an_eaten_up_line(self, auth_client):
+        meal = await self._eaten_up_meal(auth_client)
+        dhal = await freeze(auth_client, label="Dhal", portions=2)
+        response = await auth_client.patch(
+            f"/meals/{meal['id']}",
+            json={"from_freezer": [{"label": "chilli", "portions": 1}, {"freezer_item_id": dhal["id"]}]},
+        )
+        assert response.status_code == 200, response.text
+        lines = {(line["label"], line["freezer_item_id"]) for line in response.json()["from_freezer"]}
+        assert lines == {("Chilli", None), ("Dhal", dhal["id"])}
+
+    async def test_a_patch_without_from_freezer_leaves_it_alone(self, auth_client):
+        meal = await self._eaten_up_meal(auth_client)
+        response = await auth_client.patch(f"/meals/{meal['id']}", json={"name": "Chilli again"})
+        assert [line["label"] for line in response.json()["from_freezer"]] == ["Chilli"]
+
+    async def test_a_label_cannot_invent_a_line(self, auth_client):
+        meal = await create_meal(auth_client, name="Nothing frozen")
+        response = await auth_client.patch(f"/meals/{meal['id']}", json={"from_freezer": [{"label": "Lasagne"}]})
+        assert response.status_code == 422
+        assert "GET /freezer" in response.json()["detail"]
+
+    async def test_a_line_is_named_one_way(self, auth_client):
+        batch = await freeze(auth_client, label="Chilli", portions=1)
+        response = await auth_client.post(
+            "/meals", json={"name": "x", "from_freezer": [{"freezer_item_id": batch["id"], "label": "Chilli"}]}
+        )
+        assert response.status_code == 422
+
+
+async def test_merge_tells_one_eaten_up_line_from_two(auth_client, engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.services.meal_merge import find_groups
+
+    for count in (1, 2):
+        batches = [await freeze(auth_client, label="Chilli", portions=1) for _ in range(count)]
+        await create_meal(
+            auth_client, name="Chilli night", from_freezer=[{"freezer_item_id": batch["id"]} for batch in batches]
+        )
+        for batch in batches:
+            await auth_client.post(f"/freezer/{batch['id']}/take", json={})
+    async with async_sessionmaker(engine)() as session:
+        assert await find_groups(session) == []

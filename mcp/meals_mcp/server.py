@@ -401,7 +401,9 @@ async def delete_recipe(title: str) -> str:
 
 async def _resolve_freezer(asked: dict[str, int]) -> list[dict]:
     """{"mango chicken": 2} → [{"freezer_item_id": …, "portions": 2}], matching a
-    batch id, then an exact label, then a single partial one, oldest first."""
+    batch id, then an exact label, then a single partial one. Portions come
+    from the oldest batch of that name first and spill into the next, the way
+    take_from_freezer eats them, and asking for more than is there is refused."""
     if not asked:
         return []
     stock = (await _call("GET", "/freezer"))["items"]
@@ -414,7 +416,17 @@ async def _resolve_freezer(asked: dict[str, int]) -> list[dict]:
         if not matches or len({item["label"] for item in matches}) > 1:
             labels = ", ".join(sorted({item["label"] for item in stock})) or "(the freezer is empty)"
             raise ApiError(f"No single freezer batch matches '{key}'. In there: {labels}")
-        lines.append({"freezer_item_id": matches[0]["id"], "portions": portions})
+        held = sum(item["portions"] for item in matches)
+        if portions > held:
+            raise ApiError(
+                f"Only {held} portion{'' if held == 1 else 's'} of {matches[0]['label']} in the freezer, "
+                f"not {portions}. Plan what is there, and make up the rest with another side."
+            )
+        for item in matches:  # oldest first, as the API lists them
+            take = min(item["portions"], portions)
+            if take > 0:
+                lines.append({"freezer_item_id": item["id"], "portions": take})
+                portions -= take
     return lines
 
 
@@ -579,15 +591,18 @@ async def update_meal(
 
         if add_from_freezer or remove_from_freezer:
             dropped = {name.lower().strip() for name in (remove_from_freezer or [])}
-            # A batch that has been eaten up has no id left to send, so it goes.
-            frozen = [
-                {"freezer_item_id": line["freezer_item_id"], "portions": line["portions"]}
-                for line in meal.get("from_freezer") or []
-                if line.get("freezer_item_id") and line["label"].lower() not in dropped
-            ]
             added = await _resolve_freezer(add_from_freezer or {})
             ids = {line["freezer_item_id"] for line in added}
-            payload["from_freezer"] = [line for line in frozen if line["freezer_item_id"] not in ids] + added
+            # A line whose batch was eaten up has no id left, so it is kept by
+            # its label; PATCH replaces the list, and anything left out goes.
+            kept = [
+                {"freezer_item_id": line["freezer_item_id"], "portions": line["portions"]}
+                if line.get("freezer_item_id")
+                else {"label": line["label"], "portions": line["portions"]}
+                for line in meal.get("from_freezer") or []
+                if line["label"].lower() not in dropped and line.get("freezer_item_id") not in ids
+            ]
+            payload["from_freezer"] = kept + added
 
         if not payload:
             return (

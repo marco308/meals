@@ -279,12 +279,15 @@ export async function renderMealEditor(root, mealId) {
   render(root, skeleton());
   const [meal, stock] = await Promise.all([mealId ? api(`/meals/${mealId}`) : null, api("/freezer")]);
   // Freezer batches by id, portions this meal takes from each (0 = none). A
-  // batch already eaten up has no id and cannot be picked again, so it drops
-  // out on save, which is what the editor shows by not listing it.
+  // line whose batch has been eaten up has no id and is not offered again,
+  // but it is sent back by its label so an edit never loses it.
   const frozen = new Map(stock.items.map((item) => [item.id, 0]));
   for (const line of meal?.from_freezer ?? []) {
     if (line.freezer_item_id && frozen.has(line.freezer_item_id)) frozen.set(line.freezer_item_id, line.portions);
   }
+  const eatenUp = (meal?.from_freezer ?? [])
+    .filter((line) => !line.freezer_item_id)
+    .map(({ label, portions }) => ({ label, portions }));
   // `servings` is the recipe's own figure and never changes; `wanted` is how
   // many this meal is for. When the recipe says how many it serves we ask in
   // portions and let the server do the division (issue #53) — a multiplier is
@@ -459,10 +462,16 @@ export async function renderMealEditor(root, mealId) {
         servings ? { recipe_id, servings: wanted ?? servings } : { recipe_id, scale },
       ),
       loose_ingredients: lines.read(),
-      from_freezer: [...root.querySelectorAll("[data-frozen]")]
-        .map((input) => ({ freezer_item_id: input.dataset.frozen, portions: Math.round(Number(input.value) || 0) }))
-        .filter((line) => line.portions > 0),
     };
+    // Sent only when the picks changed, so renaming a meal or changing its
+    // sides never rewrites what it takes from the freezer.
+    const picks = [...root.querySelectorAll("[data-frozen]")].map((input) => ({
+      freezer_item_id: input.dataset.frozen,
+      portions: Math.max(0, Math.round(Number(input.value) || 0)),
+    }));
+    if (!meal || picks.some((pick) => pick.portions !== frozen.get(pick.freezer_item_id))) {
+      body.from_freezer = [...picks.filter((pick) => pick.portions > 0), ...eatenUp];
+    }
     try {
       const saved = meal
         ? await api(`/meals/${meal.id}`, { method: "PATCH", body })

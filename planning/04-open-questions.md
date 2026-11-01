@@ -581,7 +581,10 @@ loose ingredients: a freezer batch and how many portions of it. Decisions:
   rule). The batch's label is copied onto the line and `freezer_item_id` is
   `SET NULL`, because a batch is deleted when its last portion is taken, and
   the meal should still say what it was. `MealOut.from_freezer` carries
-  `portions_left` and `frozen_on` while the batch exists and null after.
+  `portions_left` and `frozen_on` while the batch exists and null after. Since
+  `from_freezer` replaces the list, an eaten-up line is sent back as
+  `{label, portions}` to keep it (only a label the meal already has), and the
+  web editor sends the list only when the picks changed.
 - **Planning and eating take nothing out.** Q24's "eating from the freezer is
   not a cooking" still holds: marking the meal cooked records the meal, and
   `POST /freezer/{id}/take` stays the act of taking portions out. Doing it

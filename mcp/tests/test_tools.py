@@ -769,6 +769,59 @@ class TestMealsFromTheFreezer:
         assert not route.called
 
     @respx.mock
+    async def test_portions_come_oldest_first_and_spill_over(self):
+        stock = {
+            "items": [
+                {"id": "c1", "label": "Chilli", "portions": 1, "frozen_on": "2026-09-01"},
+                {"id": "c2", "label": "Chilli", "portions": 3, "frozen_on": "2026-10-01"},
+            ],
+            "total_portions": 4,
+        }
+        respx.get(f"{API}/freezer").mock(return_value=httpx.Response(200, json=stock))
+        route = respx.post(f"{API}/meals").mock(
+            return_value=httpx.Response(201, json={"id": "m", "name": "Chilli night", "slot": "dinner"})
+        )
+        await server.create_meal("Chilli night", from_freezer={"chilli": 2})
+        body = json.loads(route.calls.last.request.content)
+        assert body["from_freezer"] == [
+            {"freezer_item_id": "c1", "portions": 1},
+            {"freezer_item_id": "c2", "portions": 1},
+        ]
+        result = await server.create_meal("Chilli feast", from_freezer={"chilli": 5})
+        assert "Only 4 portions of Chilli" in result
+        assert route.call_count == 1
+
+    @respx.mock
+    async def test_update_keeps_an_eaten_up_line(self):
+        respx.get(f"{API}/meals").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "m1",
+                        "name": "Freezer night",
+                        "slot": "dinner",
+                        "recipes": [],
+                        "loose_ingredients": [],
+                        "from_freezer": [{"freezer_item_id": None, "label": "Chilli", "portions": 1}],
+                    }
+                ],
+            )
+        )
+        respx.get(f"{API}/freezer").mock(return_value=httpx.Response(200, json=self.FREEZER))
+        route = respx.patch(f"{API}/meals/m1").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "m1", "name": "Freezer night", "slot": "dinner", "recipes": [], "loose_ingredients": []},
+            )
+        )
+        await server.update_meal("Freezer night", add_from_freezer={"mango chicken": 1})
+        assert json.loads(route.calls.last.request.content)["from_freezer"] == [
+            {"label": "Chilli", "portions": 1},
+            {"freezer_item_id": "f1", "portions": 1},
+        ]
+
+    @respx.mock
     async def test_get_plan_shows_the_freezer_portions(self):
         respx.get(f"{API}/plans/current").mock(
             return_value=httpx.Response(
