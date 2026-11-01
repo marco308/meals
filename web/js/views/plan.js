@@ -4,7 +4,7 @@
 // just say so.
 
 import { api } from "../api.js";
-import { compareSlotLists, mealThumb } from "./meals.js";
+import { compareSlotLists, mealMakeup, mealThumb } from "./meals.js";
 import { confirmDialog, emptyState, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
 
 export async function renderPlan(root, planId = null) {
@@ -157,6 +157,9 @@ function planMeal(pm, plan, isActive) {
       <div class="m-main">
         <a class="m-name" href="#/meals/${meal.id}">${meal.name}</a>
         <div class="m-meta">
+          ${(meal.from_freezer ?? []).map(
+            (line) => html`<span class="chip butter" title="Already cooked: take it out of the freezer to eat">🧊 ${line.label} ×${line.portions}</span>`,
+          )}
           ${cookedChip(pm, meal)}
         </div>
       </div>
@@ -324,7 +327,7 @@ async function addMealDialog(plan, reload) {
             <div class="p-main">
               <div class="p-title">${meal.name}</div>
               <div class="p-sub">
-                ${meal.recipes.map((r) => r.title).join(" + ") || "loose ingredients"}
+                ${mealMakeup(meal)}
                 ${meal.times_cooked > 0 ? ` · cooked ${meal.times_cooked}×` : " · new"}
               </div>
             </div>

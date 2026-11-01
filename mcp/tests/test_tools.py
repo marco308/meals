@@ -726,6 +726,75 @@ class TestMealEditing:
         assert route.called
 
 
+class TestMealsFromTheFreezer:
+    FREEZER = {
+        "items": [
+            {"id": "f1", "label": "Mango Chicken", "portions": 2, "frozen_on": "2026-10-02"},
+            {"id": "f2", "label": "Italian Beef Sandwich", "portions": 4, "frozen_on": "2026-10-25"},
+        ],
+        "total_portions": 6,
+    }
+
+    @respx.mock
+    async def test_create_meal_names_the_batch(self):
+        respx.get(f"{API}/freezer").mock(return_value=httpx.Response(200, json=self.FREEZER))
+        route = respx.post(f"{API}/meals").mock(
+            return_value=httpx.Response(
+                201,
+                json={
+                    "id": "m9",
+                    "name": "Mango chicken with rice",
+                    "slot": "dinner",
+                    "slots": ["dinner"],
+                    "from_freezer": [{"freezer_item_id": "f1", "label": "Mango Chicken", "portions": 2}],
+                },
+            )
+        )
+        result = await server.create_meal(
+            "Mango chicken with rice",
+            loose_ingredients=[{"name": "basmati rice", "quantity": 150, "unit": "g"}],
+            from_freezer={"mango": 2},
+        )
+        body = json.loads(route.calls.last.request.content)
+        assert body["from_freezer"] == [{"freezer_item_id": "f1", "portions": 2}]
+        assert "from the freezer: Mango Chicken ×2" in result
+
+    @respx.mock
+    async def test_unknown_batch_lists_the_freezer_and_sends_nothing(self):
+        respx.get(f"{API}/freezer").mock(return_value=httpx.Response(200, json=self.FREEZER))
+        route = respx.post(f"{API}/meals")
+        result = await server.create_meal("Lasagne night", from_freezer={"lasagne": 1})
+        assert "No single freezer batch matches 'lasagne'" in result
+        assert "Mango Chicken" in result
+        assert not route.called
+
+    @respx.mock
+    async def test_get_plan_shows_the_freezer_portions(self):
+        respx.get(f"{API}/plans/current").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "p1",
+                    "label": "This week",
+                    "meals": [
+                        {
+                            "id": "pm1",
+                            "cooked_at": None,
+                            "meal": {
+                                "name": "Mango chicken with rice",
+                                "slot": "dinner",
+                                "recipes": [],
+                                "from_freezer": [{"freezer_item_id": "f1", "label": "Mango Chicken", "portions": 2}],
+                            },
+                        }
+                    ],
+                },
+            )
+        )
+        result = await server.get_plan()
+        assert "Mango chicken with rice (🧊 Mango Chicken ×2)" in result
+
+
 class TestPlan:
     @respx.mock
     async def test_get_plan_groups_by_slot(self):

@@ -194,6 +194,11 @@ def _meal(meal: Meal) -> dict:
             }
             for link in meal.ingredient_links
         ],
+        # The label is the record here too: the batch may be eaten up and gone.
+        "from_freezer": [
+            {"freezer_item_id": link.freezer_item_id, "label": link.label, "portions": link.portions}
+            for link in meal.freezer_links
+        ],
     }
 
 

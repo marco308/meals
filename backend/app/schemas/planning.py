@@ -58,6 +58,27 @@ def _resolve_recipes(
 SlotName = Annotated[str, Field(max_length=30)]
 
 
+class MealFreezerIn(BaseModel):
+    """Portions of a freezer batch the meal is made of (Q30): ids come from
+    `GET /freezer`. They are already cooked, so nothing about them reaches the
+    shopping list. Taking them out stays its own act, `POST
+    /freezer/{id}/take`, when they are actually eaten."""
+
+    freezer_item_id: uuid.UUID
+    portions: int = Field(default=1, ge=1, le=50)
+
+
+class MealFreezerOut(BaseModel):
+    """`freezer_item_id` and `portions_left` are null once the batch has been
+    eaten up; `label` stays, so the meal still says what it was."""
+
+    freezer_item_id: uuid.UUID | None
+    label: str
+    portions: int
+    portions_left: int | None
+    frozen_on: date | None
+
+
 class MealCreate(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     slot: str | None = Field(default=None, max_length=30)
@@ -67,6 +88,7 @@ class MealCreate(BaseModel):
     recipe_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
     recipes: list[MealRecipeIn] | None = Field(default=None, max_length=20)
     loose_ingredients: list[IngredientLineIn] = Field(default_factory=list, max_length=50)
+    from_freezer: list[MealFreezerIn] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def _one_recipe_field(self) -> "MealCreate":
@@ -86,6 +108,7 @@ class MealUpdate(BaseModel):
     recipe_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
     recipes: list[MealRecipeIn] | None = Field(default=None, max_length=20)
     loose_ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=50)
+    from_freezer: list[MealFreezerIn] | None = Field(default=None, max_length=10)
 
     @model_validator(mode="after")
     def _one_recipe_field(self) -> "MealUpdate":
@@ -120,6 +143,7 @@ class MealOut(BaseModel):
     slots: list[str] = Field(default_factory=list)
     recipes: list[MealRecipeOut]
     loose_ingredients: list[RecipeLineOut]
+    from_freezer: list[MealFreezerOut] = Field(default_factory=list)
     created_at: datetime
     times_cooked: int
     last_cooked_at: datetime | None

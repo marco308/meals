@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 23 -->
+<!-- playbook-version: 24 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v23, and this file is a snapshot** — once installed it never
+**This is playbook v24, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -235,6 +235,15 @@ oldest batch first; `add_to_freezer(name, portions)` when a batch goes in;
 - **Taking is not cooking.** Eating from the freezer touches nothing else —
   the cooking was recorded when the batch was made — and a batch disappears
   when its last portion goes. `all_of_it=True` bins a batch outright.
+- **A meal can be made of freezer portions.** "Put the curry from the freezer
+  on the plan" is a meal: `create_meal("Mango chicken with rice",
+  from_freezer={"mango chicken": 2}, loose_ingredients=[rice, naan…])`, then
+  `add_meal_to_plan`. The portions put nothing on the shopping list (they are
+  already cooked), so round the meal out with the sides that make it dinner
+  (a carb and some veg) as loose ingredients, which *are* bought. Read
+  `get_freezer()` for portions left and don't plan more than there are.
+  Planning takes nothing out: call `take_from_freezer` when it is eaten.
+  `update_meal(add_from_freezer=…, remove_from_freezer=…)` changes it later.
 - **Offer it at the right moments; don't nag.** When a meal is marked cooked
   at ×2 or more, ask whether portions went in the freezer. When the user asks
   what to cook, mention what's in the freezer before proposing a shop.

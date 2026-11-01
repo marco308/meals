@@ -6,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import limits
 from app.deps import CurrentUser, DbSession
-from app.models import Meal, MealIngredient, MealRecipe, Plan, PlanMeal
+from app.models import Meal, MealFreezerItem, MealIngredient, MealRecipe, Plan, PlanMeal
 from app.schemas.common import IngredientLineIn
-from app.schemas.planning import MealCreate, MealOut, MealRecipeIn, MealUpdate
+from app.schemas.planning import MealCreate, MealFreezerIn, MealOut, MealRecipeIn, MealUpdate
 from app.serializers import meal_out
 from app.services.catalog import get_or_create_ingredient, get_recipe
+from app.services.freezer import get_item as get_freezer_item
 from app.services.scaling import ScalingError, scale_for_servings
 from app.services.shopping import get_active_list, remove_meal_contributions, resync_meal_contributions
 from app.services.slots import apply_single_slot, clean_slot, clean_slots, meal_slots, set_meal_slots
@@ -77,7 +78,12 @@ async def _same_meal(
         select(Meal).where(Meal.household_id == household_id, func.lower(Meal.name) == name.lower())
     )
     for meal in result.scalars():
-        if meal.name.lower() != name.lower() or meal_slots(meal) != slots or meal.ingredient_links:
+        if (
+            meal.name.lower() != name.lower()
+            or meal_slots(meal) != slots
+            or meal.ingredient_links
+            or meal.freezer_links
+        ):
             continue
         if {link.recipe_id: link.scale for link in meal.recipe_links} == scales:
             return meal
@@ -104,6 +110,29 @@ async def _set_loose_ingredients(
     await db.flush()
 
 
+async def _set_freezer_items(db: AsyncSession, household_id: uuid.UUID, meal: Meal, lines: list[MealFreezerIn]) -> None:
+    """Replace what the meal takes from the freezer. A batch is named once;
+    naming it twice adds the portions, because that is what was meant."""
+    portions: dict[uuid.UUID, int] = {}
+    for line in lines:
+        portions[line.freezer_item_id] = portions.get(line.freezer_item_id, 0) + line.portions
+    batches = []
+    for item_id, wanted in portions.items():
+        batch = await get_freezer_item(db, household_id, item_id)
+        if batch is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"freezer batch {item_id} not found; see what is in the freezer via GET /freezer",
+            )
+        batches.append((batch, wanted))
+    existing = await db.execute(select(MealFreezerItem).where(MealFreezerItem.meal_id == meal.id))
+    for link in existing.scalars():
+        await db.delete(link)
+    for batch, wanted in batches:
+        db.add(MealFreezerItem(meal_id=meal.id, freezer_item_id=batch.id, label=batch.label, portions=wanted))
+    await db.flush()
+
+
 @router.post("", response_model=MealOut, status_code=status.HTTP_201_CREATED)
 async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession, response: Response) -> MealOut:
     """A meal = zero or more recipes plus loose ingredients — 'cottage pie
@@ -123,13 +152,19 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession, res
     for a meal that works as either; `slot` is the one-slot spelling and
     comes back as the first of them.
 
+    `from_freezer: [{freezer_item_id, portions}]` makes the meal out of
+    something already cooked: the curry from the freezer, with rice and
+    naan as loose ingredients. Those portions put nothing on the shopping
+    list; ids come from `GET /freezer`, and taking them out is still
+    `POST /freezer/{id}/take` once they are eaten.
+
     Posting a meal the household already has (same name, slots, recipes and
     scales, no extras) returns that meal with 200 instead of a copy, so
     "plan this recipe" can be sent every time without filling the library
     with duplicates."""
     name = payload.name.strip()
     slots = clean_slots(payload.slots if payload.slots is not None else [payload.slot or ""])
-    if not payload.loose_ingredients:
+    if not payload.loose_ingredients and not payload.from_freezer:
         # Before the cap: reusing a meal adds nothing, so a household at its
         # limit can still put an old favourite back on the plan.
         scales = await _resolve_scales(db, user.household_id, payload.resolved_recipes)
@@ -143,7 +178,7 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession, res
         db,
         user.household,
         "meal_lines",
-        used=len(payload.resolved_recipes) + len(payload.loose_ingredients),
+        used=len(payload.resolved_recipes) + len(payload.loose_ingredients) + len(payload.from_freezer),
         adding=0,
     )
     meal = Meal(household_id=user.household_id, name=name)
@@ -152,6 +187,7 @@ async def create_meal(payload: MealCreate, user: CurrentUser, db: DbSession, res
     await db.flush()
     await _set_recipes(db, user.household_id, meal, payload.resolved_recipes)
     await _set_loose_ingredients(db, user.household_id, meal, payload.loose_ingredients)
+    await _set_freezer_items(db, user.household_id, meal, payload.from_freezer)
     await db.commit()
     fresh = await get_meal(db, user.household_id, meal.id)
     assert fresh is not None
@@ -196,7 +232,9 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
     Changing a recipe's `scale` is a composition change: send the whole
     `recipes: [{recipe_id, scale}]` list, and the list follows — ×1 to ×2
     re-surfaces exactly the doubled lines and leaves everything else ticked.
-    `{recipe_id, servings}` scales the same way in portions instead."""
+    `{recipe_id, servings}` scales the same way in portions instead.
+    `from_freezer` replaces what the meal takes from the freezer (`[]` for
+    nothing); it never changes the shopping list."""
     meal = await get_meal(db, user.household_id, meal_id)
     if meal is None:
         raise HTTPException(status_code=404, detail="meal not found; list meals via GET /meals")
@@ -208,17 +246,21 @@ async def update_meal(meal_id: uuid.UUID, payload: MealUpdate, user: CurrentUser
         apply_single_slot(meal, payload.slot)
     recipes = payload.resolved_recipes
     composition_changed = recipes is not None or payload.loose_ingredients is not None
-    if composition_changed:
+    if composition_changed or payload.from_freezer is not None:
         # What the meal would hold once this PATCH lands: a half-sent payload
         # leaves the other half of the composition where it is.
-        after = (len(recipes) if recipes is not None else len(meal.recipe_links)) + (
-            len(payload.loose_ingredients) if payload.loose_ingredients is not None else len(meal.ingredient_links)
+        after = (
+            (len(recipes) if recipes is not None else len(meal.recipe_links))
+            + (len(payload.loose_ingredients) if payload.loose_ingredients is not None else len(meal.ingredient_links))
+            + (len(payload.from_freezer) if payload.from_freezer is not None else len(meal.freezer_links))
         )
         await limits.enforce(db, user.household, "meal_lines", used=after, adding=0)
     if recipes is not None:
         await _set_recipes(db, user.household_id, meal, recipes)
     if payload.loose_ingredients is not None:
         await _set_loose_ingredients(db, user.household_id, meal, payload.loose_ingredients)
+    if payload.from_freezer is not None:
+        await _set_freezer_items(db, user.household_id, meal, payload.from_freezer)
     await db.flush()
     if composition_changed:
         fresh = await get_meal(db, user.household_id, meal.id)

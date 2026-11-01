@@ -565,3 +565,32 @@ and a list of ingredients with floury hands. Decisions:
 - **Cook mode is its own screen, and it pins rather than re-sorts.** The
   current step's ingredients sit at the top with their amounts and the rest
   are dimmed below, so nothing jumps about while somebody is reading it.
+
+**Q30: a meal can be made of freezer portions** (2026-11-01). "Put the mango
+chicken from the freezer on the plan, with something to make it a meal" had no
+answer: a meal was recipes plus loose ingredients, and planning the recipe a
+batch came from would put everything it was made of back on the shopping list.
+`meal_freezer_items` is a third kind of line in a meal, beside recipes and
+loose ingredients: a freezer batch and how many portions of it. Decisions:
+
+- **Nothing to buy, so it never reaches the list.** `services/shopping.py`
+  reads recipes and loose lines and nothing else, and that is the whole
+  mechanism. The sides that round the meal out (rice, a naan) are ordinary
+  loose ingredients and are bought as usual.
+- **The label is the record here too** (amending nothing in Q24, borrowing its
+  rule). The batch's label is copied onto the line and `freezer_item_id` is
+  `SET NULL`, because a batch is deleted when its last portion is taken, and
+  the meal should still say what it was. `MealOut.from_freezer` carries
+  `portions_left` and `frozen_on` while the batch exists and null after.
+- **Planning and eating take nothing out.** Q24's "eating from the freezer is
+  not a cooking" still holds: marking the meal cooked records the meal, and
+  `POST /freezer/{id}/take` stays the act of taking portions out. Doing it
+  automatically would need undo to put a deleted batch back, which is more
+  than this needed; it can be revisited if people forget.
+- **Additive.** `from_freezer` is an optional request field on `POST /meals`
+  and `PATCH /meals/{id}` and a new response field. iOS ignores it until a
+  build shows it, so an iPhone sees the meal and its sides without the 🧊 part.
+  A meal with freezer lines is never reused by the duplicate check, the same as
+  one with loose ingredients, and freezer lines count towards `meal_lines`.
+- The playbook is v24: assistants make the meal with `from_freezer` and the
+  sides, instead of planning the batch's recipe.
