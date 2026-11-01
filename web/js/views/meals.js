@@ -70,6 +70,13 @@ export function mealThumb(meal) {
   `;
 }
 
+// What a meal is made of, in one line: its recipes and whatever it takes from
+// the freezer (Q30), or "loose ingredients" when it is only those.
+export function mealMakeup(meal) {
+  const frozen = (meal.from_freezer ?? []).map((line) => `🧊 ${line.label}`);
+  return [...meal.recipes.map((r) => r.title), ...frozen].join(" + ") || "loose ingredients";
+}
+
 export async function renderMeals(root) {
   render(root, html`
     <div class="page">
@@ -126,8 +133,8 @@ export async function renderMeals(root) {
                     <div class="r-body">
                       <div class="r-title">${meal.name}</div>
                       <div class="r-sub">
-                        ${meal.recipes.map((r) => r.title).join(" + ") || "loose ingredients"}
-                        ${meal.loose_ingredients.length > 0 && meal.recipes.length > 0 ? " + extras" : ""}
+                        ${mealMakeup(meal)}
+                        ${meal.loose_ingredients.length > 0 && (meal.recipes.length > 0 || meal.from_freezer?.length > 0) ? " + extras" : ""}
                       </div>
                       <div class="r-meta">
                         ${slotChips(meal)}
@@ -199,6 +206,28 @@ export async function renderMealDetail(root, mealId) {
         </div>
       `}
 
+      ${meal.from_freezer?.length > 0 &&
+      html`
+        <div class="section">
+          <h2>From the freezer</h2>
+          <ul class="row-list">
+            ${meal.from_freezer.map(
+              (line) => html`
+                <a class="row-card" href="#/freezer">
+                  <span class="rc-emoji" aria-hidden="true">🧊</span>
+                  <div class="rc-main">
+                    <div class="rc-title">${line.label} <span class="chip butter">×${line.portions}</span></div>
+                    <div class="rc-sub">${line.freezer_item_id
+                      ? `${line.portions_left} left in the freezer · frozen ${line.frozen_on} · nothing to buy`
+                      : "eaten up, no longer in the freezer"}</div>
+                  </div>
+                </a>
+              `,
+            )}
+          </ul>
+        </div>
+      `}
+
       ${meal.loose_ingredients.length > 0 &&
       html`
         <div class="section">
@@ -248,7 +277,17 @@ export async function renderMealDetail(root, mealId) {
 
 export async function renderMealEditor(root, mealId) {
   render(root, skeleton());
-  const meal = mealId ? await api(`/meals/${mealId}`) : null;
+  const [meal, stock] = await Promise.all([mealId ? api(`/meals/${mealId}`) : null, api("/freezer")]);
+  // Freezer batches by id, portions this meal takes from each (0 = none). A
+  // line whose batch has been eaten up has no id and is not offered again,
+  // but it is sent back by its label so an edit never loses it.
+  const frozen = new Map(stock.items.map((item) => [item.id, 0]));
+  for (const line of meal?.from_freezer ?? []) {
+    if (line.freezer_item_id && frozen.has(line.freezer_item_id)) frozen.set(line.freezer_item_id, line.portions);
+  }
+  const eatenUp = (meal?.from_freezer ?? [])
+    .filter((line) => !line.freezer_item_id)
+    .map(({ label, portions }) => ({ label, portions }));
   // `servings` is the recipe's own figure and never changes; `wanted` is how
   // many this meal is for. When the recipe says how many it serves we ask in
   // portions and let the server do the division (issue #53) — a multiplier is
@@ -289,6 +328,26 @@ export async function renderMealEditor(root, mealId) {
         <div data-picked></div>
         <input type="search" placeholder="Search the library to add a recipe…" data-recipe-q autocomplete="off">
         <ul class="picker-list" data-recipe-results></ul>
+
+        ${stock.items.length > 0 &&
+        html`
+          <div class="field-label">From the freezer (already cooked, nothing to buy)</div>
+          <ul class="picker-list">
+            ${stock.items.map(
+              (item) => html`
+                <li>
+                  <span aria-hidden="true">🧊</span>
+                  <div class="p-main">
+                    <div class="p-title">${item.label}</div>
+                    <div class="p-sub">${item.portions} left · frozen ${item.frozen_on}</div>
+                  </div>
+                  <label class="check-line" title="Portions this meal takes from the batch (0 for none)">portions
+                    <input type="number" step="1" min="0" max="${Math.max(item.portions, frozen.get(item.id))}" value="${frozen.get(item.id)}" data-frozen="${item.id}" class="scale-input"></label>
+                </li>
+              `,
+            )}
+          </ul>
+        `}
 
         <div class="field-label" data-extras-label>Extras (loose ingredients — the peas and carrots)</div>
         <div data-lines></div>
@@ -404,6 +463,15 @@ export async function renderMealEditor(root, mealId) {
       ),
       loose_ingredients: lines.read(),
     };
+    // Sent only when the picks changed, so renaming a meal or changing its
+    // sides never rewrites what it takes from the freezer.
+    const picks = [...root.querySelectorAll("[data-frozen]")].map((input) => ({
+      freezer_item_id: input.dataset.frozen,
+      portions: Math.max(0, Math.round(Number(input.value) || 0)),
+    }));
+    if (!meal || picks.some((pick) => pick.portions !== frozen.get(pick.freezer_item_id))) {
+      body.from_freezer = [...picks.filter((pick) => pick.portions > 0), ...eatenUp];
+    }
     try {
       const saved = meal
         ? await api(`/meals/${meal.id}`, { method: "PATCH", body })

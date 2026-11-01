@@ -10,7 +10,7 @@ from app.schemas.catalog import (
     StepIngredientOut,
 )
 from app.schemas.freezer import FreezerItemOut
-from app.schemas.planning import MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
+from app.schemas.planning import MealFreezerOut, MealOut, MealRecipeOut, PlanMealOut, PlanOut, PlanSummary
 from app.schemas.shopping import ListItemOut, ShoppingListOut, SourceOut, SupermarketRef
 from app.services import cook_steps
 from app.services.aisles import AISLE_ORDER, AISLES, UNKNOWN_AISLE
@@ -162,6 +162,16 @@ def meal_out(meal: Meal) -> MealOut:
         loose_ingredients=[
             _line_out(link.ingredient, link.quantity, link.unit, link.display_unit, None)
             for link in meal.ingredient_links
+        ],
+        from_freezer=[
+            MealFreezerOut(
+                freezer_item_id=link.freezer_item_id,
+                label=link.label,
+                portions=link.portions,
+                portions_left=link.freezer_item.portions if link.freezer_item else None,
+                frozen_on=link.freezer_item.frozen_on if link.freezer_item else None,
+            )
+            for link in meal.freezer_links
         ],
         created_at=meal.created_at,
         times_cooked=meal.times_cooked,

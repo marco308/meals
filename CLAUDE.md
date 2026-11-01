@@ -47,7 +47,7 @@ is what keeps the API complete and the views consistent.
 | `skill/` | `SKILL.md` + `prompt-pack.md` — served live by the backend at `/skill` and `/prompt-pack` |
 | `integrations/` | Third-party glue that talks to the public API and ships nothing into the image. `node-red/` drains an Alexa shopping list into the list via `POST /shopping-list/items`. Published as a worked example, so it must stay free of anything host-specific — see its README before adding another |
 | `backup/` | The nightly `pg_dump` sidecar (image + scripts) and the restore procedure. Shipped in `docker-compose.yml`, so the reference deployment backs itself up |
-| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q28, kept live. The rest is the original plan, kept as history, not a roadmap |
+| `planning/` | The **decisions log** (`04-open-questions.md`) that code comments cite as Q1–Q30, kept live. The rest is the original plan, kept as history, not a roadmap |
 | `docs/` | Public marketing site for **YAMP** (GitHub Pages: hand-written HTML + CSS plus real screenshots from `make ios-screenshots`, no build step, no external requests). Strategy in `planning/06-marketing.md`; public name is YAMP but code identifiers and the `X-Meals-Client` header never change |
 
 Backend layering: `routers/` (HTTP + auth + commit boundaries) → `services/`
@@ -252,6 +252,10 @@ instrumentation a new feature usually needs.
   the last portion deletes the row, so the table is what is in the freezer and
   nothing else. It touches neither the plan nor the shopping list: eating from
   the freezer is not a cooking.
+  A meal can still be *made of* freezer portions (Q30, `meal_freezer_items`):
+  the line copies the batch's label, its link is `SET NULL` when the batch is
+  eaten up, it never reaches the shopping list, and planning or cooking the
+  meal takes nothing out: `POST /freezer/{id}/take` does.
 - **Freezer labels are off unless two things are set** (`services/labels.py`,
   `routers/labels.py`). `LABEL_SERVICE_URL` is the operator's (a label service
   that owns a Bluetooth printer and draws a `freezer` template), so this server

@@ -31,6 +31,7 @@ from app.models import (
     ListItem,
     ListItemSource,
     Meal,
+    MealFreezerItem,
     MealIngredient,
     MealRecipe,
     Plan,
@@ -75,6 +76,10 @@ async def furnish(client, *, extra: dict | None = None) -> dict:
     assert added_item.status_code == 201
     frozen = await client.post("/freezer", json={"meal_id": meal["id"], "portions": 3, "note": "the spicy batch"})
     assert frozen.status_code == 201
+    from_freezer = await client.patch(
+        f"/meals/{meal['id']}", json={"from_freezer": [{"freezer_item_id": frozen.json()["id"], "portions": 2}]}
+    )
+    assert from_freezer.status_code == 200
     return {"recipe": recipe, "meal": meal, "plan": plan, "plan_meal": plan_meal}
 
 
@@ -322,6 +327,7 @@ class TestNothingIsLeftBehind:
         Meal: {"household_id"},
         MealRecipe: {"id", "meal_id"},
         MealIngredient: {"id", "meal_id"},
+        MealFreezerItem: {"id", "meal_id"},
         Plan: {"household_id"},
         PlanMeal: {"plan_id"},
         CookedEvent: {"household_id"},
@@ -345,6 +351,7 @@ class TestNothingIsLeftBehind:
             Meal: meal,
             MealRecipe: meal["recipes"][0],
             MealIngredient: meal["loose_ingredients"][0],
+            MealFreezerItem: meal["from_freezer"][0],
             Plan: plan,
             PlanMeal: plan["meals"][0],
             CookedEvent: doc["cooked_events"][0],

@@ -43,7 +43,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 23
+PLAYBOOK_VERSION = 24
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -399,6 +399,45 @@ async def delete_recipe(title: str) -> str:
 # ---------------------------------------------------------------- meals & plan
 
 
+async def _resolve_freezer(asked: dict[str, int]) -> list[dict]:
+    """{"mango chicken": 2} → [{"freezer_item_id": …, "portions": 2}], matching a
+    batch id, then an exact label, then a single partial one. Portions come
+    from the oldest batch of that name first and spill into the next, the way
+    take_from_freezer eats them, and asking for more than is there is refused."""
+    if not asked:
+        return []
+    stock = (await _call("GET", "/freezer"))["items"]
+    lines = []
+    for key, portions in asked.items():
+        wanted = key.lower().strip()
+        matches = [item for item in stock if item["id"] == wanted]
+        matches = matches or [item for item in stock if item["label"].lower() == wanted]
+        matches = matches or [item for item in stock if wanted in item["label"].lower()]
+        if not matches or len({item["label"] for item in matches}) > 1:
+            labels = ", ".join(sorted({item["label"] for item in stock})) or "(the freezer is empty)"
+            raise ApiError(f"No single freezer batch matches '{key}'. In there: {labels}")
+        held = sum(item["portions"] for item in matches)
+        if portions > held:
+            raise ApiError(
+                f"Only {held} portion{'' if held == 1 else 's'} of {matches[0]['label']} in the freezer, "
+                f"not {portions}. Plan what is there, and make up the rest with another side."
+            )
+        for item in matches:  # oldest first, as the API lists them
+            take = min(item["portions"], portions)
+            if take > 0:
+                lines.append({"freezer_item_id": item["id"], "portions": take})
+                portions -= take
+    return lines
+
+
+def _frozen_label(meal: dict) -> str:
+    """ "Mango Chicken ×2" for each batch a meal takes from the freezer."""
+    return ", ".join(
+        f"{line['label']} ×{line['portions']}" + ("" if line.get("freezer_item_id") else " (eaten up)")
+        for line in meal.get("from_freezer") or []
+    )
+
+
 def _slots_label(meal: dict) -> str:
     """ "breakfast or lunch" — every slot a meal can fill."""
     slots = meal.get("slots") or ([meal["slot"]] if meal.get("slot") else [])
@@ -414,10 +453,16 @@ async def create_meal(
     recipe_scales: dict[str, float] | None = None,
     recipe_servings: dict[str, int] | None = None,
     slots: list[str] | None = None,
+    from_freezer: dict[str, int] | None = None,
 ) -> str:
     """Create a meal — the unit of planning. A meal can combine recipes and
     loose ingredients: 'cottage pie with peas' = the cottage pie recipe plus
     {"name": "frozen peas", "quantity": 200, "unit": "g"} with no recipe.
+
+    from_freezer makes it out of portions already cooked: {"mango chicken": 2}
+    (a batch's name from get_freezer, or its id → portions), usually with loose
+    sides to round it out (rice, a naan, some greens). Freezer portions put
+    nothing on the shopping list; take_from_freezer when they are eaten.
 
     slots is every time of day the meal can fill — ["breakfast", "lunch"] for
     one that works as either (breakfast, lunch, dinner, snack, other). When
@@ -447,10 +492,13 @@ async def create_meal(
         "loose_ingredients": loose_ingredients or [],
     }
     try:
+        payload["from_freezer"] = await _resolve_freezer(from_freezer or {})
         meal = await _call("POST", "/meals", json=payload)
     except ApiError as exc:
         return str(exc)
-    return f"Meal created: {meal['name']} ({_slots_label(meal)}) [id: {meal['id']}]"
+    frozen = _frozen_label(meal)
+    from_the_freezer = f", from the freezer: {frozen}" if frozen else ""
+    return f"Meal created: {meal['name']} ({_slots_label(meal)}{from_the_freezer}) [id: {meal['id']}]"
 
 
 @mcp.tool()
@@ -465,10 +513,15 @@ async def update_meal(
     scale_recipes: dict[str, float] | None = None,
     recipe_servings: dict[str, int] | None = None,
     slots: list[str] | None = None,
+    add_from_freezer: dict[str, int] | None = None,
+    remove_from_freezer: list[str] | None = None,
 ) -> str:
     """Change an existing meal: rename it, change its slots, add and
     remove recipes and loose sides ('add garlic bread to the cottage pie',
-    'nobody eats the peas'), or scale a recipe for batch cooking. Recipes can
+    'nobody eats the peas'), or scale a recipe for batch cooking.
+    add_from_freezer {"mango chicken": 2} makes part of it portions from the
+    freezer (nothing to buy); remove_from_freezer takes a batch back out of
+    the meal by name. Recipes can
     be named or given by id. If the meal is on the active plan the shopping
     list follows the change — added ingredients appear, removed ones come off.
 
@@ -536,19 +589,37 @@ async def update_meal(
             lines.extend(add_loose_ingredients or [])
             payload["loose_ingredients"] = lines
 
+        if add_from_freezer or remove_from_freezer:
+            dropped = {name.lower().strip() for name in (remove_from_freezer or [])}
+            added = await _resolve_freezer(add_from_freezer or {})
+            ids = {line["freezer_item_id"] for line in added}
+            # A line whose batch was eaten up has no id left, so it is kept by
+            # its label; PATCH replaces the list, and anything left out goes.
+            kept = [
+                {"freezer_item_id": line["freezer_item_id"], "portions": line["portions"]}
+                if line.get("freezer_item_id")
+                else {"label": line["label"], "portions": line["portions"]}
+                for line in meal.get("from_freezer") or []
+                if line["label"].lower() not in dropped and line.get("freezer_item_id") not in ids
+            ]
+            payload["from_freezer"] = kept + added
+
         if not payload:
             return (
                 f"Nothing to change on '{meal['name']}'. Pass new_name, slots, add_recipes, "
-                "remove_recipes, add_loose_ingredients, or remove_loose_ingredients."
+                "remove_recipes, add_loose_ingredients, remove_loose_ingredients, add_from_freezer "
+                "or remove_from_freezer."
             )
         updated = await _call("PATCH", f"/meals/{meal['id']}", json=payload)
     except ApiError as exc:
         return str(exc)
     recipes = ", ".join(r["title"] for r in updated["recipes"]) or "no recipes"
     sides = ", ".join(line["name"] for line in updated["loose_ingredients"]) or "no sides"
+    frozen = _frozen_label(updated)
+    from_the_freezer = f"; from the freezer: {frozen}" if frozen else ""
     return (
-        f"Updated '{updated['name']}' ({_slots_label(updated)}): {recipes}; on the side: {sides}. "
-        "The shopping list has been re-synced."
+        f"Updated '{updated['name']}' ({_slots_label(updated)}): {recipes}; on the side: {sides}"
+        f"{from_the_freezer}. The shopping list has been re-synced."
     )
 
 
@@ -586,7 +657,9 @@ async def get_plan() -> str:
             if (r.get("prep_minutes") or 0) + (r.get("cook_minutes") or 0) > 0
         ]
         time_note = f", {max(minutes)} min" if minutes else ""
-        detail = f" ({recipes}{time_note})" if recipes else ""
+        frozen = _frozen_label(meal)
+        parts = [part for part in (recipes, f"🧊 {frozen}" if frozen else "") if part]
+        detail = f" ({', '.join(parts)}{time_note})" if parts else ""
         slot_label = _slots_label(meal)
         by_slot.setdefault("other" if slot_label == "no slot" else slot_label, []).append(
             f"{meal['name']}{detail}{cooked}"

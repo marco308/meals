@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.catalog import Ingredient, Recipe
+from app.models.freezer import FreezerItem
 from app.models.users import utcnow
 
 
@@ -45,6 +46,9 @@ class Meal(Base):
     )
     ingredient_links: Mapped[list["MealIngredient"]] = relationship(
         back_populates="meal", cascade="all, delete-orphan", lazy="selectin"
+    )
+    freezer_links: Mapped[list["MealFreezerItem"]] = relationship(
+        back_populates="meal", cascade="all, delete-orphan", lazy="selectin", order_by="MealFreezerItem.label"
     )
 
 
@@ -85,6 +89,30 @@ class MealIngredient(Base):
 
     meal: Mapped[Meal] = relationship(back_populates="ingredient_links")
     ingredient: Mapped[Ingredient] = relationship(lazy="selectin")
+
+
+class MealFreezerItem(Base):
+    """Portions of a freezer batch that a meal is made of (decision Q30): the
+    mango chicken from the freezer, with rice and a naan bought fresh.
+
+    Nothing to buy, so it never reaches the shopping list. `label` is copied
+    from the batch, because a batch is deleted when its last portion is taken
+    (Q24) and the meal should still say what it was; `freezer_item_id` is the
+    courtesy link, `SET NULL` when that happens."""
+
+    __tablename__ = "meal_freezer_items"
+    __table_args__ = (CheckConstraint("portions > 0", name="ck_meal_freezer_item_portions"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    meal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("meals.id", ondelete="CASCADE"), index=True)
+    freezer_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("freezer_items.id", ondelete="SET NULL"), default=None
+    )
+    label: Mapped[str] = mapped_column(String(300))
+    portions: Mapped[int] = mapped_column(Integer, default=1)
+
+    meal: Mapped[Meal] = relationship(back_populates="freezer_links")
+    freezer_item: Mapped[FreezerItem | None] = relationship(lazy="selectin")
 
 
 class Plan(Base):

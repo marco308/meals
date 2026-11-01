@@ -20,6 +20,26 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+## 2026-11-01: meals from the freezer
+
+Released as **1.12.0**. One additive migration (`37f6e1113037`), **playbook
+v24**. Decision Q30.
+
+### Added
+
+- **A meal can be made of freezer portions.** `POST /meals` and
+  `PATCH /meals/{id}` take `from_freezer: [{freezer_item_id, portions}]`, and
+  every meal now returns `from_freezer` (label, portions, and the batch's
+  `portions_left` and `frozen_on` while it is still in the freezer). Those
+  portions put nothing on the shopping list; the sides that make it a full
+  meal are loose ingredients and are bought as usual. Planning or cooking the
+  meal takes nothing out of the freezer.
+- MCP: `create_meal(from_freezer=...)`, `update_meal(add_from_freezer=...,
+  remove_from_freezer=...)`, and `get_plan` shows the 🧊 portions.
+- Web: the meal editor lists the freezer to pick portions from, and the meal
+  page, the meal list and the plan show them. iOS shows the meal and its sides
+  but not the freezer part until a build does.
+
 ## 2026-10-26: cook mode
 
 Released as **1.11.0**. One additive migration (`d2f6a8c41e93`), **playbook

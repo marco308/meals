@@ -8,6 +8,7 @@
 // prints its label in the same step. Neither appears anywhere else.
 
 import { api } from "../api.js";
+import { mealMakeup } from "./meals.js";
 import { confirmDialog, emptyState, fmtRel, foodEmoji, html, openDialog, render, skeleton, toast } from "../dom.js";
 
 // frozen_on is a bare date; give the relative formatter a midday so the
@@ -202,7 +203,7 @@ async function addDialog(root, canPrint) {
         ? (await api("/meals", { query: { search: q } })).map((m) => ({
             id: m.id,
             label: m.name,
-            sub: m.recipes.map((r) => r.title).join(" + ") || "loose ingredients",
+            sub: mealMakeup(m),
           }))
         : (await api("/recipes", { query: { search: q } })).map((r) => ({
             id: r.id,

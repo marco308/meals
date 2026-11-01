@@ -49,6 +49,9 @@ def _signature(meal: Meal) -> tuple:
         tuple(meal_slots(meal)),
         frozenset((link.recipe_id, link.scale) for link in meal.recipe_links),
         frozenset((link.ingredient_id, link.quantity, link.unit) for link in meal.ingredient_links),
+        # Sorted, not a set: two eaten-up lines can be identical, and a set
+        # would make a meal holding both look like one holding either.
+        tuple(sorted((str(link.freezer_item_id), link.label, link.portions) for link in meal.freezer_links)),
     )
 
 
