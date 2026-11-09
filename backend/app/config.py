@@ -143,6 +143,13 @@ class Settings(BaseSettings):
     # refused. 0 turns it off.
     signup_rate_limit_per_hour: Annotated[int, BlankIsDefault] = 5
 
+    # The most one request may send, in bytes (`app/body_limit.py`). A body is
+    # read whole before anything looks at it and the API runs one worker, so
+    # without a ceiling one caller's megabytes are everybody's wait. A recipe
+    # at the top of every schema limit is tens of kilobytes. 0 turns it off,
+    # for a server whose proxy already enforces one.
+    max_request_body_bytes: int = 1_048_576
+
     # Email verification (issue #122, decision Q26). Only in force on a server
     # that can send email: without SMTP nothing could ever be verified, so
     # nothing is asked for. An unverified account can do everything except the

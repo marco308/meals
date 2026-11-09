@@ -298,13 +298,34 @@ class TestNothingUnsignedIsActedOn:
         assert response.status_code == 401, response.text
         assert await bad_signatures() == before + 1
 
+    @staticmethod
+    def _signed(body: str) -> dict:
+        stamp = str(int(datetime.now(UTC).timestamp()))
+        signature = hmac.new(SECRET.encode(), f"{stamp}:{body}".encode(), hashlib.sha256).hexdigest()
+        return {"Paddle-Signature": f"ts={stamp};h1={signature}"}
+
     async def test_a_body_that_is_not_json(self, client, paddle):
         body = "not json"
-        signature = hmac.new(SECRET.encode(), f"1:{body}".encode(), hashlib.sha256).hexdigest()
-        response = await client.post(
-            "/billing/webhook", content=body, headers={"Paddle-Signature": f"ts=1;h1={signature}"}
-        )
+        response = await client.post("/billing/webhook", content=body, headers=self._signed(body))
         assert response.status_code == 400
+
+    async def test_a_body_nested_past_what_the_parser_will_follow(self, client, paddle):
+        """RecursionError is not a ValueError, so this was a 500: uncounted,
+        and to the processor a reason to send it again."""
+        body = "[" * 200_000
+        response = await client.post("/billing/webhook", content=body, headers=self._signed(body))
+        assert response.status_code == 400
+
+    async def test_an_unsigned_body_is_refused_before_it_is_parsed(self, client, paddle, monkeypatch):
+        """The signature is the authentication, so it comes first: a caller
+        without the secret gets an HMAC's worth of work and no parser."""
+
+        def parsed(*args, **kwargs):
+            raise AssertionError("an unsigned body reached the JSON parser")
+
+        monkeypatch.setattr("app.routers.billing.json.loads", parsed)
+        response = await client.post("/billing/webhook", content="[" * 200_000)
+        assert response.status_code == 401
 
 
 class TestAPaymentBecomesAnEntitlement:

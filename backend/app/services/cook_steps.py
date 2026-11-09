@@ -36,6 +36,13 @@ _STEP_NUMBER = re.compile(r"^\s*(?:step\s*)?\d{1,3}\s*[.):\-–]\s*", re.IGNOREC
 _BARE_STEP = re.compile(r"^\s*step\s*\d{1,3}\s*$", re.IGNORECASE)
 # "For the sauce:" heads the steps below it rather than being one.
 _MAX_SECTION_CHARS = 60
+# How much of a method is read for steps. Steps are derived on every read of
+# a recipe, on the event loop, so what that costs has to be bounded by
+# something other than what was stored: the field itself has no limit, and
+# gaining one now would refuse an edit to a recipe an older client already
+# holds. A long method is a few thousand characters; past this the rest is
+# still in `instructions`, and simply has no steps.
+MAX_METHOD_CHARS = 50_000
 
 
 @dataclass
@@ -51,7 +58,7 @@ def split_steps(instructions: str | None) -> list[Step]:
         return []
     steps: list[Step] = []
     section: str | None = None
-    for raw in instructions.splitlines():
+    for raw in instructions[:MAX_METHOD_CHARS].splitlines():
         line = raw.strip()
         if not line or _BARE_STEP.match(line):
             continue
@@ -165,18 +172,29 @@ def _aliases(lines: list[Line]) -> dict[tuple[str, ...], uuid.UUID]:
 def _mentions(words: list[str], aliases: dict[tuple[str, ...], uuid.UUID]) -> list[uuid.UUID]:
     """The foods a step names, in the order it names them. Longer names claim
     their words first, so "chicken stock" is never also the chicken."""
+    # Looked up by first word, so a step costs its own length rather than its
+    # length times every name in the recipe.
+    by_first_word: dict[str, list[tuple[int, tuple[str, ...]]]] = {}
+    for rank, alias in enumerate(aliases):
+        by_first_word.setdefault(alias[0], []).append((rank, alias))
+    candidates: list[tuple[int, int, int, tuple[str, ...]]] = []
+    for start, word in enumerate(words):
+        for rank, alias in by_first_word.get(word, ()):
+            if tuple(words[start : start + len(alias)]) == alias:
+                candidates.append((-len(alias), rank, start, alias))
     found: list[tuple[int, uuid.UUID]] = []
     claimed = [False] * len(words)
-    for alias in sorted(aliases, key=len, reverse=True):
+    for _, _, start, alias in sorted(candidates):
         size = len(alias)
-        for start in range(len(words) - size + 1):
-            if tuple(words[start : start + size]) != alias or any(claimed[start : start + size]):
-                continue
-            claimed[start : start + size] = [True] * size
-            found.append((start, aliases[alias]))
+        if any(claimed[start : start + size]):
+            continue
+        claimed[start : start + size] = [True] * size
+        found.append((start, aliases[alias]))
     ordered: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
     for _, ingredient_id in sorted(found, key=lambda pair: pair[0]):
-        if ingredient_id not in ordered:
+        if ingredient_id not in seen:
+            seen.add(ingredient_id)
             ordered.append(ingredient_id)
     return ordered
 
@@ -279,7 +297,10 @@ _AMOUNT = re.compile(rf"\b({_NUMBER})\s*{_UNIT}", re.IGNORECASE)
 _MIXED = re.compile(rf"\b(\d+)\s+({_FRACTIONS})(?![\d/])")
 _FRACTION = re.compile(rf"(?<![\d/])({_FRACTIONS})(?![\d/])")
 _RANGE = re.compile(rf"\b({_NUMBER})\s*[-–]\s*({_NUMBER})\b")
-_DEGREES = re.compile(rf"\b({_NUMBER})\s*°?\s*([CF])\b(?!\w)")
+# One run of spaces either side of an optional sign, never two runs side by
+# side: `\s*°?\s*` shares a run of spaces out every possible way before giving
+# up, which is quadratic in the run (and ran on every read of the recipe).
+_DEGREES = re.compile(rf"\b({_NUMBER})\s*(?:°\s*)?([CF])\b(?!\w)")
 _DEGREE_SIGN = re.compile(rf"\b({_NUMBER})\s*°")
 _TIMES = re.compile(rf"\b({_NUMBER})\s*x\s*(?=\d)", re.IGNORECASE)
 # "200C/180C fan/gas 6" is three ways to set one oven.

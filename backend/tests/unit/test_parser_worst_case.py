@@ -21,11 +21,13 @@ sizes a quadratic regression costs a thousandfold and still is.
 import contextlib
 import json
 import time
+import uuid
 from collections.abc import Callable
 
 import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES
+from app.services import cook_steps
 from app.services.aisles import guess_aisle
 from app.services.ingredient_names import canonical_ingredient_name, is_protected_name
 from app.services.recipe_parser import extract_recipe, parse_ingredient_line, parse_iso8601_duration
@@ -192,3 +194,43 @@ def test_a_big_page_is_extracted_in_linear_time(build):
     coverage."""
     page = build()
     assert _timed(extract_recipe, page) < 5.0
+
+
+# A method is not behind a schema limit at all, and its steps are derived on
+# every read of the recipe. One line, so nothing is split before the regexes
+# see it. The spaces after a digit were quadratic in `_DEGREES` (ten seconds
+# for 40 KB).
+HOSTILE_METHODS = {
+    "spaces-after-a-digit": "1" + " " * LONG + "x",
+    "digits-and-spaces": "1 " * (LONG // 2),
+    "degree-signs": "1 ° " * (LONG // 4),
+    "slashes": "a / " * (LONG // 4),
+    "ranges": "1 - " * (LONG // 4),
+    "times": "2 x " * (LONG // 4),
+    "fractions": "1 1/2 " * (LONG // 6),
+    "units-and-stops": "1 g. " * (LONG // 5),
+}
+
+
+@pytest.mark.parametrize("method", HOSTILE_METHODS.values(), ids=HOSTILE_METHODS.keys())
+def test_speaking_a_hostile_method_is_linear(method):
+    assert _timed(cook_steps.spoken_text, method) < 2.0
+
+
+def test_matching_ingredients_in_a_hostile_method_is_linear():
+    """Every name the schema allows, all starting with the word the method is
+    made of: the most names a step's every word can be a candidate for."""
+    lines = [
+        cook_steps.Line(uuid.uuid4(), "butter " + " ".join(f"word{i}x{n}" for n in range(30)), "")
+        for i in range(MAX_RECIPE_LINES)
+    ]
+    method = "butter " * (cook_steps.MAX_METHOD_CHARS // 7)
+    started = time.perf_counter()
+    cook_steps.matched_steps(method, lines)
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_method_past_the_limit_has_no_steps_for_the_rest():
+    line = "Stir.\n"
+    steps = cook_steps.split_steps(line * cook_steps.MAX_METHOD_CHARS)
+    assert len(steps) == -(-cook_steps.MAX_METHOD_CHARS // len(line))  # the last line is cut mid-word

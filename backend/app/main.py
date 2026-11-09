@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import itertools
 import math
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import client_gate, limits, mcp_mount, metrics, observability
+from app.body_limit import BodyLimitMiddleware
 from app.config import get_settings
 from app.observability import log_event
 from app.routers import assistant as assistant_router
@@ -171,25 +173,56 @@ async def request_validation_handler(_: Request, exc: Exception) -> Response:
     replaced.
     """
     assert isinstance(exc, RequestValidationError)
-    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))})
+    errors = exc.errors()
+    shown = [_echoed_error(error) for error in errors[:_MAX_ERRORS_SHOWN]]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(shown)})
 
 
-def _encodable(value: Any) -> Any:
+# Every error echoes the input it refused, and for a missing field that input
+# is the whole body: a large body with two fields missing was walked and
+# re-encoded twice over, on the event loop, and sent back at twice its size.
+# The echo is there to show a caller what they sent, which a sample does as
+# well as the whole. The first errors say what to fix; the rest repeat them.
+_MAX_ERRORS_SHOWN = 50
+_MAX_ECHO_CHARS = 200
+_MAX_ECHO_ITEMS = 20
+_MAX_ECHO_DEPTH = 4
+
+
+def _echoed_error(error: dict) -> dict:
+    return {key: _encodable(value) for key, value in error.items()}
+
+
+def _encodable(value: Any, depth: int = 0) -> Any:
     """`value` with anything JSON can't carry spelled out: a float by its name,
     text with what won't encode as UTF-8 replaced. It runs before
-    jsonable_encoder, which is itself what fails on bytes that aren't UTF-8."""
+    jsonable_encoder, which is itself what fails on bytes that aren't UTF-8.
+    Long text and large or deep containers are cut short, so what this costs
+    does not grow with what was sent."""
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
     if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
+        return _shortened(value[: _MAX_ECHO_CHARS * 4].decode("utf-8", "replace"), len(value))
     if isinstance(value, str):
-        return value.encode("utf-8", "replace").decode("utf-8")
-    if isinstance(value, dict):
-        return {_encodable(key): _encodable(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_encodable(item) for item in value]
+        return _shortened(value[: _MAX_ECHO_CHARS + 1].encode("utf-8", "replace").decode("utf-8"), len(value))
+    if isinstance(value, dict | list | tuple):
+        if depth >= _MAX_ECHO_DEPTH:
+            return "…"
+        if isinstance(value, dict):
+            items = itertools.islice(value.items(), _MAX_ECHO_ITEMS)
+            return {_encodable(key, depth + 1): _encodable(item, depth + 1) for key, item in items}
+        shown = [_encodable(item, depth + 1) for item in value[:_MAX_ECHO_ITEMS]]
+        return [*shown, "…"] if len(value) > _MAX_ECHO_ITEMS else shown
     return value
 
+
+def _shortened(text: str, full_length: int) -> str:
+    return text if full_length <= _MAX_ECHO_CHARS else text[:_MAX_ECHO_CHARS] + "…"
+
+
+# Outside the gate and CORS so nothing reads a body it has not counted, and
+# inside the access log so a 413 is a line like any other refusal.
+app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
 # Registered last so it is the *outermost* middleware (Starlette builds the
 # stack in reverse): the access log must see every response, including 426s
