@@ -57,6 +57,11 @@ class LoginIn(BaseModel):
     password: str
 
 
+class LogoutIn(BaseModel):
+    #: Every session of this account rather than just the one presenting it.
+    everywhere: bool = False
+
+
 class PasswordChangeIn(BaseModel):
     current_password: str
     new_password: NewPassword

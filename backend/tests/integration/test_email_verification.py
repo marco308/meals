@@ -216,3 +216,31 @@ class TestSignupRateLimit:
         for n in range(3):
             invite = await client.post("/auth/invites", json={}, headers=headers(lead))
             await register(client, email=f"family{n}@example.com", invite_code=invite.json()["code"])
+
+    async def test_a_taken_address_costs_nothing_below_the_cap(self, client):
+        """A request turned away hands its slot back, so a typo'd second
+        attempt does not use up the hour."""
+        await register(client, email="one@example.com")
+        response = await client.post(
+            "/auth/register",
+            json={"email": "one@example.com", "password": "a-strong-password", "display_name": "Again"},
+        )
+        assert response.status_code == 409
+        # The cap is 2 and only one household was made, so a second still fits.
+        await register(client, email="two@example.com")
+
+    async def test_at_the_cap_a_taken_address_looks_like_a_free_one(self, client):
+        """#254: the signup window is charged before the server says whether an
+        address is taken, so once a caller has spent their hour the answer is
+        429 either way rather than 409 for an account and 429 for none."""
+        await register(client, email="one@example.com")
+        await register(client, email="two@example.com")
+        taken = await client.post(
+            "/auth/register",
+            json={"email": "one@example.com", "password": "a-strong-password", "display_name": "Probe"},
+        )
+        free = await client.post(
+            "/auth/register",
+            json={"email": "free@example.com", "password": "a-strong-password", "display_name": "Probe"},
+        )
+        assert (taken.status_code, free.status_code) == (429, 429)

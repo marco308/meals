@@ -64,9 +64,15 @@ not oversights:
   request's `Authorization` header to the API verbatim. A server-side token
   fallback would be a vulnerability, and there are tests asserting one hasn't
   been added.
+- **Sessions last `SESSION_TOKEN_TTL_DAYS` (30) and end on request.** Signing
+  out in the web app or on iOS calls `POST /auth/logout`, which deletes that
+  session on the server; `{"everywhere": true}` ends every session of the
+  account, which is what to do after a device is lost. API tokens are
+  separate credentials and are not touched by either.
 - **Rate limiting is per-process and in-memory**, which is honest for a
   single-replica deployment and inadequate for a scaled-out one. Known; see
-  BACKLOG.md.
+  BACKLOG.md. IPv6 callers are charged by their /64, and a bucket is dropped
+  the moment its window empties.
 - **The backend never calls an LLM** (decision Q13) and never executes anything
   it fetches. Recipe ingestion is schema.org JSON-LD extraction only.
 - **Password reset never confirms whether an address has an account.**
@@ -76,6 +82,12 @@ not oversights:
   the address has an account, so neither answer's timing says either. Reset
   codes live in the same table as auth tokens but cannot be used as
   credentials, and a password change retires any that are outstanding.
+  **Registration is the one place an address is confirmed**, by design: a
+  registration that succeeds creates an account, so a free address answers
+  201 and a taken one 409, and answering the same either way would need
+  every server to send mail. The signup window is charged before that
+  answer, so a caller who has spent theirs gets 429 either way, and the
+  per-minute auth limit bounds how fast the rest can be probed.
 - **Account deletion is immediate and total.** `DELETE /auth/me` has no grace
   period, and the last member of a household takes its data with them (Q20).
   Joining another household while you are the only member of yours deletes it
