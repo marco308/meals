@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// Recipe photos. `image_url` has been on recipes since the first ingest —
-/// schema.org gives us one for nearly every parsed page — it just had nowhere
-/// to appear. It's a remote URL the household doesn't own, so every use here
-/// assumes it may be missing, slow, or dead, and degrades to the placeholder
-/// rather than leaving a hole in the layout.
-enum RecipeImageURL {
-    /// Only http(s) is ever loaded. The API stores whatever a client sent
-    /// (validation there stays deliberately loose so older clients keep
-    /// working), so the check belongs here, at the point of use.
+/// A URL the app will hand to the system or load: http(s) with a host, and
+/// nothing else. The API stores `image_url` and `source_url` as a client sent
+/// them (validation there stays deliberately loose so older clients keep
+/// working), so a `javascript:` or app-scheme value is possible, and a `Link`
+/// would open it — the check belongs here, at the point of use (#257).
+enum WebURL {
     static func parse(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
@@ -16,6 +13,16 @@ enum RecipeImageURL {
         else { return nil }
         return url
     }
+}
+
+/// Recipe photos. `image_url` has been on recipes since the first ingest —
+/// schema.org gives us one for nearly every parsed page — it just had nowhere
+/// to appear. It's a remote URL the household doesn't own, so every use here
+/// assumes it may be missing, slow, or dead, and degrades to the placeholder
+/// rather than leaving a hole in the layout.
+enum RecipeImageURL {
+    /// Only http(s) is ever loaded.
+    static func parse(_ raw: String?) -> URL? { WebURL.parse(raw) }
 }
 
 /// The square thumbnail on a library row.

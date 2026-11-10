@@ -128,6 +128,33 @@ async def client_compatibility(request: Request, call_next: Callable[[Request], 
     return response
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """Defence-in-depth headers on every response (#258).
+
+    `nosniff` stops a browser second-guessing a content type; the frame
+    headers keep the web app, the rendered pages and /docs out of anybody
+    else's iframe (the web app's own CSP is a <meta> tag, which cannot carry
+    `frame-ancestors`); and `no-referrer` keeps this origin out of the
+    headers of whatever a recipe's source link opens. `setdefault`, so a
+    route that writes stricter ones (the OAuth consent page) keeps them. HSTS
+    is not here on purpose: it belongs at the reverse proxy, which is what
+    knows whether there is TLS at all (README, "Behind a reverse proxy").
+    """
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Referrer-Policy": "no-referrer",
+}
+
+
 @app.exception_handler(limits.LimitExceeded)
 async def limit_exceeded_handler(_: Request, exc: Exception) -> Response:
     """The one place a limit becomes a response.

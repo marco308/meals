@@ -22,4 +22,14 @@ final class RecipeImageTests: XCTestCase {
         }
         XCTAssertNil(RecipeImageURL.parse(nil))
     }
+
+    /// The same guard decides whether "Open original recipe" gets a link:
+    /// `source_url` is stored as sent, and a `Link` would hand any scheme to
+    /// the system (#257).
+    func testSourceLinksAreHeldToTheSameRule() {
+        XCTAssertEqual(WebURL.parse("https://www.bbc.co.uk/food/recipes/x")?.host, "www.bbc.co.uk")
+        for raw in ["javascript:alert(1)", "myapp://open", "file:///etc/passwd", "not a url", ""] {
+            XCTAssertNil(WebURL.parse(raw), "\(raw) should not be a link")
+        }
+    }
 }
