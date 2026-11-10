@@ -58,11 +58,15 @@ The image is built `FROM postgres:17-alpine` to match the database, and that
 matters: `pg_dump` refuses to dump a server newer than itself, so both tags move
 together.
 
-If you point `BACKUP_DIR` at a **bind-mounted host directory** rather than a
-volume, set `user:` on the service to your own uid (`user: "1000:1000"`) —
-otherwise the dumps are root-owned and mode 0600, and the person recovering the
-database can't read them without sudo. That is the wrong friction on the day it
-matters.
+The container runs as **uid 1000**, never root: it holds the database password,
+the rclone token and the passphrase, and nothing it does needs more. A named
+volume inherits that ownership from the image. If you point `BACKUP_DIR` at a
+**bind-mounted host directory**, `chown 1000:1000` it first, or set `user:` on
+the service to your own uid (`user: "1000:1000"`) so the dumps belong to the
+person who will recover the database rather than to root. A volume created by
+an image from before this rule is root-owned and the first run on it fails
+with "permission denied" (and the healthcheck says so); fix it once with
+`docker run --rm -v <volume>:/backups alpine chown -R 1000:1000 /backups`.
 
 ## Getting a copy off the machine
 

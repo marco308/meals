@@ -38,6 +38,13 @@ struct KeychainStore: CredentialStore {
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
             kSecValueData as String: data,
+            // Readable once the phone has been unlocked since boot (the
+            // widget and background refresh need that much), and never
+            // leaves this device: with no class set the token rode along in
+            // encrypted backups and device-to-device migration (#261). An
+            // item saved before this rule keeps its old class until the next
+            // sign-in, which rewrites it.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         SecItemAdd(query as CFDictionary, nil)
     }

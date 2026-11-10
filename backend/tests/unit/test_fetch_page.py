@@ -274,6 +274,8 @@ async def test_a_slow_drip_is_cut_off_by_the_whole_fetch_deadline(monkeypatch, s
         "http://0.0.0.0/",
         "http://100.100.1.1/",  # carrier-grade NAT — where a tailnet lives
         "http://[64:ff9b::7f00:1]/",  # loopback wearing NAT64's well-known prefix
+        "http://[::7f00:1]/",  # and the deprecated IPv4-compatible form, ::127.0.0.1
+        "http://[::c0a8:101]/",  # ::192.168.1.1
     ],
 )
 async def test_private_addresses_are_refused(url, monkeypatch):

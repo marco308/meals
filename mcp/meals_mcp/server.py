@@ -96,6 +96,13 @@ def _caller_headers() -> Mapping[str, str] | None:
     return _caller_headers_var.get()
 
 
+#: Set by `http_app()`: this process serves the remote endpoint. From then on
+#: a call that reaches `_client()` without a caller's headers is refused rather
+#: than fall back to MEALS_API_TOKEN, so "no fallback in http mode" holds even
+#: if the SDK one day stops running the middleware for some request (#261).
+_serving_http = False
+
+
 def _client() -> httpx.AsyncClient:
     caller_headers = _caller_headers()
     if caller_headers is not None:
@@ -104,6 +111,11 @@ def _client() -> httpx.AsyncClient:
         # token would make every client act as that token's owner.
         auth = caller_headers.get("authorization")
         headers = {"Authorization": auth} if auth else {}
+    elif _serving_http:
+        raise ApiError(
+            "this remote MCP server holds no credentials of its own and this request carried none: connect with "
+            "an 'Authorization: Bearer <token>' header (a personal API token from POST /auth/tokens)"
+        )
     else:
         token = os.environ.get("MEALS_API_TOKEN", "")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -1438,6 +1450,8 @@ def http_app(*, streamable_http_path: str = "/mcp", require_token: bool | None =
     (main) or mounted in the API (app/mcp_mount.py). `require_token` defaults
     to MEALS_MCP_OAUTH; the API passes its own OAUTH_ENABLED instead, so the
     two can never disagree inside one process."""
+    global _serving_http
+    _serving_http = True
     app = mcp.streamable_http_app(streamable_http_path=streamable_http_path, **http_app_settings())
     if require_token is None:
         require_token = _env_flag("MEALS_MCP_OAUTH")

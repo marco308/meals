@@ -71,6 +71,9 @@ async def _resolve_host(host: str) -> list[str]:
 # NAT64 (RFC 6052): the well-known prefix embeds an IPv4 address that a
 # translator on the network would deliver the connection to.
 _NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+# The deprecated IPv4-compatible form (::127.0.0.1, RFC 4291 §2.5.5.1): no
+# modern stack routes it, but nothing here should depend on that.
+_V4_COMPATIBLE_PREFIX = ipaddress.ip_network("::/96")
 
 
 def _is_public_address(raw: str) -> bool:
@@ -83,7 +86,7 @@ def _is_public_address(raw: str) -> bool:
         if ip.ipv4_mapped is not None:
             # ::ffff:127.0.0.1 reaches loopback, so judge it as the v4 address.
             ip = ip.ipv4_mapped
-        elif ip in _NAT64_PREFIX:
+        elif ip in _NAT64_PREFIX or ip in _V4_COMPATIBLE_PREFIX:
             ip = ipaddress.ip_address(int(ip) & 0xFFFF_FFFF)
     # is_global follows the IANA special-purpose registries, which also rule
     # out ranges is_private misses — above all 100.64.0.0/10, carrier-grade
