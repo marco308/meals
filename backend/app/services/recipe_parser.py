@@ -27,6 +27,7 @@ from bs4 import BeautifulSoup
 
 from app.config import get_settings
 from app.schemas.catalog import MAX_RECIPE_LINES
+from app.services.cook_steps import MAX_METHOD_CHARS
 from app.services.ingredient_lines import ParsedIngredient, parse_ingredient_line
 
 
@@ -530,7 +531,9 @@ def _parse_instructions(value: object) -> str | None:
     steps = _collect_instruction_steps(value)
     if not steps:
         return None
-    return "\n".join(f"{i}. {step}" for i, step in enumerate(steps, start=1))
+    # A page's method is cut to what cook mode will read (the page chose this
+    # text, and a recipe's own field has no limit to stop it).
+    return "\n".join(f"{i}. {step}" for i, step in enumerate(steps, start=1))[:MAX_METHOD_CHARS]
 
 
 def _collect_instruction_steps(value: object) -> list[str]:

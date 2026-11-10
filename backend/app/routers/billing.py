@@ -181,9 +181,17 @@ async def webhook(request: Request, db: DbSession) -> dict:
     _require_billing()
 
     raw = await request.body()
+    headers = dict(request.headers)
     try:
+        # Before anything reads the body as JSON: the signature is the whole
+        # authentication here, so an unsigned caller's bytes get an HMAC and
+        # a 401, and no parser.
+        billing.verify(raw, headers)
         payload = json.loads(raw)
-    except ValueError:
+    except billing.BillingError as exc:
+        billing.count(exc.outcome)
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except (ValueError, RecursionError):
         billing.count("unreadable")
         raise HTTPException(status_code=400, detail="body is not JSON") from None
     if not isinstance(payload, dict):
@@ -191,7 +199,7 @@ async def webhook(request: Request, db: DbSession) -> dict:
         raise HTTPException(status_code=400, detail="body is not a JSON object")
 
     try:
-        outcome = await billing.handle(db, raw, dict(request.headers), payload)
+        outcome = await billing.handle(db, raw, headers, payload)
     except billing.BillingError as exc:
         # Counted here rather than in the service: these never reach the ledger,
         # and they are exactly the failures that would otherwise be silent.

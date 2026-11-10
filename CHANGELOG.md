@@ -20,6 +20,18 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+### Security
+
+- **A request body has a ceiling**, 1 MB unless `MAX_REQUEST_BODY_BYTES` says
+  otherwise (0 turns it off). A larger one is a 413 before it is read. A 422
+  now shows a sample of the input it refused instead of all of it.
+- **Cook-mode steps cost what the method's length says, and no more.** A
+  pattern that was quadratic in a run of spaces is linear, ingredient matching
+  no longer multiplies a step by every name in the recipe, and steps are read
+  from the first 50,000 characters of a method.
+- **The billing webhook checks the signature before it parses the body**, and a
+  body nested too deep to parse is a counted 400 instead of a 500.
+
 ## 2026-11-01: meals from the freezer
 
 Released as **1.12.0**. One additive migration (`37f6e1113037`), **playbook
