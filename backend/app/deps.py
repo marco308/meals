@@ -1,5 +1,6 @@
+import ipaddress
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -61,8 +62,10 @@ async def get_current_user(
     request.state.user_id = token.user.id
     request.state.household_id = token.user.household_id
     # And with what, for the few things only a signed-in person may do
-    # (`get_session_user`).
+    # (`get_session_user`) and the one thing done *to* the credential itself
+    # (`POST /auth/logout` deletes the row it was presented with).
     request.state.token_kind = token.kind
+    request.state.token_id = token.id
     return token.user
 
 
@@ -105,7 +108,64 @@ SessionUser = Annotated[User, Depends(get_session_user)]
 # the API internet-facing, so brute-force protection is non-optional). Per
 # process — good enough for a single-container POC.
 
-_attempts: dict[str, deque[float]] = defaultdict(deque)
+
+class _Buckets:
+    """Sliding windows of attempt times, one per caller.
+
+    A caller's window is pruned whenever they come back, but a caller who never
+    comes back used to leave theirs behind for the life of the process: an
+    empty-body POST is a 422 that still runs this dependency, so each request
+    from a fresh address kept a few hundred bytes forever, and an IPv6 /64 is
+    2^64 fresh addresses for one caller (#255). Hence two things: a key is
+    deleted the moment its window empties, and once the table passes
+    `sweep_at` keys every charge sweeps out every window whose newest entry
+    has aged out — that is the one case the per-key prune never reaches.
+    """
+
+    def __init__(self, window_seconds: float, sweep_at: int = 1024) -> None:
+        self.window = window_seconds
+        self.sweep_at = sweep_at
+        self._windows: dict[str, deque[float]] = {}
+
+    def charge(self, key: str, limit: int, now: float | None = None) -> bool:
+        """Record one attempt for `key`, or answer False if it would be the
+        `limit`-plus-first in the window (and record nothing)."""
+        now = time.monotonic() if now is None else now
+        if len(self._windows) >= self.sweep_at:
+            self._sweep(now)
+        window = self._windows.get(key)
+        if window is None:
+            window = self._windows[key] = deque()
+        while window and now - window[0] > self.window:
+            window.popleft()
+        if len(window) >= limit:
+            return False
+        window.append(now)
+        return True
+
+    def refund(self, key: str) -> None:
+        window = self._windows.get(key)
+        if not window:
+            return
+        window.pop()
+        if not window:
+            del self._windows[key]
+
+    def _sweep(self, now: float) -> None:
+        stale = [key for key, window in self._windows.items() if not window or now - window[-1] > self.window]
+        for key in stale:
+            del self._windows[key]
+
+    # The tests reset the limiter between cases, and the operator-facing
+    # numbers below (`/metrics`) only need a size.
+    def clear(self) -> None:
+        self._windows.clear()
+
+    def __len__(self) -> int:
+        return len(self._windows)
+
+
+_attempts = _Buckets(window_seconds=60)
 
 
 def _rate_limit_key(request: Request) -> str:
@@ -113,8 +173,19 @@ def _rate_limit_key(request: Request) -> str:
     has been told which proxies to trust (`FORWARDED_ALLOW_IPS`, README "Behind
     a reverse proxy"). Behind an untrusted proxy it is the *proxy's* address, so
     every caller in the world collapses into a single bucket and the limit
-    becomes global rather than per-client."""
-    return request.client.host if request.client else "unknown"
+    becomes global rather than per-client.
+
+    An IPv6 caller is charged by their /64: that is the prefix a home or a VPS
+    is handed, and every address inside it is theirs to pick, so bucketing by
+    full address would let one caller start the window afresh 2^64 times."""
+    host = request.client.host if request.client else "unknown"
+    try:
+        ip = ipaddress.ip_address(host.partition("%")[0])
+    except ValueError:
+        return host
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is None:
+        return str(ipaddress.ip_network((ip, 64), strict=False))
+    return host
 
 
 def auth_rate_limit(request: Request) -> None:
@@ -122,11 +193,7 @@ def auth_rate_limit(request: Request) -> None:
     if limit <= 0:
         return
     key = _rate_limit_key(request)
-    now = time.monotonic()
-    window = _attempts[key]
-    while window and now - window[0] > 60:
-        window.popleft()
-    if len(window) >= limit:
+    if not _attempts.charge(key, limit):
         # The brute-force alarm. `bucket` is the proxy-reported address — see
         # _rate_limit_key for how honest that is behind a given deployment.
         log_event("auth.rate_limited", bucket=key, path=request.url.path)
@@ -134,7 +201,6 @@ def auth_rate_limit(request: Request) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="too many auth attempts; wait a minute and try again",
         )
-    window.append(now)
 
 
 def forgive_auth_attempt(request: Request) -> None:
@@ -155,36 +221,32 @@ def forgive_auth_attempt(request: Request) -> None:
     """
     if get_settings().auth_rate_limit_per_minute <= 0:
         return  # nothing was charged, so there is nothing to refund
-    window = _attempts.get(_rate_limit_key(request))
-    if window:
-        window.pop()
+    _attempts.refund(_rate_limit_key(request))
 
 
 # New households, per caller, per hour (issue #122). A separate window from the
 # one above because it answers a different question: not "is somebody guessing a
 # password" but "is somebody manufacturing households". Ten a minute is no
 # obstacle to that, and an hour is.
-_signups: dict[str, deque[float]] = defaultdict(deque)
+_signups = _Buckets(window_seconds=3600)
 
 
 def charge_signup(request: Request) -> None:
     """Count one new household against the caller, or refuse with 429.
 
-    Called by `register` after every other refusal and before anything is
-    written, and only for a registration that starts a household: an invite
-    code is somebody vouching for the caller, so a family registering its
-    phones from one router is never counted. `refund_signup` hands the slot
-    back if the write then fails.
+    Called by `register` before it says whether the address is taken, and
+    only for a registration that starts a household: an invite code is
+    somebody vouching for the caller, so a family registering its phones from
+    one router is never counted. `refund_signup` hands the slot back when the
+    request is refused after all, so a request turned away costs nobody their
+    hour — and because the charge comes first, a caller who has spent theirs
+    gets the same 429 for a taken address as for a free one (#254).
     """
     limit = get_settings().signup_rate_limit_per_hour
     if limit <= 0:
         return
     key = _rate_limit_key(request)
-    now = time.monotonic()
-    window = _signups[key]
-    while window and now - window[0] > 3600:
-        window.popleft()
-    if len(window) >= limit:
+    if not _signups.charge(key, limit):
         log_event("auth.signup_rate_limited", bucket=key)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -193,15 +255,12 @@ def charge_signup(request: Request) -> None:
                 "Joining an existing household with an invite code is not limited"
             ),
         )
-    window.append(now)
 
 
 def refund_signup(request: Request) -> None:
     if get_settings().signup_rate_limit_per_hour <= 0:
         return
-    window = _signups.get(_rate_limit_key(request))
-    if window:
-        window.pop()
+    _signups.refund(_rate_limit_key(request))
 
 
 # ---------------------------------------------------------- email verification
