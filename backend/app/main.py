@@ -36,7 +36,7 @@ from app.routers import (
 )
 from app.routers import labels as labels_router
 from app.routers import limits as limits_router
-from app.routers.skill import base_url, playbook_version
+from app.routers.skill import base_url, playbook_version, warn_if_origin_unpinned
 from app.services import security
 
 settings = get_settings()
@@ -44,6 +44,10 @@ observability.setup_logging()
 # A typo in a LIMITS_* value should stop the container here, not surface as a
 # 500 on somebody's fiftieth recipe.
 limits.check_settings()
+# Once per process: an OAuth or selling server still taking its origin from
+# request headers (#252). Not a refusal, so a deployment without PUBLIC_URL
+# keeps booting.
+warn_if_origin_unpinned(settings)
 
 
 @contextlib.asynccontextmanager

@@ -99,7 +99,7 @@ class TestOAuthSwitch:
 
         seen: list[bool] = []
 
-        def fake_http_app(*, streamable_http_path: str, require_token: bool):
+        def fake_http_app(*, streamable_http_path: str, require_token: bool, public_url: str | None):
             seen.append(require_token)
             return lambda scope, receive, send: None
 
@@ -109,3 +109,23 @@ class TestOAuthSwitch:
             settings_override(OAUTH_ENABLED=value)
             assert mcp_mount.attach(FastAPI())
         assert seen == [True, False]
+
+    def test_the_mount_names_the_apis_public_url(self, monkeypatch, settings_override):
+        """#252: the mounted 401 is pinned by the API's own PUBLIC_URL, and an
+        unset one is passed as None (headers) rather than left to whatever
+        MEALS_PUBLIC_URL this process happens to have."""
+        from meals_mcp import server as mcp_server
+
+        seen: list[str | None] = []
+
+        def fake_http_app(*, streamable_http_path: str, require_token: bool, public_url: str | None):
+            seen.append(public_url)
+            return lambda scope, receive, send: None
+
+        monkeypatch.setattr(mcp_server, "http_app", fake_http_app)
+        monkeypatch.setattr(mcp_mount, "_attached", mcp_mount._attached)
+        monkeypatch.setenv("MEALS_PUBLIC_URL", "https://not-this.example")
+        for value in ("https://meals.example.org/", ""):
+            settings_override(PUBLIC_URL=value)
+            assert mcp_mount.attach(FastAPI())
+        assert seen == ["https://meals.example.org", None]

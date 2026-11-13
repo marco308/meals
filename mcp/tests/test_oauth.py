@@ -34,11 +34,12 @@ USER = {"id": "u1", "email": "alice@example.com", "display_name": "Alice"}
 def _env(monkeypatch):
     monkeypatch.setenv("MEALS_API_URL", API)
     monkeypatch.setenv("MEALS_API_TOKEN", "meals_server-token-must-not-leak")
+    monkeypatch.delenv("MEALS_PUBLIC_URL", raising=False)
 
 
 @asynccontextmanager
-async def _guarded(headers: dict[str, str] | None = None):
-    app = server.http_app(require_token=True)
+async def _guarded(headers: dict[str, str] | None = None, **app_options):
+    app = server.http_app(require_token=True, **app_options)
     async with (
         server.mcp.session_manager.run(),
         httpx2.AsyncClient(
@@ -69,6 +70,63 @@ class TestChallenge:
             in response.headers["www-authenticate"]
         )
 
+    async def test_never_stored_by_a_shared_cache(self):
+        """#252: built from the caller's headers unless pinned."""
+        async with _guarded() as client:
+            response = await client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
+        assert response.headers["cache-control"] == "no-store"
+
+
+class TestPublicUrl:
+    """MEALS_PUBLIC_URL (or the API's PUBLIC_URL, when mounted) pins the
+    origin the 401 names, whatever the forwarded headers say (#252)."""
+
+    FORGED = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example", **MCP_HEADERS}
+    PINNED = 'resource_metadata="https://meals.example.org/.well-known/oauth-protected-resource/mcp"'
+
+    async def test_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv("MEALS_PUBLIC_URL", "https://meals.example.org/")
+        async with _guarded() as client:
+            response = await client.post("/mcp", json=INITIALIZE, headers=self.FORGED)
+        assert self.PINNED in response.headers["www-authenticate"]
+        assert "evil.example" not in response.headers["www-authenticate"]
+
+    async def test_passed_by_the_api_wins_over_the_environment(self, monkeypatch):
+        monkeypatch.setenv("MEALS_PUBLIC_URL", "https://not-this.example")
+        async with _guarded(public_url="https://meals.example.org") as client:
+            response = await client.post("/mcp", json=INITIALIZE, headers=self.FORGED)
+        assert self.PINNED in response.headers["www-authenticate"]
+
+    async def test_an_explicit_none_means_the_headers(self, monkeypatch):
+        """How the API says its own PUBLIC_URL is unset: this process's
+        MEALS_PUBLIC_URL must not decide for it."""
+        monkeypatch.setenv("MEALS_PUBLIC_URL", "https://not-this.example")
+        async with _guarded(public_url=None) as client:
+            response = await client.post("/mcp", json=INITIALIZE, headers=self.FORGED)
+        assert "https://evil.example/.well-known" in response.headers["www-authenticate"]
+
+    @pytest.mark.parametrize("value", ["meals.example.org", "https://meals.example.org/mcp", "ftp://x.example"])
+    def test_anything_but_an_origin_fails_at_startup(self, monkeypatch, value):
+        monkeypatch.setenv("MEALS_PUBLIC_URL", value)
+        with pytest.raises(ValueError, match="MEALS_PUBLIC_URL"):
+            server.http_app(require_token=True)
+
+    def test_blank_is_unset(self, monkeypatch):
+        monkeypatch.setenv("MEALS_PUBLIC_URL", "  ")
+        assert server.http_app(require_token=True).public_url is None
+
+    @pytest.mark.parametrize(
+        ("value", "origin"),
+        [
+            ("HTTPS://Meals.Example.org/", "https://meals.example.org"),
+            ("http://localhost:8000", "http://localhost:8000"),
+        ],
+    )
+    def test_one_spelling(self, value, origin):
+        assert server.public_origin(value) == origin
+
+
+class TestRefusals:
     @respx.mock
     async def test_a_token_the_api_refuses_is_invalid_token(self):
         route = respx.get(f"{API}/auth/me").mock(return_value=httpx.Response(401, json={"detail": "invalid"}))

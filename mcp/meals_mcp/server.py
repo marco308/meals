@@ -30,6 +30,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from mcp.server import MCPServer, ServerRequestContext
@@ -1376,10 +1377,35 @@ class ApiTokenVerifier(TokenVerifier):
         return AccessToken(token=token, client_id="meals", scopes=[OAUTH_SCOPE], subject=str(response.json().get("id")))
 
 
-def _public_base(headers: Headers, scope: Scope) -> str:
+def public_origin(value: str) -> str:
+    """MEALS_PUBLIC_URL as `scheme://host[:port]`, or a ValueError naming the
+    problem. The same rule as the API's PUBLIC_URL (`app/config.py`): an
+    origin only, because the metadata path is appended to it."""
+    parts = urlsplit(value.strip())
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError("MEALS_PUBLIC_URL must be an absolute http(s) URL, such as https://meals.example.org")
+    if parts.path not in ("", "/") or parts.query or parts.fragment or "?" in value or "#" in value:
+        raise ValueError("MEALS_PUBLIC_URL must be an origin only, with no path, query or fragment")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("MEALS_PUBLIC_URL must not carry a username or password")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ValueError("MEALS_PUBLIC_URL has a port that is not a number") from exc
+    host = parts.hostname
+    if ":" in host:  # an IPv6 literal keeps its brackets
+        host = f"[{host}]"
+    return f"{parts.scheme.lower()}://{host}" + (f":{port}" if port is not None else "")
+
+
+def _public_base(headers: Headers, scope: Scope, pinned: str | None = None) -> str:
     """The origin the caller used, through Traefik or not: the same reading of
     the forwarded headers as the API's `base_url`, so the 401 names the
-    metadata URL the API will actually answer on."""
+    metadata URL the API will actually answer on. A pinned origin (the API's
+    PUBLIC_URL, or MEALS_PUBLIC_URL in its own container) wins over the
+    headers, which a proxy may have let the caller choose (#252)."""
+    if pinned:
+        return pinned
     scheme = (headers.get("x-forwarded-proto") or scope.get("scheme", "http")).split(",")[0].strip()
     host = (headers.get("x-forwarded-host") or headers.get("host") or "localhost").split(",")[0].strip()
     return f"{scheme}://{host}"
@@ -1396,10 +1422,11 @@ class RequireCallerToken:
     request came in on, like `/skill`. Only the MCP path is guarded, so the
     container's /healthz stays open to the load balancer."""
 
-    def __init__(self, app: ASGIApp, verifier: TokenVerifier, path: str) -> None:
+    def __init__(self, app: ASGIApp, verifier: TokenVerifier, path: str, public_url: str | None = None) -> None:
         self.app = app
         self.verifier = verifier
         self.path = path
+        self.public_url = public_url
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope["path"] != self.path or scope["method"] == "OPTIONS":
@@ -1426,7 +1453,7 @@ class RequireCallerToken:
         await self.app(scope, receive, send)
 
     async def _challenge(self, scope: Scope, receive: Receive, send: Send, headers: Headers, error: str | None) -> None:
-        metadata = f"{_public_base(headers, scope)}/.well-known/oauth-protected-resource{self.path}"
+        metadata = f"{_public_base(headers, scope, self.public_url)}/.well-known/oauth-protected-resource{self.path}"
         challenge = f'Bearer resource_metadata="{metadata}", scope="{OAUTH_SCOPE}"'
         description = "sign in to connect, or send a personal API token as 'Authorization: Bearer <token>'"
         if error is not None:
@@ -1436,7 +1463,9 @@ class RequireCallerToken:
         response = JSONResponse(
             {"error": error or "invalid_request", "error_description": description},
             status_code=401,
-            headers={"WWW-Authenticate": challenge},
+            # Built from the caller's headers unless pinned, so no shared
+            # cache may hand it to anybody else.
+            headers={"WWW-Authenticate": challenge, "Cache-Control": "no-store"},
         )
         await response(scope, receive, send)
 
@@ -1445,18 +1474,34 @@ def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def http_app(*, streamable_http_path: str = "/mcp", require_token: bool | None = None) -> ASGIApp:
+#: `http_app`'s "read it from the environment", told apart from an explicit
+#: None, which is how the API says its own PUBLIC_URL is unset.
+_FROM_ENV: Any = object()
+
+
+def _env_public_url() -> str | None:
+    value = os.environ.get("MEALS_PUBLIC_URL", "").strip()
+    return public_origin(value) if value else None
+
+
+def http_app(
+    *, streamable_http_path: str = "/mcp", require_token: bool | None = None, public_url: str | None = _FROM_ENV
+) -> ASGIApp:
     """The streamable-HTTP app exactly as it is deployed, in its own container
     (main) or mounted in the API (app/mcp_mount.py). `require_token` defaults
-    to MEALS_MCP_OAUTH; the API passes its own OAUTH_ENABLED instead, so the
-    two can never disagree inside one process."""
+    to MEALS_MCP_OAUTH and `public_url` to MEALS_PUBLIC_URL; the API passes
+    its own OAUTH_ENABLED and PUBLIC_URL instead, so the two can never
+    disagree inside one process. A malformed MEALS_PUBLIC_URL fails here, at
+    startup."""
     global _serving_http
+    if public_url is _FROM_ENV:
+        public_url = _env_public_url()
     _serving_http = True
     app = mcp.streamable_http_app(streamable_http_path=streamable_http_path, **http_app_settings())
     if require_token is None:
         require_token = _env_flag("MEALS_MCP_OAUTH")
     if require_token:
-        return RequireCallerToken(app, ApiTokenVerifier(), streamable_http_path)
+        return RequireCallerToken(app, ApiTokenVerifier(), streamable_http_path, public_url)
     return app
 
 

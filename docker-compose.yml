@@ -46,6 +46,11 @@ services:
       # OAuth sign-in for /mcp (README, "Signing in instead of pasting a
       # token"). Blank is off; the mcp service below follows the same variable.
       OAUTH_ENABLED: ${OAUTH_ENABLED:-}
+      # The origin people reach this server on, e.g. https://meals.example.org
+      # (README, "Behind a reverse proxy"). Blank reads it off each request's
+      # headers; set it once OAuth or billing is on, which log a warning at
+      # startup until it is. The mcp service below follows the same variable.
+      PUBLIC_URL: ${PUBLIC_URL:-}
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     depends_on:
@@ -82,6 +87,7 @@ services:
     environment:
       MEALS_API_URL: http://api:8000
       MEALS_MCP_OAUTH: ${OAUTH_ENABLED:-}
+      MEALS_PUBLIC_URL: ${PUBLIC_URL:-}
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8100:8000"
     depends_on:

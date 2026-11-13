@@ -22,6 +22,13 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Security
 
+- **`PUBLIC_URL` pins the server's origin** (#252). Set, the OAuth metadata,
+  the resource a grant is bound to, billing checkout and portal return URLs,
+  `/skill`, `/prompt-pack` and the MCP 401 are built from it instead of from
+  request headers a proxy may let a caller choose (`MEALS_PUBLIC_URL` on a
+  separate MCP container). Optional, so nothing refuses to boot; a server with
+  OAuth or a checkout logs `config.public_url_unset` at startup until it is
+  set. Those responses now also carry `Cache-Control: no-store`.
 - **A request body has a ceiling**, 1 MB unless `MAX_REQUEST_BODY_BYTES` says
   otherwise (0 turns it off). A larger one is a 413 before it is read. A 422
   now shows a sample of the input it refused instead of all of it.

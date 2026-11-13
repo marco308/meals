@@ -398,6 +398,32 @@ async def test_portal_mints_a_session_for_this_household(stripe, auth_client, se
     assert route.calls.last.request.headers["stripe-version"] == "2025-03-31.basil"
 
 
+@respx.mock
+async def test_public_url_is_where_checkout_and_portal_return_to(stripe, auth_client, sessions, settings_override):
+    """#252: the processor sends the payer back to these URLs from a genuine
+    checkout page on the operator's account, so a forged host must not choose
+    them once PUBLIC_URL is set."""
+    from urllib.parse import parse_qsl
+
+    settings_override(PUBLIC_URL="https://meals.example.org")
+    forged = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"}
+    checkout = respx.post("https://api.stripe.com/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"id": "cs_test_1", "url": "https://checkout.stripe.com/c/pay/cs_test_1"})
+    )
+    assert (await auth_client.post("/billing/checkout", headers=forged)).status_code == 201
+    sent = dict(parse_qsl(checkout.calls.last.request.content.decode()))
+    assert sent["success_url"] == "https://meals.example.org/app/#/settings"
+    assert sent["cancel_url"] == "https://meals.example.org/app/#/settings"
+
+    portal = respx.post("https://api.stripe.com/v1/billing_portal/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/session/live_1"})
+    )
+    await paid_by_stripe(sessions)
+    assert (await auth_client.post("/billing/portal", headers=forged)).status_code == 200
+    sent = dict(parse_qsl(portal.calls.last.request.content.decode()))
+    assert sent["return_url"] == "https://meals.example.org/app/#/settings"
+
+
 async def test_a_household_that_never_paid_has_nothing_to_manage(stripe, auth_client):
     """Even with a portal URL configured. A link to a login page they have no
     account on is not a feature — it is the bug that started #129."""

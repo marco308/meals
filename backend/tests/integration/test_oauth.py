@@ -231,6 +231,31 @@ class TestMetadata:
         assert metadata["resource"] == "https://meals.example.org/mcp"
         assert metadata["authorization_servers"] == ["https://meals.example.org"]
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp",
+        ],
+    )
+    async def test_never_stored_by_a_shared_cache(self, client, path):
+        """#252: one cached answer built from a forged host would send every
+        client after it to somebody else's token endpoint."""
+        assert (await client.get(path)).headers["cache-control"] == "no-store"
+
+    async def test_public_url_pins_the_metadata(self, client, settings_override):
+        settings_override(PUBLIC_URL="https://meals.example.org")
+        headers = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"}
+        server = (await client.get("/.well-known/oauth-authorization-server", headers=headers)).json()
+        assert server["issuer"] == "https://meals.example.org"
+        assert server["token_endpoint"] == "https://meals.example.org/oauth/token"
+        assert server["service_documentation"] == "https://meals.example.org/skill"
+        resource = (await client.get("/.well-known/oauth-protected-resource/mcp", headers=headers)).json()
+        assert resource["resource"] == "https://meals.example.org/mcp"
+        assert resource["authorization_servers"] == ["https://meals.example.org"]
+        assert resource["resource_documentation"] == "https://meals.example.org/skill"
+
 
 # ------------------------------------------------------------------- happy paths
 
@@ -559,6 +584,25 @@ class TestResourceBinding:
         tokens = (await exchange(client, code, verifier)).json()
         response = await refresh(client, tokens["refresh_token"], resource="https://other.example/mcp")
         assert response.json()["error"] == "invalid_target"
+
+    async def test_public_url_is_the_resource_a_grant_is_bound_to(self, client, user, settings_override, engine):
+        """#252: with PUBLIC_URL set, the resource stored on a grant is the
+        pinned one, and a forged host cannot make another one acceptable."""
+        settings_override(PUBLIC_URL="https://meals.example.org")
+        forged = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"}
+        _, challenge = pkce()
+        params = authorize_params(challenge, resource="https://evil.example/mcp")
+        query = redirect_query(await client.get("/oauth/authorize", params=params, headers=forged))
+        assert query["error"] == "invalid_target"
+
+        params = authorize_params(challenge, resource="https://meals.example.org/mcp")
+        assert (await client.get("/oauth/authorize", params=params, headers=forged)).status_code == 200
+        query = redirect_query(await approve(client, params))
+        assert query["iss"] == "https://meals.example.org"
+        maker = async_sessionmaker(engine)
+        async with maker() as session:
+            grant = (await session.execute(select(OAuthGrant))).scalars().one()
+        assert grant.resource == "https://meals.example.org/mcp"
 
 
 class TestWhatATokenIs:

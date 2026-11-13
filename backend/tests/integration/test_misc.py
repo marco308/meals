@@ -97,6 +97,29 @@ class TestSkillPublishing:
         assert "https://meals.example.com/openapi.json" in response.text
         assert "http://test" not in response.text
 
+    @pytest.mark.parametrize("path", ["/skill", "/prompt-pack", "/skill/version"])
+    async def test_public_url_wins_over_the_headers(self, client, settings_override, path):
+        """#252: with PUBLIC_URL set, no header a caller (or a proxy passing
+        theirs through) sends can choose what an assistant is told to follow."""
+        settings_override(PUBLIC_URL="https://meals.example.org/")
+        response = await client.get(
+            path, headers={"x-forwarded-proto": "http", "x-forwarded-host": "evil.example", "host": "evil.example"}
+        )
+        assert response.status_code == 200
+        assert "https://meals.example.org/" in response.text
+        assert "evil.example" not in response.text
+        assert "http://test" not in response.text
+
+    async def test_the_landing_follows_public_url_too(self, client, settings_override):
+        settings_override(PUBLIC_URL="https://meals.example.org")
+        landing = (await client.get("/", headers={"x-forwarded-host": "evil.example"})).json()
+        assert landing["skill"] == "https://meals.example.org/skill"
+
+    @pytest.mark.parametrize("path", ["/skill", "/prompt-pack", "/skill/version"])
+    async def test_never_stored_by_a_shared_cache(self, client, path):
+        response = await client.get(path)
+        assert response.headers["cache-control"] == "no-store"
+
     async def test_missing_skill_files_404_not_500(self, client, monkeypatch):
         """A build that forgot to ship skill/ fails loud but clean."""
         monkeypatch.setattr(skill_router, "_SKILL_DIRS", (Path("/nonexistent"),))

@@ -222,3 +222,85 @@ class TestBlankMeansDefault:
         """
         assert _settings(monkeypatch, DATABASE_URL="").database_url == ""
         assert Settings.model_fields["database_url"].default != ""
+
+
+class TestPublicUrl:
+    """PUBLIC_URL (#252): an origin and nothing else, checked at boot."""
+
+    @pytest.mark.parametrize("blank", BLANK)
+    def test_blank_is_unset(self, monkeypatch, blank):
+        assert _settings(monkeypatch, PUBLIC_URL=blank).public_url is None
+
+    def test_unset_by_default(self, monkeypatch):
+        monkeypatch.delenv("PUBLIC_URL", raising=False)
+        assert _settings(monkeypatch).public_url is None
+
+    @pytest.mark.parametrize(
+        ("value", "origin"),
+        [
+            ("https://meals.example.org", "https://meals.example.org"),
+            ("https://meals.example.org/", "https://meals.example.org"),
+            ("HTTPS://Meals.Example.org", "https://meals.example.org"),
+            ("  http://localhost:8000  ", "http://localhost:8000"),
+            ("http://[::1]:8000", "http://[::1]:8000"),
+        ],
+    )
+    def test_an_origin_is_kept_in_one_spelling(self, monkeypatch, value, origin):
+        assert _settings(monkeypatch, PUBLIC_URL=value).public_url == origin
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "meals.example.org",
+            "ftp://meals.example.org",
+            "https://",
+            "https://meals.example.org/app",
+            "https://meals.example.org/?x=1",
+            "https://meals.example.org?",
+            "https://meals.example.org#top",
+            "https://user:pw@meals.example.org",
+            "https://meals.example.org:port",
+        ],
+    )
+    def test_anything_but_an_origin_refuses_to_boot(self, monkeypatch, value):
+        with pytest.raises(ValueError, match="PUBLIC_URL"):
+            _settings(monkeypatch, PUBLIC_URL=value)
+
+
+class TestUnpinnedOriginWarning:
+    """Not a boot refusal (a server without PUBLIC_URL must keep starting), but
+    one warning at startup where it matters, carrying no URL."""
+
+    @pytest.mark.parametrize(
+        ("env", "warned"),
+        [
+            ({}, False),
+            ({"OAUTH_ENABLED": "true"}, True),
+            ({"OAUTH_ENABLED": "true", "PUBLIC_URL": "https://meals.example.org"}, False),
+            (
+                {
+                    "BILLING_PROCESSOR": "stripe",
+                    "BILLING_WEBHOOK_SECRET": "s",
+                    "BILLING_API_KEY": "k",
+                    "BILLING_PRICE_ID": "p",
+                    "DEFAULT_HOUSEHOLD_TIER": "free",
+                },
+                True,
+            ),
+        ],
+    )
+    def test_warns_only_when_oauth_or_selling_and_unpinned(self, monkeypatch, caplog, env, warned):
+        from app.routers.skill import warn_if_origin_unpinned
+
+        for key in ("PUBLIC_URL", "OAUTH_ENABLED", "BILLING_PROCESSOR", "BILLING_API_KEY"):
+            monkeypatch.delenv(key, raising=False)
+        settings = _settings(monkeypatch, **env)
+        with caplog.at_level("WARNING", logger="meals.events"):
+            assert warn_if_origin_unpinned(settings) is warned
+        records = [r for r in caplog.records if r.getMessage() == "config.public_url_unset"]
+        assert len(records) == (1 if warned else 0)
+        for record in records:
+            assert record.levelname == "WARNING"
+            # Booleans only, never the origin or any other URL.
+            assert isinstance(record.oauth_enabled, bool)
+            assert isinstance(record.billing_sells, bool)
