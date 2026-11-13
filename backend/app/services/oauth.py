@@ -31,7 +31,10 @@ is an `AuthToken` of kind `oauth` (in `deps.AUTHENTICATING_KINDS`, so it is
 read by the same code path as an API token and filtered by `household_id` in
 the same places), a refresh token is kind `oauth_refresh` (not in it, so it is
 never a bearer), and the authorization code lives on the `OAuthGrant` row and
-never in `auth_tokens` at all.
+never in `auth_tokens` at all. A refresh token that has been traded is not
+deleted but kept as kind `oauth_refresh_spent` until it would have expired,
+so that the next time somebody presents it this server can tell a copy from
+garbage and end the connection (`refresh_tokens`).
 """
 
 import asyncio
@@ -42,6 +45,7 @@ import json
 import re
 import secrets
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
@@ -53,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.deps import as_aware
 from app.models import AuthToken, OAuthGrant, User
+from app.observability import log_event
 from app.services import recipe_parser
 from app.services.security import generate_token, hash_token
 
@@ -69,7 +74,17 @@ LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _MAX_REDIRECT_URIS = 10
 _MAX_URI_LENGTH = 1000
 _MAX_CLIENT_ID_LENGTH = 8000
-_MAX_NAME_LENGTH = 100
+#: A name longer than this stops being a name and starts being a sentence on
+#: the consent screen ("Claude, verified by claude.ai. This connector ...").
+_MAX_NAME_LENGTH = 40
+
+#: A refresh token's kind once it has been traded for a new pair: a tombstone,
+#: kept until the token would have expired, and never a credential of any sort.
+SPENT_REFRESH = "oauth_refresh_spent"
+#: How long after a refresh token is spent presenting it again is taken for the
+#: same client retrying a response it never received, rather than for a copy.
+#: It is refused either way; only after this is the connection revoked.
+REFRESH_REUSE_GRACE_SECONDS = 10
 
 # The metadata document draft suggests 5 KB, and Claude's is under 400 bytes.
 _DOCUMENT_MAX_BYTES = 5 * 1024
@@ -142,6 +157,12 @@ def redirect_uri_problem(uri: object) -> str | None:
         return "a redirect URI must be a non-empty string"
     if len(uri) > _MAX_URI_LENGTH:
         return f"a redirect URI may be at most {_MAX_URI_LENGTH} characters"
+    # Python and browsers disagree about where the host of
+    # `https://a.example\b.example/` ends, and whitespace and control
+    # characters are stripped by some parsers and not others. Not echoed back,
+    # because the URI is exactly the part that can't be printed honestly.
+    if any(char == "\\" or char.isspace() or unicodedata.category(char)[0] == "C" for char in uri):
+        return "a redirect URI may not contain a backslash, whitespace or control characters"
     try:
         parts = urlsplit(uri)
         parts.port  # noqa: B018 - raises on a port that isn't a number
@@ -224,10 +245,17 @@ def _validated_metadata(metadata: object) -> tuple[str | None, tuple[str, ...]]:
 def _clean_name(name: str | None) -> str | None:
     if name is None:
         return None
-    # Control characters and runs of whitespace are how a name pretends to be
-    # two lines of the consent screen.
+    # Runs of whitespace are how a name pretends to be two lines of the consent
+    # screen, and the invisible characters (category C: controls, bidi
+    # overrides, zero-width joiners and spaces, and anything unassigned) are
+    # how it reorders or hides what it says. Whitespace first, so a newline
+    # still separates two words.
     flat = " ".join(name.split())
-    return flat[:_MAX_NAME_LENGTH] or None
+    visible = "".join(char for char in flat if unicodedata.category(char)[0] != "C")
+    visible = " ".join(visible.split())
+    if len(visible) > _MAX_NAME_LENGTH:
+        visible = visible[: _MAX_NAME_LENGTH - 1].rstrip() + "\u2026"
+    return visible or None
 
 
 def _b64encode(raw: bytes) -> str:
@@ -531,7 +559,11 @@ async def _prune_dead_grants(db: AsyncSession, user_id) -> None:
     tokens = (
         await db.execute(select(AuthToken).where(AuthToken.grant_id.in_([grant.id for grant in grants])))
     ).scalars()
-    live = {token.grant_id for token in tokens if token.expires_at is None or as_aware(token.expires_at) > now}
+    live = {
+        token.grant_id
+        for token in tokens
+        if token.kind != SPENT_REFRESH and (token.expires_at is None or as_aware(token.expires_at) > now)
+    }
     dead = [
         grant.id
         for grant in grants
@@ -637,13 +669,26 @@ async def refresh_tokens(
 ) -> dict:
     """Trade a refresh token for a new pair (RFC 6749 §6). The old refresh
     token is spent, which OAuth 2.1 §4.3.1 requires of a public client; the
-    old access token runs out on its own within the hour."""
+    old access token runs out on its own within the hour.
+
+    A spent token is kept as a tombstone until it would have expired, because
+    presenting one again is the refresh token's version of a replayed code:
+    either the client or somebody holding a copy has already traded it, and
+    there is no telling which. So the connection is revoked, as RFC 9700
+    §4.14.2 suggests, and whoever is holding the newer pair has to sign in
+    again. The one exception is a retry within a few seconds, which is far more
+    likely a client that never received the answer: it is refused without
+    revoking anything. `client_id` is required, as OAuth 2.1 §4.3.1 has it for
+    a public client, so a token is never traded without saying whose it is."""
     if not refresh_token:
         raise TokenError("invalid_request", "refresh_token is required")
+    if not client_id:
+        raise TokenError("invalid_request", "client_id is required; send the client id the token was issued to")
     token = (
         await db.execute(
             select(AuthToken).where(
-                AuthToken.token_hash == hash_token(refresh_token), AuthToken.kind == "oauth_refresh"
+                AuthToken.token_hash == hash_token(refresh_token),
+                AuthToken.kind.in_(("oauth_refresh", SPENT_REFRESH)),
             )
         )
     ).scalar_one_or_none()
@@ -651,23 +696,43 @@ async def refresh_tokens(
     now = datetime.now(UTC)
     if token is None or token.grant_id is None or (token.expires_at is not None and as_aware(token.expires_at) <= now):
         raise invalid
+    if token.kind == SPENT_REFRESH:
+        spent_at = as_aware(token.last_used_at) if token.last_used_at is not None else None
+        if spent_at is not None and now - spent_at <= timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS):
+            raise invalid
+        grant_id, user_id = token.grant_id, token.user_id
+        await revoke_grants(db, grant_ids=[grant_id])
+        await db.commit()
+        log_event("oauth.refresh_reused", user_id=user_id, grant_id=grant_id)
+        raise TokenError(
+            "invalid_grant", "that refresh token was already used, so the connection it belonged to has been revoked"
+        )
     grant = await db.get(OAuthGrant, token.grant_id)
     if grant is None:
         raise invalid
-    if client_id is not None and client_id != grant.client_id:
+    if client_id != grant.client_id:
         raise TokenError("invalid_grant", "that refresh token was issued to a different client")
     _check_resource(resource, grant)
+    # Spend it in one conditional UPDATE, as a code is: two requests holding
+    # one token can both get this far, and only one may win.
     spent = await db.execute(
-        delete(AuthToken).where(AuthToken.id == token.id).execution_options(synchronize_session=False)
+        update(AuthToken)
+        .where(AuthToken.id == token.id, AuthToken.kind == "oauth_refresh")
+        .values(kind=SPENT_REFRESH, last_used_at=now)
+        .execution_options(synchronize_session=False)
     )
     if spent.rowcount != 1:
         await db.rollback()
         raise invalid
-    # Access tokens that have run out are no use to anybody; tidy them here
-    # rather than leave one row an hour behind every connection.
+    # Access tokens and tombstones that have run out are no use to anybody;
+    # tidy them here rather than leave rows behind every connection.
     await db.execute(
         delete(AuthToken)
-        .where(AuthToken.grant_id == grant.id, AuthToken.kind == "oauth", AuthToken.expires_at <= now)
+        .where(
+            AuthToken.grant_id == grant.id,
+            AuthToken.kind.in_(("oauth", SPENT_REFRESH)),
+            AuthToken.expires_at <= now,
+        )
         .execution_options(synchronize_session=False)
     )
     body = _issue(db, grant, token.user_id)

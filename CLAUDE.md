@@ -164,7 +164,14 @@ instrumentation a new feature usually needs.
   redirect URIs (only a loopback *port* may vary), S256 only, single-use
   two-minute codes whose replay revokes the grant, the password on every
   consent, `resource` bound to this origin's `/mcp`, and a refresh token
-  rotated on every use. Changing or resetting a password calls
+  rotated on every use, with `client_id` required. A spent refresh token is
+  kept as an `oauth_refresh_spent` tombstone until its own expiry, and
+  presenting it again revokes the grant like a replayed code (after a few
+  seconds' grace for a client retrying a lost answer). A client is whatever
+  anybody invents, so a refusal of the request itself is shown on the page
+  and never redirected; only Cancel sends `error=` back. Client names lose
+  every invisible character and stop at 40, and a redirect URI may hold no
+  backslash, whitespace or control character. Changing or resetting a password calls
   `oauth.revoke_grants`; account deletion takes grants with the user. API
   tokens are untouched by all of it.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).

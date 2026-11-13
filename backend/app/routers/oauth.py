@@ -31,9 +31,13 @@ naming any other resource is refused. The token reaches exactly what an API
 token does, which is what the MCP server needs to act for the person, and
 like an API token it cannot mint another credential (`deps.SessionUser`).
 
-Refusals before the client and its redirect URI are known are shown on the
-page and never redirected, because an unchecked redirect URI is how an
-authorization server becomes somebody's open redirector (RFC 6749 §4.1.2.1).
+Refusals of the request itself are shown on the page and never redirected,
+even once the redirect URI is known to be the client's own: a client is
+whatever anybody invents (a registration id can be built offline, a metadata
+document hosted anywhere), so redirecting before a person has acted would make
+this server a free open redirector for any address (RFC 6749 §4.1.2.1,
+RFC 9700 §4.11.2). The only redirect that carries `error=` is Cancel, which a
+person had to press.
 """
 
 import base64
@@ -41,7 +45,7 @@ import binascii
 import contextlib
 from html import escape
 from typing import Annotated
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -287,13 +291,12 @@ async def _checked(request: Request, params: dict[str, str]) -> tuple[oauth.Clie
         log_event("oauth.client_rejected", reason="redirect_uri")
         return _error_page(f"{client.name} asked to send you back to an address it never registered")
 
-    # From here the redirect URI is the client's own, so refusals go back to it.
-    issuer = _issuer(request)
-
-    def refuse(error: str, description: str) -> RedirectResponse:
-        return _redirect(
-            redirect_uri, error=error, error_description=description, state=params.get("state"), iss=issuer
-        )
+    # The redirect URI is the client's own from here, but the client may be
+    # nobody in particular, so a refusal is still the page and not a redirect
+    # (the module docstring says why).
+    def refuse(error: str, description: str) -> HTMLResponse:
+        log_event("oauth.request_refused", error=error)
+        return _error_page(f"{client.name} sent a request this server can't accept: {description}")
 
     if params.get("response_type") != "code":
         return refuse("unsupported_response_type", "only response_type=code is supported")
@@ -383,7 +386,9 @@ async def _token_form(request: Request) -> dict[str, str]:
     scheme, _, credentials = request.headers.get("authorization", "").partition(" ")
     if "client_id" not in fields and scheme.lower() == "basic":
         with contextlib.suppress(binascii.Error, UnicodeDecodeError):
-            fields["client_id"] = base64.b64decode(credentials).decode("utf-8").partition(":")[0]
+            # RFC 6749 §2.3.1: the id is form-encoded before it is joined to the
+            # secret, so a metadata document URL arrives with its colon escaped.
+            fields["client_id"] = unquote_plus(base64.b64decode(credentials).decode("utf-8").partition(":")[0])
     return fields
 
 

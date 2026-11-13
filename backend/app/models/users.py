@@ -191,8 +191,11 @@ class AuthToken(Base):
     Since Q27, kind='oauth' for the access tokens an OAuth client is issued
     for the remote MCP, which *are* credentials, and kind='oauth_refresh' for
     the refresh tokens beside them, which are not: a refresh token is only
-    ever traded at `POST /oauth/token`, never presented as a bearer. Both hang
-    off an `OAuthGrant`, and revoking the grant takes both."""
+    ever traded at `POST /oauth/token`, never presented as a bearer. Once
+    traded, a refresh token becomes kind='oauth_refresh_spent', a tombstone
+    kept until its original expiry so a second presentation can revoke the
+    grant. All three hang off an `OAuthGrant`, and revoking the grant takes
+    them all."""
 
     __tablename__ = "auth_tokens"
 
