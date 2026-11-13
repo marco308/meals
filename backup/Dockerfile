@@ -15,6 +15,18 @@ COPY backup.sh restore.sh freshness.sh entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/restore.sh \
     /usr/local/bin/freshness.sh /usr/local/bin/entrypoint.sh
 
+# Unprivileged, like the API image (uid 1000 there too): this container holds
+# the database password, the rclone token and the passphrase, and nothing it
+# does needs root (#261). /backups is owned by that uid before it is declared
+# a volume, so a fresh named volume inherits the ownership; a bind mount is
+# the operator's to chown (README). HOME is where rclone and gpg keep their
+# scratch, and the uid has no home of its own.
+RUN addgroup -g 1000 backup \
+    && adduser -D -H -u 1000 -G backup -s /sbin/nologin backup \
+    && mkdir -p /backups && chown backup:backup /backups
+ENV HOME=/tmp
+USER backup
+
 VOLUME /backups
 
 # Unhealthy = no restorable dump in the last STALE_AFTER_HOURS. start_period

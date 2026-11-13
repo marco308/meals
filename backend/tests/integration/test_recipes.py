@@ -7,7 +7,7 @@ import pytest
 from app.database import get_db
 from app.main import app
 from app.routers import recipes as recipes_router
-from app.schemas.catalog import MAX_RECIPE_MINUTES
+from app.schemas.catalog import MAX_RECIPE_MINUTES, MAX_TAG_LENGTH
 from app.services import recipe_parser
 from tests.conftest import create_meal, create_plan, create_recipe, fixture_html, get_list, item_by_name
 
@@ -554,3 +554,18 @@ class TestReparse:
         assert response.status_code == 200, response.text
         assert response.json()["servings"] == 6
         assert held == [False]
+
+
+async def test_a_tag_is_cut_to_what_ingestion_stores(auth_client):
+    """The list of tags was capped but each string was not (#261). Fitted
+    rather than refused, so a client older than the rule gets no new 422."""
+    long_tag = "a very long tag " * 20
+    created = await auth_client.post(
+        "/recipes", json={"title": "Tagged", "tags": [long_tag, "  ", "quick", "   dinner   "]}
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["tags"] == [long_tag[:MAX_TAG_LENGTH].rstrip(), "quick", "dinner"]
+
+    updated = await auth_client.patch(f"/recipes/{created.json()['id']}", json={"tags": [long_tag]})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["tags"] == [long_tag[:MAX_TAG_LENGTH].rstrip()]

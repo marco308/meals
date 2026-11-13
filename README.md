@@ -71,7 +71,11 @@ The stack's Postgres listens on `127.0.0.1:5433` only (for `make db`), and its
 password is `meals` unless `POSTGRES_PASSWORD` says otherwise, either in the
 environment or in a `.env` beside `docker-compose.yml`. That default is for a
 laptop. Anywhere else, set your own before the first `make up`, because
-Postgres only reads it when it creates the database volume.
+Postgres only reads it when it creates the database volume. The API (`:8000`)
+and the MCP server (`:8100`) are published on `127.0.0.1` too, which is where a
+reverse proxy on the same box finds them; set `BIND_ADDR=0.0.0.0` (same two
+places) to reach them from another machine, remembering that a port Docker
+publishes is one ufw never sees.
 
 ```
 make help    # everything else: logs, lint, migrate, fmt, down, nuke…

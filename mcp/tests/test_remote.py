@@ -73,6 +73,19 @@ class TestBearerForwarding:
         assert "MEALS_API_TOKEN" not in result
 
     @respx.mock
+    async def test_http_mode_refuses_the_env_token_outright(self, monkeypatch):
+        """Once `http_app()` has been built the env-token path is closed, not
+        merely unreached: a request the middleware somehow did not see is
+        refused rather than served as the token's owner (#261)."""
+        monkeypatch.setenv("MEALS_API_TOKEN", "meals_server-token-must-not-leak")
+        route = respx.get(f"{API}/plans/current").mock(return_value=httpx.Response(200, json=PLAN))
+        server.http_app()
+        result = await server.get_plan()  # no caller headers in scope
+        assert "holds no credentials" in result
+        assert "MEALS_API_TOKEN" not in result
+        assert not route.called
+
+    @respx.mock
     async def test_headers_do_not_leak_past_the_request(self):
         """The middleware must reset the contextvar: a stdio-style call after an
         HTTP one has to fall back to the env token, not reuse a stale bearer."""

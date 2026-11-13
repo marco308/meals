@@ -451,7 +451,7 @@ class TestTheOperatorCommands:
 class TestTheDunningCommand:
     async def test_it_says_nothing_is_due_on_a_quiet_server(self, auth_client, sessions, monkeypatch):
         monkeypatch.setattr("app.dunning.SessionLocal", sessions)
-        assert await dunning_cli._run(dry_run=False) == "Nothing due."
+        assert await dunning_cli._run(dry_run=False, verbose=False) == "Nothing due."
 
     async def test_a_dry_run_names_who_would_be_written_to(self, client, sessions, monkeypatch):
         monkeypatch.setattr("app.dunning.SessionLocal", sessions)
@@ -462,10 +462,18 @@ class TestTheDunningCommand:
             row.paid_until = datetime.now(UTC) + timedelta(days=2)
             await db.commit()
 
-        output = await dunning_cli._run(dry_run=True)
+        output = await dunning_cli._run(dry_run=True, verbose=False)
         assert "would send 1" in output
-        assert "lead@example.com" in output
         assert "warning" in output
+        # Ids only by default: a cron's output is collected somewhere, and an
+        # address there is an address in the logs (#261).
+        assert "lead@example.com" not in output
+        assert "The Smiths" not in output
+        assert f"household {row.id}" in output
+
+        verbose = await dunning_cli._run(dry_run=True, verbose=True)
+        assert "lead@example.com" in verbose
+        assert "The Smiths" in verbose
 
     async def test_it_reports_the_notices_it_could_not_send(self, client, sessions, monkeypatch):
         """Silence is the failure mode worth guarding against: a run that sent
@@ -478,5 +486,5 @@ class TestTheDunningCommand:
             row.paid_until = datetime.now(UTC) + timedelta(days=2)
             await db.commit()
 
-        output = await dunning_cli._run(dry_run=False)
+        output = await dunning_cli._run(dry_run=False, verbose=False)
         assert "no SMTP configured" in output

@@ -47,7 +47,7 @@ services:
       # token"). Blank is off; the mcp service below follows the same variable.
       OAUTH_ENABLED: ${OAUTH_ENABLED:-}
     ports:
-      - "8000:8000"
+      - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -83,7 +83,7 @@ services:
       MEALS_API_URL: http://api:8000
       MEALS_MCP_OAUTH: ${OAUTH_ENABLED:-}
     ports:
-      - "8100:8000"
+      - "${BIND_ADDR:-127.0.0.1}:8100:8000"
     depends_on:
       - api
 
