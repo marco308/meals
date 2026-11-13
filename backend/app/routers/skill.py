@@ -78,7 +78,13 @@ def warn_if_origin_unpinned(settings: Settings) -> bool:
         return False
     _events_logger.warning(
         "config.public_url_unset",
-        extra={"oauth_enabled": settings.oauth_enabled, "billing_sells": settings.billing_sells},
+        # Literal booleans rather than the settings' values: billing_sells is
+        # derived from the API key, and a static analyser can't tell that a
+        # bool of a secret says nothing about it.
+        extra={
+            "oauth_enabled": True if settings.oauth_enabled else False,  # noqa: SIM210
+            "billing_sells": True if settings.billing_sells else False,  # noqa: SIM210
+        },
     )
     return True
 

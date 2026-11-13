@@ -106,7 +106,7 @@ class TestSkillPublishing:
             path, headers={"x-forwarded-proto": "http", "x-forwarded-host": "evil.example", "host": "evil.example"}
         )
         assert response.status_code == 200
-        assert "https://meals.example.org/" in response.text
+        assert re.search(r"https://meals\.example\.org/", response.text)
         assert "evil.example" not in response.text
         assert "http://test" not in response.text
 
