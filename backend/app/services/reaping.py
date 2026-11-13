@@ -54,7 +54,7 @@ from app.models import (
 )
 from app.observability import log_event
 from app.services.accounts import delete_user, household_user_count
-from app.services.mailer import EmailSendFailed, send_email
+from app.services.mailer import EmailSendFailed, mail_text, send_email
 
 WARNING = "warning"
 REAP = "reap"
@@ -70,6 +70,9 @@ class Notice:
     user_id: uuid.UUID
     to: str
     reap_on: datetime
+    # Whether `to` has been shown to be its owner's. If not, the household's
+    # name (the caller's own words) stays out of the message (#253).
+    address_verified: bool
 
 
 def enabled() -> bool:
@@ -164,10 +167,11 @@ def _notice(kind: str, household: Household, lead: User, reap_on: datetime) -> N
     return Notice(
         kind=kind,
         household_id=household.id,
-        household_name=household.name,
+        household_name=mail_text(household.name),
         user_id=lead.id,
         to=lead.email,
         reap_on=reap_on,
+        address_verified=lead.email_verified_at is not None,
     )
 
 
@@ -230,10 +234,15 @@ def _message(notice: Notice) -> tuple[str, str]:
     stops it, and nothing else: there is nothing in the household to tell them
     about, which is the whole reason it is being reaped."""
     when = notice.reap_on.strftime("%-d %B %Y")
+    called = (
+        f", with a household called {notice.household_name},"
+        if notice.address_verified and notice.household_name
+        else ""
+    )
     return (
         f"Your Meals account will be deleted on {when}",
         f"Hello,\n\n"
-        f"You made a Meals account with this address, with a household called {notice.household_name}, "
+        f"You made a Meals account with this address{called} "
         f"and it has not been used since. There is nothing in it: no recipes, plans or lists.\n\n"
         f"To keep the server tidy, accounts like this are deleted. Yours will be deleted on {when}, "
         f"along with the empty household.\n\n"

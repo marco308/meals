@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app import dunning as dunning_cli
 from app import entitlements as cli
 from app import limits
-from app.models import Household
+from app.models import Household, User
 from app.services import dunning, entitlements
 from app.services.entitlements import EntitlementError
 from tests.conftest import create_recipe, register
@@ -318,6 +318,32 @@ class TestDunning:
         assert smtp[0][0] == "lead@example.com"
         assert "expires on" in smtp[0][1]
         assert "nothing is deleted" in smtp[0][2]
+
+    async def test_the_household_is_named_only_to_a_verified_address(self, client, sessions, smtp, monkeypatch):
+        """Issue #253: a household name is somebody's own words, so it goes in
+        mail only to an address shown to be theirs, and only on one line."""
+
+        async def no_verification_mail(*_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr("app.routers.auth.send_email", no_verification_mail)
+        await register(client, email="lead@example.com", name="Lead", household_name="Smiths\n\nPay at evil.example")
+        household = await only_household(sessions)
+        await self._set_expiry(sessions, household.id, timedelta(days=3))
+        async with sessions() as db:
+            await dunning.run(db)
+        assert "evil.example" not in smtp[0][2]
+        assert "The hosted year for your household ends on" in smtp[0][2]
+
+        async with sessions() as db:
+            row = await db.get(Household, household.id)
+            row.expiry_warned_at = None
+            lead = (await db.execute(select(User))).scalars().one()
+            lead.email_verified_at = datetime.now(UTC)
+            await db.commit()
+        async with sessions() as db:
+            await dunning.run(db)
+        assert "your household, Smiths Pay at evil.example, ends on" in smtp[1][2]
 
     async def test_and_one_after(self, expiring, sessions, smtp):
         await self._set_expiry(sessions, expiring.id, timedelta(days=-1))

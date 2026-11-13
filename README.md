@@ -434,7 +434,9 @@ Leaving registration open is safer with three things this server does for you
 (decision Q26). On a server with SMTP configured, a new account is emailed a
 code to confirm its address, and until it does it can use its household freely
 but cannot invite anyone or import a recipe from a URL, the two things that
-reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Starting a
+reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Codes can be
+resent once a minute, up to `EMAIL_VERIFICATION_MAX_SENDS` per account (5 by
+default, the one at signup included, 0 for no cap). Starting a
 household is limited per client address per hour (`SIGNUP_RATE_LIMIT_PER_HOUR`,
 5 by default, 0 for off), which joining one with an invite never is. And
 `python -m app.reaping` from cron can clear out households that were made and

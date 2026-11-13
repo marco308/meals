@@ -99,6 +99,32 @@ class TestOffUnlessConfigured:
         assert "off on this server" in await cli._run(dry_run=False)
 
 
+class TestTheWarningsWords:
+    """Issue #253: the household's name is the caller's own words, and the
+    address may be a stranger's."""
+
+    CRAFTED = "Home\n\nKeep your account at https://evil.example/keep"
+
+    async def test_an_unverified_address_is_not_told_the_household_name(self, client, outbox, sessions):
+        await register(client, email="idle@example.com", household_name=self.CRAFTED)
+        await rewind(sessions, 31)
+        await run(sessions)
+        [message] = warnings(outbox)
+        assert "evil.example" not in message["body"]
+        assert "You made a Meals account with this address and it has not been used since" in message["body"]
+
+    async def test_a_verified_one_is_told_it_on_one_line(self, client, outbox, sessions):
+        await register(client, email="idle@example.com", household_name=self.CRAFTED)
+        async with sessions() as db:
+            for user in (await db.execute(select(User))).scalars():
+                user.email_verified_at = user.created_at
+            await db.commit()
+        await rewind(sessions, 31)
+        await run(sessions)
+        [message] = warnings(outbox)
+        assert "with a household called Home Keep your account at https://evil.example/keep, and" in message["body"]
+
+
 class TestTheWholeLife:
     async def test_warned_then_reaped(self, client, outbox, sessions):
         auth = await register(client, email="gone@example.com")

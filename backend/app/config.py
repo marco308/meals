@@ -155,6 +155,11 @@ class Settings(BaseSettings):
     # nothing is asked for. An unverified account can do everything except the
     # two things that reach outward, inviting people and fetching a URL.
     email_verification_ttl_hours: Annotated[int, BlankIsDefault] = 48
+    # How many verification codes one account may be sent, the one at signup
+    # included (#253). Resends already wait a minute apart; this is the total,
+    # because the address is whatever somebody typed and may be a stranger's.
+    # 0 turns the cap off.
+    email_verification_max_sends: Annotated[int, BlankIsDefault] = 5
 
     # Reaping households that never began (issue #122, Q26). **Off unless
     # REAP_ABANDONED_AFTER_DAYS is set**, like every other number that could
