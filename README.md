@@ -162,6 +162,12 @@ row (a CDN in front of your own), the inner one has to be told to trust the oute
 one, or it replaces the header and every client looks like the CDN. If every
 `auth.rate_limited` line in the log names the same `bucket`, this is why.
 
+The app sends its own `X-Content-Type-Options`, `X-Frame-Options`,
+`frame-ancestors` and `Referrer-Policy` headers on every response, so a proxy
+need not add those. HSTS it deliberately leaves to the proxy, which is what
+knows whether there is TLS: in Traefik that is a `headers` middleware with
+`stsSeconds` set, in Caddy or nginx the usual `Strict-Transport-Security` line.
+
 ### Logs
 
 Everything goes to stdout, one line per record: an access line per request

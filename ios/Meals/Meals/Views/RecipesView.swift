@@ -306,7 +306,8 @@ struct RecipeDetailView: View {
                 if let last = CookedHistory.monthLabel(recipe.lastCookedAt) {
                     LabeledContent("Last cooked", value: last)
                 }
-                if let source = recipe.sourceUrl, let url = URL(string: source) {
+                // http(s) only: anything else is not a page to open (#257).
+                if let url = WebURL.parse(recipe.sourceUrl) {
                     Link(destination: url) {
                         Label("Open original recipe", systemImage: "safari")
                     }

@@ -4,7 +4,7 @@
 // convention. Pages without usable JSON-LD 422 with advice we show verbatim.
 
 import { aisles, api } from "../api.js";
-import { confirmDialog, debounce, emptyState, fmtRel, html, openDialog, render, skeleton, toast } from "../dom.js";
+import { confirmDialog, debounce, emptyState, fmtRel, html, openDialog, render, skeleton, toast, webHref } from "../dom.js";
 import { linesEditor } from "./lines.js";
 
 let query = { search: "", tag: "", sort: "title", under30: false };
@@ -224,7 +224,7 @@ export async function renderRecipeDetail(root, recipeId) {
         </div>
         <div>
           ${recipe.source_url &&
-          html`<p class="sub">From <a href="${recipe.source_url}" target="_blank" rel="noopener noreferrer">${hostOf(recipe.source_url)}</a>${recipe.parse_source === "ai" ? " · parsed by an AI" : ""}</p>`}
+          html`<p class="sub">From ${sourceLink(recipe.source_url)}${recipe.parse_source === "ai" ? " · parsed by an AI" : ""}</p>`}
           <div class="prose">${instructions(recipe.instructions)}</div>
         </div>
       </div>
@@ -387,10 +387,19 @@ async function reparse(recipe, root) {
 
 function hostOf(url) {
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    return new URL(url).hostname.replace(/^www\./, "") || url;
   } catch {
     return url;
   }
+}
+
+// The source as a link where it is one the browser should open, and as plain
+// text otherwise (see webHref) — never an href the template did not vet.
+function sourceLink(url) {
+  const href = webHref(url);
+  return href
+    ? html`<a href="${href}" target="_blank" rel="noopener noreferrer">${hostOf(url)}</a>`
+    : html`<span>${hostOf(url)}</span>`;
 }
 
 // instructions are free text; if most lines are numbered steps, render a list
