@@ -173,6 +173,19 @@ row (a CDN in front of your own), the inner one has to be told to trust the oute
 one, or it replaces the header and every client looks like the CDN. If every
 `auth.rate_limited` line in the log names the same `bucket`, this is why.
 
+Set `PUBLIC_URL` to the origin people reach the server on
+(`PUBLIC_URL=https://meals.example.org`, no path). Unset, the app builds its own
+URLs from `X-Forwarded-Proto` and `X-Forwarded-Host` (or `Host`), which is fine
+for a page reflected back to the same caller and not for the URLs it hands to
+somebody else: the OAuth metadata and the resource a sign-in is bound to, a
+billing checkout's return URLs, and the `/skill` and `/prompt-pack` an assistant
+follows. A proxy that passes a caller's `X-Forwarded-Host` through would let
+them choose those. Set, every one of them uses `PUBLIC_URL` and ignores the
+headers; a separate MCP container takes the same value as `MEALS_PUBLIC_URL`.
+It is optional so an existing server keeps booting, but a server with
+`OAUTH_ENABLED` or a checkout logs a `config.public_url_unset` warning at
+startup until it is set.
+
 The app sends its own `X-Content-Type-Options`, `X-Frame-Options`,
 `frame-ancestors` and `Referrer-Policy` headers on every response, so a proxy
 need not add those. HSTS it deliberately leaves to the proxy, which is what
@@ -302,9 +315,12 @@ it on for your own server:
 2. If the MCP runs in its own container, set `MEALS_MCP_OAUTH=1` on that
    container too (`docker-compose.yml` passes `OAUTH_ENABLED` to both). The
    built-in `/mcp` follows the API's setting by itself.
-3. Make sure your proxy sends `/.well-known/*` and `/oauth/*` to the API and
-   passes `X-Forwarded-Proto`/`X-Forwarded-Host` (or the real `Host`): the
-   metadata is served under whatever public origin the request came in on.
+3. Set `PUBLIC_URL` to the origin people reach the server on (and
+   `MEALS_PUBLIC_URL` on a separate MCP container), and make sure your proxy
+   sends `/.well-known/*` and `/oauth/*` to the API. Without `PUBLIC_URL` the
+   metadata is served under whatever origin the request's
+   `X-Forwarded-Proto`/`X-Forwarded-Host` (or `Host`) name, and the API logs a
+   `config.public_url_unset` warning at startup.
 4. In claude.ai, add a custom connector with `https://your-server/mcp` and
    choose **Use Claude's published identity**. Clients that only know dynamic
    client registration are served too.

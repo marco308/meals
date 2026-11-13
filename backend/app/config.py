@@ -1,6 +1,7 @@
 import json
 from functools import lru_cache
 from typing import Annotated, Any, Self
+from urllib.parse import urlsplit
 
 from pydantic import BeforeValidator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -49,6 +50,38 @@ def _json_object_or_unset(value: object) -> object:
         except json.JSONDecodeError as exc:
             raise ValueError(f"not valid JSON ({exc}); leave it empty to override nothing") from exc
     return value
+
+
+def public_origin(value: str) -> str:
+    """`PUBLIC_URL` as the one spelling every reader uses: `scheme://host[:port]`.
+
+    It is an origin and nothing else, because everything built from it appends
+    a root-relative path (`/mcp`, `/oauth/token`, `/app/#/settings`). A path
+    here would be silently glued in front of all of them, so it is refused at
+    boot, where it is one line to fix, rather than discovered by a client
+    whose sign-in points nowhere. A trailing slash is the one thing forgiven,
+    since that is how people paste an origin.
+    """
+    parts = urlsplit(value.strip())
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError("PUBLIC_URL must be an absolute http(s) URL, such as https://meals.example.org")
+    if parts.path not in ("", "/") or parts.query or parts.fragment or "?" in value or "#" in value:
+        raise ValueError("PUBLIC_URL must be an origin only, with no path, query or fragment")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("PUBLIC_URL must not carry a username or password")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ValueError("PUBLIC_URL has a port that is not a number") from exc
+    host = parts.hostname
+    if ":" in host:  # an IPv6 literal keeps its brackets
+        host = f"[{host}]"
+    return f"{parts.scheme.lower()}://{host}" + (f":{port}" if port is not None else "")
+
+
+def _public_origin_or_unset(value: object) -> object:
+    value = _blank_is_unset(value)
+    return public_origin(value) if isinstance(value, str) else value
 
 
 # A JSON object a deployment may leave unset the same way, e.g.
@@ -106,6 +139,18 @@ class Settings(BaseSettings):
     # bare domain has a public face. Machine clients never see this — the
     # JSON landing at `/` is unaffected.
     marketing_url: str | None = None
+
+    # The origin this server is reached on, e.g. https://meals.example.org
+    # (issue #252). Unset, it is read off each request's X-Forwarded-Proto /
+    # X-Forwarded-Host / Host, which is fine for content reflected to the same
+    # caller and not fine for what is built from it beyond that: the OAuth
+    # issuer and the resource a grant is bound to, the URLs a billing checkout
+    # returns to, the skill and prompt pack an assistant follows, and the MCP
+    # 401. Set, those all use this and ignore the headers. Optional so a
+    # server that has run without it keeps booting, but one with
+    # OAUTH_ENABLED or billing that sells should set it, and logs a warning at
+    # startup until it does.
+    public_url: Annotated[str | None, BeforeValidator(_public_origin_or_unset)] = None
 
     # The MCP server, served by this process at /mcp (app/mcp_mount.py) so a
     # single container is the whole product. Off, the route does not exist and

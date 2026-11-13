@@ -89,10 +89,13 @@ def _resource(request: Request) -> str:
 
 
 @router.get("/.well-known/oauth-authorization-server")
-async def authorization_server_metadata(request: Request) -> dict:
+async def authorization_server_metadata(request: Request, response: Response) -> dict:
     """RFC 8414. `none` among the token endpoint's methods and
     `client_id_metadata_document_supported` are the pair claude.ai looks for
     before it offers its published identity instead of registering."""
+    # Never cached by anybody: a stored copy built from a forged host would
+    # send every client after it to somebody else's token endpoint (#252).
+    response.headers.update(_NO_STORE)
     issuer = _issuer(request)
     return {
         "issuer": issuer,
@@ -114,11 +117,12 @@ async def authorization_server_metadata(request: Request) -> dict:
 
 @router.get("/.well-known/oauth-protected-resource")
 @router.get("/.well-known/oauth-protected-resource/mcp")
-async def protected_resource_metadata(request: Request) -> dict:
+async def protected_resource_metadata(request: Request, response: Response) -> dict:
     """RFC 9728, for `/mcp`. Served here rather than by the MCP server because
     `/.well-known/` is a root path, and the root of this origin is the API's
     whether the MCP is mounted in this process or runs in its own container.
     The bare path is answered too, for clients that look there first."""
+    response.headers.update(_NO_STORE)
     return {
         "resource": _resource(request),
         "authorization_servers": [_issuer(request)],

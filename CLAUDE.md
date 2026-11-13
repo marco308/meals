@@ -179,7 +179,10 @@ instrumentation a new feature usually needs.
   every invisible character and stop at 40, and a redirect URI may hold no
   backslash, whitespace or control character. Changing or resetting a password calls
   `oauth.revoke_grants`; account deletion takes grants with the user. API
-  tokens are untouched by all of it.
+  tokens are untouched by all of it. "This origin" is `routers/skill.base_url`,
+  which is `PUBLIC_URL` when set and the forwarded headers otherwise (#252):
+  build any URL that leaves for somebody else (issuer, checkout return,
+  skill) through it, never from `request.url`, and serve it `no-store`.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.
