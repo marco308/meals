@@ -70,11 +70,19 @@ function renderShell() {
       <main class="content"><div id="view"></div></main>
     </div>
   `);
-  shell.querySelector("[data-signout]").onclick = () => {
-    session.clear();
-    window.location.hash = "#/login";
-  };
+  shell.querySelector("[data-signout]").onclick = signOut;
   contentRoot = shell.querySelector("#view");
+}
+
+// Forgetting the token here is not enough on its own: the session stayed valid
+// on the server for the rest of its 30 days, which is what a token copied off a
+// shared computer needs. The request is dispatched (with the token still in
+// its header) before the token is dropped, and not awaited — a server that is
+// down must not keep somebody signed in.
+function signOut() {
+  api("/auth/logout", { method: "POST" }).catch(() => {});
+  session.clear();
+  window.location.hash = "#/login";
 }
 
 function markActive(hash) {
@@ -146,10 +154,7 @@ if (session.token) {
           <b>${user.household_name || "Home"}</b>
           ${user.display_name} · <button class="link-btn" data-signout>sign out</button>
         `);
-        badge.querySelector("[data-signout]").onclick = () => {
-          session.clear();
-          window.location.hash = "#/login";
-        };
+        badge.querySelector("[data-signout]").onclick = signOut;
       }
     })
     .catch(() => {}); // a 401 already routed to login; network errors keep the cached shell

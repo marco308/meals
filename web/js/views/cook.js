@@ -8,7 +8,7 @@
 // assistant with per-step amounts. Tap a step (or press space) to hear it.
 
 import { api } from "../api.js";
-import { html, parseUtc, render, skeleton, toast } from "../dom.js";
+import { html, parseUtc, render, skeleton, toast, webHref } from "../dom.js";
 import * as speech from "../speech.js";
 
 // How long after asking the assistant this page keeps checking for its
@@ -56,7 +56,7 @@ function draw() {
         <div class="page-head"><div><a class="sub" href="#/recipes/${recipe.id}">← ${recipe.title}</a>
           <h1>Nothing to cook along to</h1></div></div>
         <div class="card"><p>This recipe has no method written down, so there are no steps.
-          ${recipe.source_url ? html`The <a href="${recipe.source_url}" target="_blank" rel="noopener noreferrer">original page</a> has it, and` : "You can"}
+          ${webHref(recipe.source_url) ? html`The <a href="${webHref(recipe.source_url)}" target="_blank" rel="noopener noreferrer">original page</a> has it, and` : "You can"}
           add it with <a href="#/recipes/${recipe.id}/edit">Edit</a>.</p></div>
       </div>
     `);

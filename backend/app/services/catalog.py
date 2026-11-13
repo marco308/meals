@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import limits
 from app.models import Ingredient, Recipe, RecipeIngredient
-from app.schemas.catalog import MAX_RECIPE_LINES, MAX_RECIPE_MINUTES, MAX_SERVINGS, RecipeCreate
+from app.schemas.catalog import MAX_RECIPE_LINES, MAX_RECIPE_MINUTES, MAX_SERVINGS, MAX_TAG_LENGTH, RecipeCreate
 from app.schemas.common import IngredientLineIn
 from app.services.aisles import guess_aisle
 from app.services.ingredient_names import canonical_ingredient_name
@@ -147,7 +147,7 @@ def parsed_recipe_to_payload(parsed: ParsedRecipe) -> RecipeCreate:
             cook_minutes=_within(parsed.cook_minutes, 0, MAX_RECIPE_MINUTES),
             image_url=_storable(parsed.image_url)[:1000] if parsed.image_url else None,
             instructions=_storable(parsed.instructions) if parsed.instructions else None,
-            tags=[tag for tag in (_storable(tag)[:50] for tag in parsed.tags) if tag],
+            tags=[tag for tag in (_storable(tag)[:MAX_TAG_LENGTH] for tag in parsed.tags) if tag],
             parse_source="manual",  # overwritten to 'jsonld' by the ingest router
             ingredients=lines,
         )

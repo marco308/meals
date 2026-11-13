@@ -288,6 +288,14 @@ final class Session {
     }
 
     func logOut() {
+        // Tell the server too, so the session stops working now rather than
+        // when it expires. Best effort and not awaited: signing out of an app
+        // must not wait on a server that is down, and the token is gone from
+        // the device either way.
+        if credential != nil {
+            let client = api
+            Task { try? await client.raw("POST", "/auth/logout") }
+        }
         credential = nil
         user = nil
         credentials.delete()

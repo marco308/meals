@@ -27,6 +27,20 @@ export function html(strings, ...values) {
 
 export const raw = (value) => new Raw(String(value));
 
+// A link the app will follow: http(s) only, or null. `source_url` is stored as
+// it was sent (the API keeps that validation loose so older clients keep
+// working) and the `html` template escapes text, not URL schemes — so a
+// javascript: or app-scheme value has to become no link at all rather than
+// an <a href> that is one click from running on this origin (#257).
+export function webHref(value) {
+  try {
+    const url = new URL(String(value ?? ""));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function render(root, template) {
   root.innerHTML = template instanceof Raw ? template.value : String(template);
 }

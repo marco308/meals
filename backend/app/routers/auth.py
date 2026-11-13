@@ -36,6 +36,7 @@ from app.schemas.auth import (
     InviteOut,
     InviteRedeemIn,
     LoginIn,
+    LogoutIn,
     MemberRemovedOut,
     PasswordChangeIn,
     PasswordResetConfirmIn,
@@ -213,21 +214,28 @@ async def register(
                 "invite code (POST /auth/invites) and register with it"
             ),
         )
-    if await _email_taken(db, email):
-        raise HTTPException(status_code=409, detail=EMAIL_TAKEN)
-
-    # Last, and before anything is written: a refusal here must leave no
-    # half-made household behind and, for an invited caller, must leave their
-    # code unredeemed. Nothing spends it until `_claim_invite`, below.
-    await limits.admit_registration(db, invited=invite is not None)
-    if invite is not None:
-        # An invite can outlive the headroom that justified it, so the check is
-        # here as well as at POST /auth/invites.
-        await limits.enforce(db, invite.household, "members")
-    else:
-        # Charged last among the refusals, so a request that was going to be
-        # turned away anyway does not use up somebody's hour.
+    if invite is None:
+        # Charged before the server says whether the address is taken, so a
+        # caller who has spent their hour gets the same 429 for a taken address
+        # as for a free one (#254). Every refusal below hands the slot back, so
+        # a request that was going to be turned away still costs nobody.
         charge_signup(request)
+    try:
+        if await _email_taken(db, email):
+            raise HTTPException(status_code=409, detail=EMAIL_TAKEN)
+
+        # Last, and before anything is written: a refusal here must leave no
+        # half-made household behind and, for an invited caller, must leave
+        # their code unredeemed. Nothing spends it until `_claim_invite`, below.
+        await limits.admit_registration(db, invited=invite is not None)
+        if invite is not None:
+            # An invite can outlive the headroom that justified it, so the
+            # check is here as well as at POST /auth/invites.
+            await limits.enforce(db, invite.household, "members")
+    except Exception:
+        if invite is None:
+            refund_signup(request)
+        raise
 
     # The slow part, placed after every refusal so none of them pays for it,
     # and before the first write so no transaction is held open across it.
@@ -413,10 +421,57 @@ async def login(payload: LoginIn, request: Request, db: DbSession, _: None = Dep
     # Right password: this wasn't an attack, so don't spend the caller's budget
     # on it. Someone retrying a flaky sign-in must not lock themselves out.
     forgive_auth_attempt(request)
+    await _purge_expired_sessions(db, user.id)
     token = _session_token(user)
     db.add(token)
     await db.commit()
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
+
+
+async def _purge_expired_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Drop this account's session rows that can no longer authenticate.
+
+    Nothing reads an expired row again (`get_current_user` refuses it), so the
+    rows only ever grew. Done here, on the two moments a session is made or
+    ended, rather than from a scheduler: one process that serves requests is
+    easier to reason about than one that also wakes up."""
+    await db.execute(
+        delete(AuthToken).where(
+            AuthToken.user_id == user_id, AuthToken.kind == "session", AuthToken.expires_at < datetime.now(UTC)
+        )
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: Request, user: CurrentUser, db: DbSession, payload: LogoutIn | None = None) -> None:
+    """Sign out: the session this request was made with stops working now.
+
+    Forgetting a token on the device used to be the whole of signing out, which
+    left a session copied off a shared computer valid for the rest of its
+    `session_token_ttl_days` (#256). With `{"everywhere": true}` every session
+    of yours goes — what to do after a phone is lost — and the one answering
+    this request with it.
+
+    Only a session can sign out. Personal API tokens and OAuth connections are
+    separate credentials and are untouched either way: revoke a token with
+    `DELETE /auth/tokens/{id}` and a connection from Settings on the web.
+    """
+    if getattr(request.state, "token_kind", None) != "session":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "only a signed-in session can sign out. Revoke an API token with DELETE /auth/tokens/{id} "
+                "instead; an OAuth connection is revoked from Settings in the web app"
+            ),
+        )
+    everywhere = bool(payload and payload.everywhere)
+    condition = AuthToken.user_id == user.id, AuthToken.kind == "session"
+    if not everywhere:
+        condition = (*condition, AuthToken.id == request.state.token_id)
+    await db.execute(delete(AuthToken).where(*condition))
+    await _purge_expired_sessions(db, user.id)
+    await db.commit()
+    log_event("auth.logged_out", user_id=user.id, everywhere=everywhere)
 
 
 @router.post("/password", response_model=AuthOut)

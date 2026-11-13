@@ -19,7 +19,7 @@ from app.database import SessionLocal
 from app.services import dunning
 
 
-async def _run(dry_run: bool) -> str:
+async def _run(dry_run: bool, verbose: bool) -> str:
     async with SessionLocal() as db:
         notices = await dunning.run(db, dry_run=dry_run)
         if not notices:
@@ -29,18 +29,26 @@ async def _run(dry_run: bool) -> str:
             return "Nothing due."
         verb = "would send" if dry_run else "sent"
         lines = [f"{verb} {len(notices)}:"]
-        lines += [
-            f"  {notice.kind:<7}  {notice.household_name}  ->  {notice.to}  (expires {notice.paid_until:%Y-%m-%d})"
-            for notice in notices
-        ]
+        lines += [_describe(notice, verbose) for notice in notices]
         return "\n".join(lines)
+
+
+def _describe(notice: dunning.Notice, verbose: bool) -> str:
+    # Ids by default: a cron's output is usually collected somewhere, and an
+    # address there is an address in the logs, which /privacy promises against
+    # (#261). `--verbose` is for a human at the terminal who needs the name.
+    who = f"{notice.household_name}  ->  {notice.to}" if verbose else f"household {notice.household_id}"
+    return f"  {notice.kind:<7}  {who}  (expires {notice.paid_until:%Y-%m-%d})"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="list what is due without sending anything")
+    parser.add_argument(
+        "--verbose", action="store_true", help="name the household and the address, rather than the household id"
+    )
     args = parser.parse_args()
-    print(asyncio.run(_run(args.dry_run)))
+    print(asyncio.run(_run(args.dry_run, args.verbose)))
 
 
 if __name__ == "__main__":

@@ -92,11 +92,22 @@ class RecipeLineOut(BaseModel):
 # says more is trimmed to fit rather than refused (services/catalog.py).
 MAX_SERVINGS = 100
 MAX_RECIPE_LINES = 100
+#: What a tag is cut to — the same cut ingestion makes (services/catalog.py),
+#: so a hand-submitted tag can hold no more than a parsed one (#261).
+MAX_TAG_LENGTH = 50
 # A year of minutes: past any real recipe, and far inside the int4 the columns
 # are on Postgres. With no ceiling, a bigger number was accepted here and then
 # failed the insert as a 500, which is the one reason to tighten a validation
 # the additive-only contract would otherwise leave alone.
 MAX_RECIPE_MINUTES = 525_600
+
+
+def fit_tags(tags: list[str]) -> list[str]:
+    """Strip, cut to MAX_TAG_LENGTH and drop blanks. Fitted rather than
+    refused: the list was already capped but each string was not, and a
+    client older than this rule must not start getting 422s for it."""
+    fitted = (tag.strip()[:MAX_TAG_LENGTH].rstrip() for tag in tags)
+    return [tag for tag in fitted if tag]
 
 
 class RecipeCreate(BaseModel):
@@ -122,6 +133,8 @@ class RecipeCreate(BaseModel):
             return None
         return value.strip() or None
 
+    _fit_tags = field_validator("tags")(lambda cls, value: fit_tags(value))
+
 
 class RecipeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
@@ -132,6 +145,8 @@ class RecipeUpdate(BaseModel):
     instructions: str | None = None
     tags: list[str] | None = Field(default=None, max_length=20)
     ingredients: list[IngredientLineIn] | None = Field(default=None, max_length=MAX_RECIPE_LINES)
+
+    _fit_tags = field_validator("tags")(lambda cls, value: None if value is None else fit_tags(value))
 
 
 class StepIngredientOut(BaseModel):

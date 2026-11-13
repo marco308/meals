@@ -3,8 +3,15 @@
 # swarm manager, where .env (secrets) must never enter a build context.
 # At any depth, not just the root: mcp/, skill/ and web/ are COPYed whole, so
 # an mcp/.env holding somebody's MEALS_API_TOKEN would ship in a public image.
+# Every spelling of it (.env.local, .env.production), and the key files a
+# deploy or an App Store upload leaves lying in a working tree — build-mode
+# deploys build from one, and a stray .p8 there is an App Store Connect key.
 .git
-**/.env
+**/.env*
+!**/.env.example
+**/*.p8
+**/*.pem
+**/*.key
 ios
 planning
 deploy
