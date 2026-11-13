@@ -372,7 +372,10 @@ instrumentation a new feature usually needs.
   account default is a dashboard setting this server cannot read.
   `GET /client-config` publishes `billing_enabled`, the single answer to "does
   this server sell anything", which is a different question from whether it
-  limits anything.
+  limits anything. Checkout and portal share one per-household allowance per
+  hour (`BILLING_RATE_LIMIT_PER_HOUR`, `deps.charge_billing_call`, 429 with a
+  sentence), charged after every other refusal, because each is a request to the
+  processor on the operator's key.
 - **What the webhook *keeps* is as load-bearing as what it grants** (#128, #129,
   both found by putting a real sandbox payment through the deployment). The event
   carries the list price and the processor's customer id, and dropping either cost
@@ -425,14 +428,27 @@ instrumentation a new feature usually needs.
   (`_STATUS_ACTIONS`), because Stripe moves `current_period_end` on *before* it
   charges a renewal. `active` and `trialing` grant; `past_due`, `unpaid`,
   `incomplete` and `paused` hold the expiry to the event (outcome `unpaid`, then
-  grace); an unknown status is refused. **Only the subscription it follows, in
+  grace), and so does a Stripe `active` with `pause_collection` set, which rolls
+  its period on with nothing paid; an unknown status is refused. **A grant is
+  for what this server sells** (Q31, #260): the first item's price (Lemon
+  Squeezy's `variant_id`) must be `BILLING_PRICE_ID` or one of
+  `BILLING_ACCEPTED_PRICE_IDS`, or it is refused; only grants are checked, and a
+  box naming no price checks nothing. **When the price on sale changes, the old
+  id goes into `BILLING_ACCEPTED_PRICE_IDS` in the same deploy**, or every
+  renewal on it is refused. **Only the subscription it follows, in
   order, moves an entitlement**: an event about another subscription, an older
   one, or one for a subscription that has ended is ignored; a second
   subscription paying for a household already paid for is refused, because
   somebody is paying twice; and no processor event changes a comp in force. An
   ending for a household that is not here is ignored rather than orphaned, since
   only a payment can be an orphan, and Lemon Squeezy's unsigned `X-Event-Name`
-  may only agree with the signed `meta.event_name`.
+  may only agree with the signed `meta.event_name`. **The order is settled by
+  the database, not by a read** (#260): the household is loaded `FOR UPDATE`
+  (Postgres), and the newest-event time is moved by one conditional `UPDATE …
+  WHERE billing_event_at IS NULL OR billing_event_at <= :at` before anything is
+  applied (`_claim_event_time`, the `_claim_invite` shape), because SQLite takes
+  no lock on a read. It is staged with the change it guards, so a refused grant
+  rolls it back.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above

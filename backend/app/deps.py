@@ -1,5 +1,6 @@
 import ipaddress
 import time
+import uuid
 from collections import deque
 from datetime import UTC, datetime
 from typing import Annotated
@@ -261,6 +262,32 @@ def refund_signup(request: Request) -> None:
     if get_settings().signup_rate_limit_per_hour <= 0:
         return
     _signups.refund(_rate_limit_key(request))
+
+
+# Checkouts and portal sessions, per household, per hour (#260). Each one is a
+# request to the payment processor made on the operator's key, so a household
+# pressing the button in a loop spends something that is not theirs. Keyed on
+# the household rather than the address, because the two routes are signed in
+# and a household is who the processor is being asked about.
+_billing_calls = _Buckets(window_seconds=3600)
+
+
+def charge_billing_call(household_id: uuid.UUID) -> None:
+    """Count one checkout or portal session against the household, or refuse
+    with 429. Charged after every other refusal, so being told no for another
+    reason costs nothing."""
+    limit = get_settings().billing_rate_limit_per_hour
+    if limit <= 0:
+        return
+    if not _billing_calls.charge(str(household_id), limit):
+        log_event("billing.rate_limited", household_id=household_id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "this household has opened the payment pages too many times in the last hour, so wait a while "
+                "and try again. Nothing was charged"
+            ),
+        )
 
 
 # ---------------------------------------------------------- email verification

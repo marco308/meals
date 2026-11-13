@@ -289,8 +289,23 @@ class Settings(BaseSettings):
     #                       other number in this project: a deployment that has
     #                       not set one shows no price rather than someone
     #                       else's.
+    #   BILLING_ACCEPTED_PRICE_IDS  comma-separated, and only for a price this
+    #                       server no longer sells but somebody still pays
+    #                       (#260). A subscription grants only when its first
+    #                       item is BILLING_PRICE_ID or one of these, so another
+    #                       product on the same processor account cannot buy
+    #                       this one's tier. **When BILLING_PRICE_ID changes, the
+    #                       old one goes here first**, or every renewal on it is
+    #                       refused. With neither set (a webhook-only box) no
+    #                       price is checked.
+    #   BILLING_RATE_LIMIT_PER_HOUR  how many checkouts and portal sessions one
+    #                       household may open in an hour, together. Each is a
+    #                       request to the processor on the operator's key. 0
+    #                       turns it off.
     billing_api_key: str | None = None
     billing_price_id: str | None = None
+    billing_accepted_price_ids: str | None = None
+    billing_rate_limit_per_hour: Annotated[int, BlankIsDefault] = 10
     billing_store_id: str | None = None
     billing_api_base: str | None = None
     billing_manage_url: str | None = None
@@ -313,6 +328,14 @@ class Settings(BaseSettings):
         has to infer it from a 404 or, worse, from the shape of the limits.
         """
         return bool(self.billing_configured and self.billing_api_key and self.billing_price_id)
+
+    @property
+    def billing_accepted_prices(self) -> frozenset[str]:
+        """Every price a subscription may be on and still grant: the one on sale
+        and any older ones listed beside it. Empty means none is configured, and
+        then nothing is checked, because a webhook-only box names no price."""
+        listed = (self.billing_accepted_price_ids or "").split(",")
+        return frozenset(price.strip() for price in [self.billing_price_id or "", *listed] if price.strip())
 
     # How long fetching one recipe page may take in total: DNS, redirects and
     # every byte of the body. It used to bound each network phase separately,

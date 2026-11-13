@@ -300,6 +300,53 @@ async def test_a_processor_refusal_says_nobody_was_charged(stripe, auth_client, 
 
 
 @respx.mock
+async def test_checkout_and_portal_are_rate_limited_per_household(stripe, auth_client, settings_override):
+    """#260: each one is a request to the processor on the operator's key. The
+    two routes share one allowance, and the refusal is a sentence."""
+    from app import deps
+
+    deps._billing_calls.clear()
+    settings_override(BILLING_RATE_LIMIT_PER_HOUR="2")
+    route = respx.post("https://api.stripe.com/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/c/pay/cs_test_1"})
+    )
+    try:
+        assert (await auth_client.post("/billing/checkout")).status_code == 201
+        assert (await auth_client.post("/billing/checkout")).status_code == 201
+        refused = await auth_client.post("/billing/checkout")
+        assert refused.status_code == 429
+        assert "too many times in the last hour" in refused.json()["detail"]
+        assert "Nothing was charged" in refused.json()["detail"]
+        assert route.call_count == 2
+        assert (await auth_client.post("/billing/portal")).status_code == 429
+    finally:
+        deps._billing_calls.clear()
+
+
+@respx.mock
+async def test_a_refused_checkout_spends_none_of_the_allowance(stripe, auth_client, sessions, settings_override):
+    from app import deps
+
+    deps._billing_calls.clear()
+    settings_override(BILLING_RATE_LIMIT_PER_HOUR="1")
+    respx.post("https://api.stripe.com/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/c/pay/cs_test_1"})
+    )
+    async with sessions() as db:
+        household = (await db.execute(select(Household))).scalars().one()
+        await entitlements.grant(
+            db, household, tier=limits.PAID, until=datetime.now(UTC) + timedelta(days=200), source="stripe"
+        )
+        await db.commit()
+    try:
+        for _ in range(3):
+            assert (await auth_client.post("/billing/checkout")).status_code == 409
+        assert len(deps._billing_calls) == 0
+    finally:
+        deps._billing_calls.clear()
+
+
+@respx.mock
 async def test_a_processor_that_does_not_answer_is_not_a_500(stripe, auth_client):
     respx.post("https://api.stripe.com/v1/checkout/sessions").mock(side_effect=httpx.ConnectError("no route"))
     response = await auth_client.post("/billing/checkout")
