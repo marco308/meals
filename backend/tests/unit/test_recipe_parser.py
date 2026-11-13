@@ -6,6 +6,7 @@ import pytest
 from app.schemas.catalog import MAX_RECIPE_LINES
 from app.services.catalog import parsed_recipe_to_payload
 from app.services.ingredient_lines import parse_ingredient_line
+from app.services.ingredient_names import canonical_ingredient_name
 from app.services.recipe_parser import NoRecipeFound, ParsedRecipe, extract_recipe, parse_iso8601_duration
 from app.services.units import (
     BANNED_UNITS,
@@ -284,6 +285,14 @@ class TestParseIngredientLine:
         parse_ingredient_line(line)
         assert time.perf_counter() - started < 1.0
 
+    def test_deeply_nested_brackets_are_not_quadratic(self):
+        """Nested brackets come out whole (#208) in one scan, not a regex pass
+        per level, which would be quadratic in the depth of a name a caller
+        chose (CWE-1333)."""
+        started = time.perf_counter()
+        assert canonical_ingredient_name("stock " + "(" * 100_000 + ")" * 100_000) == "stock"
+        assert time.perf_counter() - started < 1.0
+
     def test_digit_heavy_line_is_not_quadratic(self):
         """A run of digits was tried from every digit, each try backtracking
         through every shorter run: 27 seconds at 16,000 digits, on the only
@@ -352,9 +361,10 @@ class TestDualMeasureLines:
         assert (parsed.name, parsed.quantity, parsed.unit) == ("lemon", 0.5, "item")
 
     def test_length_dual_measures_strip_too(self):
+        """And a sized piece is then one of the food (#208), not a name that
+        starts with its length."""
         parsed = parse_ingredient_line("2.5cm/1in piece of fresh root ginger")
-        assert parsed.name == "2.5cm piece of fresh root ginger"
-        assert parsed.quantity is None
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("fresh root ginger", 1, "item")
 
     def test_leading_prep_segment_is_not_the_name(self):
         """The comma rule used to keep whatever came first; "cooked" is prep,

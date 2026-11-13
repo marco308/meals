@@ -90,6 +90,9 @@ INGEST_CONVERSIONS: dict[str, tuple[str, float]] = {
     "tablespoons": ("ml", 15),
     "cup": ("ml", 240),
     "cups": ("ml", 240),
+    # Delish writes "¼ c. mayonnaise". Ingest only: the API has never refused
+    # "c" as a unit, and refusing it now would tighten validation.
+    "c": ("ml", 240),
     "oz": ("g", 28),
     "ounce": ("g", 28),
     "ounces": ("g", 28),
@@ -139,8 +142,16 @@ NATURAL_UNITS: frozenset[str] = frozenset(
         "wedge",
         "nest",
         "cube",
+        "punnet",
     }
 )
+
+# The natural units a recipe writes with no amount to mean one of them:
+# "pinch of salt", "knob of butter", "handful fresh coriander". A subset of
+# NATURAL_UNITS rather than a list of its own, and only the measures nobody
+# would mistake for the start of a food's name ("fillet steak", "leaf
+# gelatine" and "stick cinnamon" are why it is not all of them).
+UNSTATED_ONE_UNITS: frozenset[str] = NATURAL_UNITS & {"pinch", "dash", "handful", "knob", "bunch", "sprig"}
 
 # What a metric amount comes in, dropped from the name once the amount is
 # known: "2 x 400g tins chopped tomatoes" is 800 g of chopped tomatoes.
@@ -250,8 +261,12 @@ def normalize_quantity(quantity: float, unit: str, name: str | None = None) -> t
     return value, canonical
 
 
-def parse_number(token: str) -> float | None:
-    """Parse '2', '1.5', '½', '1 1/2', '1/2', '1-2' (takes the first of a range)."""
+def parse_number(token: str, digits: int | None = 3) -> float | None:
+    """Parse '2', '1.5', '½', '1 1/2', '1/2', '1-2' (takes the first of a range).
+
+    Rounded to `digits` places. None leaves it exact, for a caller about to
+    multiply it by a unit, which rounds afterwards: a third rounded first made
+    ⅓ cup 79.92 ml."""
     token = token.strip()
     vulgar = {"½": 0.5, "⅓": 1 / 3, "⅔": 2 / 3, "¼": 0.25, "¾": 0.75, "⅕": 0.2, "⅛": 0.125}
     total = 0.0
@@ -278,7 +293,9 @@ def parse_number(token: str) -> float | None:
                 matched = True
             except ValueError:
                 return None
-    return round(total, 3) if matched else None
+    if not matched:
+        return None
+    return round(total, digits) if digits is not None else total
 
 
 def format_quantity(quantity: float | None, unit: str | None) -> str:

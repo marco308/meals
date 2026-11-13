@@ -32,6 +32,22 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 - **The billing webhook checks the signature before it parses the body**, and a
   body nested too deep to parse is a counted 400 instead of a 500.
 
+### Fixed
+
+- **Ingested ingredient lines keep the exact metric figure when the imperial
+  one comes first** (#206): "1 cup/200 grams sugar" and "2 cups (240g) flour"
+  are 200 g and 240 g, not an approximation in ml. A bracket counts only when
+  it holds nothing but a metric amount.
+- **More amount and unit shapes parse** (#207): a size or "heaped" between the
+  amount and the unit ("4 medium cloves garlic", "1 heaped tbsp mustard"), a
+  unit with no amount ("pinch of salt" is one pinch), "2 to 3 tablespoons",
+  "1-1/2 cups", "¼ c.", and `punnet` as a natural unit. Thirds are rounded
+  after converting, so ⅓ cup is 80 ml.
+- **Names keep only the food** (#208): "thumb-sized piece ginger" is one
+  ginger, "boneless, skinless chicken thighs" no longer comes out as
+  "boneless", "cornflour / cornstarch" is cornflour, and nested brackets come
+  out whole.
+
 ## 2026-11-01: meals from the freezer
 
 Released as **1.12.0**. One additive migration (`37f6e1113037`), **playbook

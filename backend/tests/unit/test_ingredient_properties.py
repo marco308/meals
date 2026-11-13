@@ -12,10 +12,9 @@ hold whatever a page says: no crash, and nothing a recipe cannot store.
 import contextlib
 import math
 import os
-import re
 
 import pytest
-from hypothesis import HealthCheck, assume, example, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from app.services.aisles import AISLE_ORDER, UNKNOWN_AISLE, guess_aisle
@@ -63,6 +62,7 @@ NATURAL_UNITS = frozenset(
         "wedge",
         "nest",
         "cube",
+        "punnet",
     }
 )
 PARSED_UNITS = NATURAL_UNITS | {"g", "ml", "item"}
@@ -191,19 +191,12 @@ class TestPayloadKeepsTheAmount:
         assert stored.quantity is not None, line
 
 
-# A bracket opened inside another one. Both parsers take brackets out in one
-# pass of a non-nesting regex, so the outer one survives it; see below.
-_NESTED = re.compile(r"\([^)]*\(")
-# A word ending ".s": the trailing-dot strip runs before singularising, which
-# then makes "00.s" into "00." and leaves the dot for the second fold to take.
-_DOT_S = re.compile(r"\.s\b", re.IGNORECASE)
-
-
 class TestCanonicalName:
     @FAST
+    @example("(())")
+    @example("00.s")
     @given(st.text(max_size=200))
     def test_folding_is_idempotent_on_any_text(self, name):
-        assume(not _NESTED.search(name) and not _DOT_S.search(name))
         once = canonical_ingredient_name(name)
         assert canonical_ingredient_name(once) == once
 
@@ -220,19 +213,17 @@ class TestCanonicalName:
 
 
 class TestNestedBrackets:
-    """Found by the idempotence property: "(())" folds to "( )" and then to
-    "". One pass of `\\([^()]*\\)` removes only the innermost bracket, so the
-    parser hands on "chicken stock (homemade or store-bought)" for a line
-    with a note inside a note, and folding such a name twice differs from
-    folding it once."""
+    """Found by the idempotence property (#208): "(())" folded to "( )" and
+    then to "". One pass of `\\([^()]*\\)` removed only the innermost bracket,
+    so the parser handed on "chicken stock (homemade or store-bought)" for a
+    line with a note inside a note, and folding such a name twice differed
+    from folding it once."""
 
-    @pytest.mark.xfail(strict=True, reason="#208: nested brackets survive one pass of the bracket regex")
     @pytest.mark.parametrize("name", ["(())", "stock ((homemade))", "butter (salted (or unsalted)) (softened)"])
     def test_folding_a_nested_bracket_is_idempotent(self, name):
         once = canonical_ingredient_name(name)
         assert canonical_ingredient_name(once) == once
 
-    @pytest.mark.xfail(strict=True, reason="#208: nested brackets survive one pass of the bracket regex")
     @pytest.mark.parametrize(
         "line",
         [
@@ -245,9 +236,23 @@ class TestNestedBrackets:
         assert "(" not in name and ")" not in name, name
 
 
-@pytest.mark.xfail(strict=True, reason="#208: the trailing '.' is stripped before singularising exposes one")
 @pytest.mark.parametrize("name", ["00.s", "tomato.s"])
 def test_folding_a_dotted_plural_is_idempotent(name):
-    """Found by the idempotence property: "00.s" folds to "00." and then to "00"."""
+    """Found by the idempotence property (#208): "00.s" folded to "00." and
+    then to "00", because singularising exposed a dot after the strip."""
     once = canonical_ingredient_name(name)
     assert canonical_ingredient_name(once) == once
+
+
+@pytest.mark.parametrize("name", ["0-QUALITY", "00-quality", "1-good-quality flour"])
+def test_folding_a_hyphen_that_shielded_a_modifier_is_idempotent(name):
+    """Found by the idempotence property: "0-quality" is one word and kept,
+    but once its hyphen is a space "quality" is a modifier, so "0 quality"
+    folded on to "0". A hyphenated name now folds until it stops changing."""
+    once = canonical_ingredient_name(name)
+    assert canonical_ingredient_name(once) == once
+
+
+def test_a_hyphenated_food_still_keeps_its_words():
+    assert canonical_ingredient_name("extra-virgin olive oil") == "extra virgin olive oil"
+    assert canonical_ingredient_name("sun-dried tomatoes") == "sun dried tomato"
