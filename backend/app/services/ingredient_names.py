@@ -285,8 +285,26 @@ def canonical_ingredient_name(name: str) -> str:
 
     Hyphens become spaces last of all, so "extra-virgin olive oil" and "extra
     virgin olive oil" are one food however a page spelled it, while a hyphenated
-    modifier ("good-quality") is still recognised as one word on the way."""
-    return " ".join(_fold_name(name).replace("-", " ").split())
+    modifier ("good-quality") is still recognised as one word on the way.
+
+    Turning a hyphen into a space can make a modifier of what was part of one
+    word: "0-quality" is kept whole, but "0 quality" then loses "quality" on
+    a second fold. A key has to be a fixed point (`c(c(n)) == c(n)`), so a
+    name that had a hyphen is folded again until it stops changing. Each pass
+    is linear and only shortens the name, and a hyphen-free name takes one."""
+    folded = " ".join(_fold_name(name).replace("-", " ").split())
+    if "-" not in name:
+        return folded
+    for _ in range(_MAX_REFOLDS):
+        again = " ".join(_fold_name(folded).split())
+        if again == folded:
+            break
+        folded = again
+    return folded
+
+
+#: More than enough: a refold only removes words a hyphen used to shield.
+_MAX_REFOLDS = 4
 
 
 def _fold_name(name: str) -> str:

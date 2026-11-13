@@ -242,3 +242,17 @@ def test_folding_a_dotted_plural_is_idempotent(name):
     then to "00", because singularising exposed a dot after the strip."""
     once = canonical_ingredient_name(name)
     assert canonical_ingredient_name(once) == once
+
+
+@pytest.mark.parametrize("name", ["0-QUALITY", "00-quality", "1-good-quality flour"])
+def test_folding_a_hyphen_that_shielded_a_modifier_is_idempotent(name):
+    """Found by the idempotence property: "0-quality" is one word and kept,
+    but once its hyphen is a space "quality" is a modifier, so "0 quality"
+    folded on to "0". A hyphenated name now folds until it stops changing."""
+    once = canonical_ingredient_name(name)
+    assert canonical_ingredient_name(once) == once
+
+
+def test_a_hyphenated_food_still_keeps_its_words():
+    assert canonical_ingredient_name("extra-virgin olive oil") == "extra virgin olive oil"
+    assert canonical_ingredient_name("sun-dried tomatoes") == "sun dried tomato"
