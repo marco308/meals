@@ -687,8 +687,7 @@ class TestResourceBinding:
         forged = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"}
         _, challenge = pkce()
         params = authorize_params(challenge, resource="https://evil.example/mcp")
-        query = redirect_query(await client.get("/oauth/authorize", params=params, headers=forged))
-        assert query["error"] == "invalid_target"
+        refused_on_the_page(await client.get("/oauth/authorize", params=params, headers=forged))
 
         params = authorize_params(challenge, resource="https://meals.example.org/mcp")
         assert (await client.get("/oauth/authorize", params=params, headers=forged)).status_code == 200
