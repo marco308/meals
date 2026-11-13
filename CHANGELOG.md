@@ -20,7 +20,65 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+## 2026-11-13: security review
+
+Released as **1.13.0**. No migration, **playbook v24** (unchanged). Decision
+Q31. Every item below came out of the security review of 1.12.0.
+
+**Operator settings, all optional:** `PUBLIC_URL` (and `MEALS_PUBLIC_URL` on a
+separate MCP container), `BILLING_ACCEPTED_PRICE_IDS`,
+`BILLING_RATE_LIMIT_PER_HOUR`, `MAX_REQUEST_BODY_BYTES`,
+`EMAIL_VERIFICATION_MAX_SENDS`. A server that sells must list in
+`BILLING_ACCEPTED_PRICE_IDS` every older price a live subscriber is still on,
+or their renewal is refused.
+
+### Added
+
+- **`POST /auth/logout`** (#256) ends the session that calls it, or every
+  session of the account with `{"everywhere": true}`. Web and iOS sign-out
+  call it without waiting on it. API tokens and OAuth connections are not
+  touched.
+
 ### Security
+
+- **A billing grant is for what this server sells** (#260, Q31). A
+  subscription whose price is neither `BILLING_PRICE_ID` nor in
+  `BILLING_ACCEPTED_PRICE_IDS` grants nothing and is counted `refused`. Only
+  grants are checked, never a hold or an ending.
+- **Stripe's paused collection is a hold**, like a missed payment: nothing
+  more is granted and the expiry is held to the event.
+- **Two billing events delivered together apply in order.** The ordering
+  check and its write are one conditional update, with the household row
+  locked on Postgres.
+- **Checkout and the billing portal share a per-household hourly limit**, 10
+  unless `BILLING_RATE_LIMIT_PER_HOUR` says otherwise (0 turns it off).
+- **OAuth refuses a bad authorization request on its own page** (#250) rather
+  than redirecting to the client with an error, client names lose control and
+  bidi characters, and a redirect URI with whitespace or a backslash is
+  refused.
+- **A refresh token used twice revokes its grant** (#251), outside a
+  ten-second window for a client retrying a lost answer. `client_id` is now
+  required on refresh; only MCP OAuth clients call it, and they send it.
+- **Mail to an unverified address carries no text the caller chose** (#253),
+  verification codes can be resent at most `EMAIL_VERIFICATION_MAX_SENDS` (5)
+  times, and a second reset request within a minute sends nothing new.
+- **Rate limiter buckets are let go** once their window empties, IPv6 callers
+  are counted per /64, and the signup limit answers 429 before it would
+  answer 409 (#254, #255).
+- **Security headers on every response** (#258): `nosniff`, frame denial and
+  `Referrer-Policy: no-referrer`. HSTS stays with the reverse proxy.
+- **A recipe's source is a link only when it is http(s)** (#257), on the web
+  and on iOS.
+- **Smaller items** (#261): the compose file publishes the API and MCP on
+  loopback unless `BIND_ADDR` says otherwise, `.dockerignore` keeps secrets out
+  of the build context, the backup image runs as uid 1000, `app.dunning`
+  prints ids unless `--verbose`, recipe tags are fitted to 50 characters, and
+  the MCP http mode can never fall back to an env token.
+- **The release path** (#259): tags must point at main, every action is pinned
+  by SHA, images carry build provenance, and the Python and uv base images are
+  pinned by digest.
+- **Dependencies**: soupsieve 4.0, opentelemetry-api 1.45.2 and dnspython
+  2.9.2 for Dependabot alerts.
 
 - **`PUBLIC_URL` pins the server's origin** (#252). Set, the OAuth metadata,
   the resource a grant is bound to, billing checkout and portal return URLs,
