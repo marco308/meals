@@ -40,7 +40,6 @@ exactly as the recipe wrote it, which is what the recipe view shows.
 """
 
 import html
-import re
 
 from app.services.aisles import KEYWORD_PHRASES
 from app.services.wordforms import fold_food_words, singular_word
@@ -247,6 +246,36 @@ def _protected_span(words: list[str]) -> tuple[int, int] | None:
     return best
 
 
+def strip_brackets(text: str) -> str:
+    """Every balanced bracket in `text`, nested ones whole, replaced by a space.
+
+    "stock (homemade (see note) or bought)" → "stock  ". One scan with a stack
+    of open brackets, so linear however deep the nesting (a regex pass per
+    level is quadratic on "((((…))))", and a lazy `.*?` is quadratic on a run
+    of unbalanced "(": CWE-1333). An unmatched bracket of either kind is left
+    where it is, as the single-pass regex this replaces left it (#208)."""
+    opened: list[int] = []
+    spans: list[tuple[int, int]] = []
+    for index, char in enumerate(text):
+        if char == "(":
+            opened.append(index)
+        elif char == ")" and opened:
+            start = opened.pop()
+            # Spans closed earlier inside this one are swallowed by it.
+            while spans and spans[-1][0] > start:
+                spans.pop()
+            spans.append((start, index))
+    if not spans:
+        return text
+    pieces, cursor = [], 0
+    for start, end in spans:
+        pieces.append(text[cursor:start])
+        pieces.append(" ")
+        cursor = end + 1
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def canonical_ingredient_name(name: str) -> str:
     """Fold an ingredient name to the key form used for identity.
 
@@ -264,13 +293,9 @@ def _fold_name(name: str) -> str:
     # An HTML entity is never part of a food (#170): a page that escaped its
     # JSON-LD, or an AI that copied one, must fold onto the plain spelling.
     cleaned = " ".join(html.unescape(name).lower().split()).strip(" .")
-    # `[^()]*` rather than `.*?`: an unbalanced "(" makes a lazy dot restart
-    # its scan at every following character, so a long name of nothing but
-    # brackets costs quadratic time on a name a caller chose (CWE-1333). The
-    # whitespace around the brackets is collapsed below instead of being
-    # matched here, for the same reason. Brackets go before the comma split, or
-    # "butter (unsalted, softened)" is cut to "butter (unsalted".
-    cleaned = re.sub(r"\([^()]*\)", " ", cleaned)
+    # Brackets go before the comma split, or "butter (unsalted, softened)" is
+    # cut to "butter (unsalted".
+    cleaned = strip_brackets(cleaned)
     # Prep notes after a comma ("onions, finely chopped") — the JSON-LD parser
     # already drops these, AI- and user-submitted names may not.
     cleaned = cleaned.split(",")[0]
@@ -282,6 +307,13 @@ def _fold_name(name: str) -> str:
     # modifiers and form nouns have gone, and only the head of a name keeps an
     # `_ALWAYS_PLURAL` plural ("pea shoots", not "peas shoot").
     words = [singular_word(word) for word in cleaned.split()]
+    # Singularising can expose a dot the strip above has already passed:
+    # "00.s" becomes "00.", which a second fold would strip (#208).
+    words[-1] = words[-1].rstrip(".")
+    if not words[-1]:
+        words.pop()
+        if not words:
+            return ""
     frozen = _protected_span(words)
     if frozen == (0, len(words)):
         return _PROTECTED[fold_food_words(words)]

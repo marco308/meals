@@ -14,7 +14,7 @@ import html
 import re
 from dataclasses import dataclass
 
-from app.services.ingredient_names import MODIFIERS, is_protected_name
+from app.services.ingredient_names import MODIFIERS, is_protected_name, strip_brackets
 from app.services.units import (
     BANNED_UNITS,
     BUTTER_STICK_G,
@@ -23,6 +23,7 @@ from app.services.units import (
     METRIC_UNITS,
     NATURAL_UNITS,
     UNIT_SYNONYMS,
+    UNSTATED_ONE_UNITS,
     is_butter,
     parse_number,
     singularize,
@@ -82,7 +83,55 @@ _DUAL_MEASURE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The mirror image, which US sites write (#206): the imperial amount first and
+# the exact metric one after it, behind a slash ("1 cup/200 grams sugar", NYT
+# Cooking) or in a bracket ("2 cups (240g) flour", Serious Eats, King Arthur).
+# The metric figure is kept and the imperial one dropped, which matters most
+# for cups: flour in ml never merges with flour in g (Q2). A bracket counts
+# only when it holds nothing but a metric amount, so "(about 4 teaspoons)" and
+# every other note is still just a note.
+_METRIC_AMOUNT = rf"(?:{_NUMBER_TOKEN})\s*(?:{'|'.join(re.escape(u) for u in _METRIC_MEASURES)})\b\.?"
+_IMPERIAL_FIRST_RE = re.compile(
+    rf"(?:{_NUMBER_TOKEN})\s*(?:{'|'.join(re.escape(u) for u in sorted(INGEST_CONVERSIONS, key=len, reverse=True))})"
+    rf"\b\.?\s*(?:/\s*(?P<slashed>{_METRIC_AMOUNT})|\(\s*(?P<bracketed>{_METRIC_AMOUNT})\s*\))",
+    re.IGNORECASE,
+)
+
+# Amounts written in ways the number token doesn't read: a range with "to"
+# ("2 to 3 tablespoons", read as its first figure like "2-3") and Allrecipes'
+# hyphenated mixed number ("1-1/2 cups", one and a half). Both only lead a line.
+_TO_RANGE_RE = re.compile(rf"^(?P<first>{_NUMBER_TOKEN}) to (?:{_NUMBER_TOKEN})(?= )", re.IGNORECASE)
+_HYPHENATED_MIXED_RE = re.compile(r"^(?P<whole>\d++)-(?P<fraction>\d++/\d++)(?= )")
+
+# "2cm/¾in piece fresh root ginger" (once the dual measure has gone),
+# "thumb-sized piece ginger", "1 thumb-sized piece of ginger": a size of a
+# piece, which is bought as one of the food (#208), like "1 (2-inch) piece".
+_SIZED_LOOSE_PIECE_RE = re.compile(
+    r"^(?:(?P<count>\d++) )?(?:thumb[- ]?sized?|\d++(?:\.\d++)?\s?(?:cm|mm|in|inch|inches)(?:[- ]long)?)"
+    r" pieces? (?:of )?",
+    re.IGNORECASE,
+)
+
 _NATURAL_UNIT_WORDS = unit_forms(NATURAL_UNITS)
+
+# A size, "heaped" or an "a" between the amount and the unit (#207): "4 medium
+# cloves garlic", "1 heaped tbsp mustard", "½ a bunch of basil". It hid the
+# unit, which then became part of the food. Only dropped when a unit follows,
+# so "2 large onions" keeps its size for the name to fold.
+_BETWEEN_AMOUNT_AND_UNIT = "small|medium|large|big|heaped|heaping|rounded|level|generous|scant|good|a"
+_SIZED_UNIT_WORDS = "|".join(
+    re.escape(u)
+    for u in sorted(set(INGEST_CONVERSIONS) | set(UNIT_SYNONYMS) | _NATURAL_UNIT_WORDS, key=len, reverse=True)
+)
+_SIZE_BEFORE_UNIT_RE = re.compile(
+    rf"^(?P<qty>{_NUMBER_TOKEN}) (?:{_BETWEEN_AMOUNT_AND_UNIT}) (?=(?:{_SIZED_UNIT_WORDS})\b)",
+    re.IGNORECASE,
+)
+# "pinch of salt", "small bunch mint": a unit with no amount is one of it.
+_UNSTATED_ONE_RE = re.compile(
+    rf"^(?=(?:(?:small|medium|large|big|good|generous) )?(?:{'|'.join(sorted(UNSTATED_ONE_UNITS))}) )",
+    re.IGNORECASE,
+)
 
 # "tins?|cans?|…", longest first; written once, used by both container paths.
 _CONTAINER = "|".join(sorted(unit_forms(CONTAINER_UNITS), key=len, reverse=True))
@@ -201,13 +250,19 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
     cleaned = _JUICE_OR_ZEST_OF_RE.sub("", cleaned, count=1)
     cleaned = _WORD_AMOUNT_RE.sub(lambda m: _WORD_AMOUNTS[m.group("word").lower()] + " ", cleaned, count=1)
     cleaned = _BARE_TIMES_RE.sub(r"\g<count> ", cleaned, count=1)
+    cleaned = _TO_RANGE_RE.sub(r"\g<first>", cleaned, count=1)
+    cleaned = _HYPHENATED_MIXED_RE.sub(r"\g<whole> \g<fraction>", cleaned, count=1)
     cleaned = _SIZED_PIECE_RE.sub(r"\g<count> ", cleaned, count=1)
     cleaned = _DUAL_MEASURE_RE.sub(r"\g<metric>", cleaned)
+    cleaned = _IMPERIAL_FIRST_RE.sub(lambda m: m.group("slashed") or m.group("bracketed"), cleaned, count=1)
+    cleaned = _SIZED_LOOSE_PIECE_RE.sub(lambda m: (m.group("count") or "1") + " ", cleaned, count=1)
+    cleaned = _UNSTATED_ONE_RE.sub("1 ", cleaned, count=1)
+    cleaned = _SIZE_BEFORE_UNIT_RE.sub(r"\g<qty> ", cleaned, count=1)
 
     multiplier = _MULTIPLIER_RE.match(cleaned)
     if multiplier:
         count = float(multiplier.group("count"))
-        inner_qty = parse_number(multiplier.group("qty"))
+        inner_qty = parse_number(multiplier.group("qty"), digits=None)
         unit_token = (multiplier.group("unit") or "").lower()
         rest = multiplier.group("rest")
         if inner_qty is not None and unit_token:
@@ -231,7 +286,8 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
 
     compound = _COMPOUND_IMPERIAL_RE.match(cleaned)
     if compound:
-        first, second = parse_number(compound.group("q1")), parse_number(compound.group("q2"))
+        first = parse_number(compound.group("q1"), digits=None)
+        second = parse_number(compound.group("q2"), digits=None)
         if first is not None and second is not None:
             q1, u1 = _convert_unit(first, compound.group("u1"))
             q2, u2 = _convert_unit(second, compound.group("u2"))
@@ -242,7 +298,8 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
 
     match = _LINE_RE.match(cleaned)
     if match and match.group("qty"):
-        quantity = parse_number(match.group("qty"))
+        # Exact here and rounded once converted (#207): ⅓ cup is 80 ml.
+        quantity = parse_number(match.group("qty"), digits=None)
         unit_token = (match.group("unit") or "").lower()
         rest = match.group("rest")
         if quantity is not None:
@@ -253,7 +310,7 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
                 quantity, unit = _convert_unit(quantity, unit_token)
             else:
                 name, lifted = _lift_trailing_unit(name)
-                unit = lifted or "item"
+                quantity, unit = round(quantity, 3), lifted or "item"
             return ParsedIngredient(raw=raw, name=name, quantity=quantity, unit=unit)
 
     # Glued metric quantities: "500g beef" with no space
@@ -283,7 +340,7 @@ def _convert_unit(quantity: float, unit_token: str) -> tuple[float, str]:
         canonical, factor = INGEST_CONVERSIONS[unit_token]
         return round(quantity * factor, 3), canonical
     folded = UNIT_SYNONYMS.get(unit_token, unit_token)
-    return quantity, singularize(folded)
+    return round(quantity, 3), singularize(folded)
 
 
 def _lift_trailing_unit(name: str) -> tuple[str, str | None]:
@@ -330,6 +387,11 @@ _PREP_ONLY_WORDS = MODIFIERS | {
     "cored",
     "crumbled",
     "mashed",
+    # "boneless, skinless chicken thighs" (#208): alone before a comma they
+    # are the cut's prep, never the food. Inside the food's own segment they
+    # stay, because they change which pack you buy.
+    "boneless",
+    "skinless",
 }
 
 
@@ -363,9 +425,11 @@ def _clean_name(name: str) -> str:
     name = re.sub(r"^(of|de)\s+", "", name, flags=re.IGNORECASE)
     # Brackets go before the comma split: a comma inside them ("butter
     # (unsalted, softened)") otherwise cuts the bracket in half and leaves
-    # "butter (unsalted" as the food. Kept non-backtracking, as in
-    # canonical_ingredient_name.
-    name = re.sub(r"\([^()]*\)", " ", name)
+    # "butter (unsalted" as the food. Nested ones go whole (#208).
+    name = strip_brackets(name)
+    # "cornflour / cornstarch": two names for one food, and the first is the
+    # one the page leads with (#208). Only a spaced slash, which no amount uses.
+    name = next((part for part in name.split(" / ") if part.strip()), name)
     # Drop prep notes around the food. Usually they trail ("onions, finely
     # chopped" → "onions"), but they lead too ("cooked, peeled king prawns"),
     # so the name is the first comma segment that isn't purely preparation
