@@ -34,7 +34,7 @@ jobs:
     name: the code says what the tag says
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag, both packages and the API all say the same version
         # Not gated with `if:` — a skipped job skips everything that needs it,
         # which would make the workflow_dispatch dry run do nothing at all.
@@ -56,6 +56,20 @@ jobs:
               print(f"::error file={f}::says {got}, tag says {want}")
           sys.exit(1 if bad else 0)
           PY
+      - name: The tagged commit is on main
+        # A tag is the whole trust path to every `:latest` puller, and any
+        # credential with contents:write can push one on any commit. Only a
+        # commit main already holds (so it went through a PR and CI) ships.
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "not a tag, nothing to check"
+            exit 0
+          fi
+          git fetch --no-tags --depth=500 origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main (or is more than 500 commits behind it). Tag the PR's merge commit on main."
+            exit 1
+          fi
 
   images:
     needs: version
@@ -64,6 +78,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Build provenance: the OIDC token signs the attestation (keyless), and
+      # the attestation is stored with the repo and pushed beside the image.
+      attestations: write
+      id-token: write
     strategy:
       matrix:
         include:
@@ -88,23 +106,23 @@ jobs:
             context: backup
             dockerfile: backup/Dockerfile
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # arm64 matters here: a lot of self-hosting happens on a Pi or an ARM
       # VPS, and an amd64-only image is a bug report rather than a download.
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
         if: github.event_name != 'workflow_dispatch'
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
           # v1.2.3 publishes :1.2.3, :1.2 and :latest. No :1, because a major
@@ -118,7 +136,8 @@ jobs:
             org.opencontainers.image.description=Yet Another Meal Planner — self-hosted meal planning with an AI-first API
             org.opencontainers.image.licenses=AGPL-3.0-only
 
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -128,6 +147,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Signed SLSA provenance for the pushed digest (the multi-arch index),
+      # so a self-hoster can check this workflow built what they pulled:
+      # `gh attestation verify oci://ghcr.io/marco308/meals:<tag> --owner marco308`.
+      - name: Attest build provenance
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   verify:
     name: the published image runs
@@ -146,7 +176,7 @@ jobs:
       # not strictly needed today. It stays because package visibility is a
       # setting with no API behind it, and a job that can only verify a public
       # image is a job that breaks the day somebody changes that setting.
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -185,7 +215,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Create the release
