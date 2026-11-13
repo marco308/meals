@@ -141,7 +141,13 @@ instrumentation a new feature usually needs.
   server that cannot send, because nobody there could ever verify. An
   unverified account is refused (`deps.require_verified_email`, 403) only for
   what reaches outward, inviting and fetching a URL; don't gate anything that
-  stays in the household on it. **Signup rate**: `deps.charge_signup`, per IP per
+  stays in the household on it. A resend expires the old code rather than
+  deleting it, because those rows are the count `EMAIL_VERIFICATION_MAX_SENDS`
+  caps (#253). Since that address may be a stranger's, no mail to an unverified
+  address carries caller-chosen text (`mailer.greeting`, the household name in
+  reaping and dunning), and any that does is flattened by `mailer.mail_text`.
+  A reset code is not re-minted within a minute of a live one (`RESET_COOLDOWN`,
+  after the 202). **Signup rate**: `deps.charge_signup`, per IP per
   hour, charged after every other refusal and only for a registration that
   starts a household, never an invited one. **Reaping**
   (`services/reaping.py`, `python -m app.reaping` from cron): off unless

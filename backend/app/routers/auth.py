@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
@@ -106,6 +106,20 @@ VERIFY_CODE_INVALID = (
 #: typed at signup and may not be theirs, so resending must not be a way to
 #: fill a stranger's inbox.
 VERIFY_RESEND_COOLDOWN = timedelta(seconds=60)
+
+#: How soon a reset code may be minted again for one account (#253). Each one
+#: supersedes the last, so without a pause anybody who knows an address could
+#: keep its owner's inbox busy and kill whatever code they were typing.
+RESET_COOLDOWN = timedelta(seconds=60)
+
+#: Said when an account has been sent all the verification codes it gets. The
+#: likeliest reason is a mistyped address, which no number of resends fixes.
+VERIFY_RESEND_EXHAUSTED = (
+    "{count} codes have already been sent to this address, which is as many as one account gets. "
+    "Look for the newest one in your spam or junk folder and enter it with POST /auth/verify-email. "
+    "If the address is wrong, delete this account with DELETE /auth/me and sign up again with the right one; "
+    "if it is right and nothing has arrived, ask whoever runs this server"
+)
 
 RESET_CODE_INVALID = (
     "that reset code is not valid — it may have been used already or expired. "
@@ -296,31 +310,44 @@ async def _send_verification_code(bind: AsyncEngine | AsyncConnection | None, us
     """Mint a verification code for this account and email it. Returns whether
     the relay took it.
 
-    Any earlier code is superseded. Committed before sending for the same reason
-    a reset code is: a code that exists but was not delivered can be resent,
-    and a delivered one with no row behind it cannot be used."""
+    Any earlier code is superseded: expired rather than deleted, so the rows
+    left behind are the count of codes this account has been sent, which is
+    what `EMAIL_VERIFICATION_MAX_SENDS` caps (#253). They go when the address is
+    verified or the account is deleted. Committed before sending for the same
+    reason a reset code is: a code that exists but was not delivered can be
+    resent, and a delivered one with no row behind it cannot be used."""
     settings = get_settings()
     async with AsyncSession(bind, expire_on_commit=False) as db:
         user = await db.get(User, user_id)
         if user is None or user.email_verified_at is not None:
             return False
-        await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "verify"))
+        now = datetime.now(UTC)
+        await db.execute(
+            update(AuthToken)
+            .where(
+                AuthToken.user_id == user.id,
+                AuthToken.kind == "verify",
+                or_(AuthToken.expires_at.is_(None), AuthToken.expires_at > now),
+            )
+            .values(expires_at=now)
+            .execution_options(synchronize_session=False)
+        )
         code, code_hash = generate_short_code()
         db.add(
             AuthToken(
                 user_id=user.id,
                 token_hash=code_hash,
                 kind="verify",
-                expires_at=datetime.now(UTC) + timedelta(hours=settings.email_verification_ttl_hours),
+                expires_at=now + timedelta(hours=settings.email_verification_ttl_hours),
             )
         )
         await db.commit()
-        to, name = user.email, user.display_name
+        to = user.email
     try:
         await send_email(
             to=to,
             subject="Confirm your email for Meals",
-            body=email_verification_body(name, code, settings.email_verification_ttl_hours),
+            body=email_verification_body(code, settings.email_verification_ttl_hours),
             purpose="email_verification",
             user_id=user_id,
         )
@@ -365,8 +392,9 @@ async def verify_email(
 @router.post("/verify-email/resend", response_model=AcceptedOut, status_code=status.HTTP_202_ACCEPTED)
 async def resend_verification(user: CurrentUser, db: DbSession, _: None = Depends(auth_rate_limit)) -> AcceptedOut:
     """Send a fresh verification code to your address, replacing any earlier
-    one. At most once a minute, since the address is whatever was typed at
-    signup and may belong to somebody else."""
+    one. At most once a minute, and at most `EMAIL_VERIFICATION_MAX_SENDS`
+    codes per account counting the one sent at signup, since the address is
+    whatever was typed at signup and may belong to somebody else."""
     if user.email_verified_at is not None:
         raise HTTPException(status_code=409, detail="your email address is already confirmed; there is nothing to send")
     if not get_settings().email_configured:
@@ -377,14 +405,17 @@ async def resend_verification(user: CurrentUser, db: DbSession, _: None = Depend
                 "every account here can already do everything"
             ),
         )
-    latest = (
+    sent = (
         await db.execute(
-            select(AuthToken.created_at)
-            .where(AuthToken.user_id == user.id, AuthToken.kind == "verify")
-            .order_by(AuthToken.created_at.desc())
-            .limit(1)
+            select(func.count(), func.max(AuthToken.created_at)).where(
+                AuthToken.user_id == user.id, AuthToken.kind == "verify"
+            )
         )
-    ).scalar_one_or_none()
+    ).one()
+    count, latest = sent
+    cap = get_settings().email_verification_max_sends
+    if cap and count >= cap:
+        raise HTTPException(status_code=429, detail=VERIFY_RESEND_EXHAUSTED.format(count=count))
     if latest is not None and datetime.now(UTC) - as_aware(latest) < VERIFY_RESEND_COOLDOWN:
         raise HTTPException(
             status_code=429,
@@ -561,6 +592,26 @@ async def _send_reset_code(bind: AsyncEngine | AsyncConnection | None, email: st
         user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if user is None:
             return
+        # A live code minted moments ago means the owner's email is on its way
+        # or already open. Superseding it would kill the code they are typing,
+        # and repeating this for a known address would fill their inbox (#253).
+        # This runs after the 202, so skipping says nothing to the caller.
+        now = datetime.now(UTC)
+        recent = (
+            await db.execute(
+                select(AuthToken.id)
+                .where(
+                    AuthToken.user_id == user.id,
+                    AuthToken.kind == "reset",
+                    AuthToken.created_at > now - RESET_COOLDOWN,
+                    AuthToken.expires_at > now,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if recent is not None:
+            log_event("password_reset.throttled", user_id=user.id)
+            return
         # Supersede any outstanding code: two live codes for one account is one
         # more than anybody needs.
         await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "reset"))
@@ -570,7 +621,7 @@ async def _send_reset_code(bind: AsyncEngine | AsyncConnection | None, email: st
                 user_id=user.id,
                 token_hash=code_hash,
                 kind="reset",
-                expires_at=datetime.now(UTC) + timedelta(minutes=settings.password_reset_ttl_minutes),
+                expires_at=now + timedelta(minutes=settings.password_reset_ttl_minutes),
             )
         )
         # Commit before sending: a code that exists but wasn't delivered is a
@@ -585,7 +636,12 @@ async def _send_reset_code(bind: AsyncEngine | AsyncConnection | None, email: st
         await send_email(
             to=user.email,
             subject="Reset your Meals password",
-            body=password_reset_body(user.display_name, code, settings.password_reset_ttl_minutes),
+            # No name for an address nobody has shown to be theirs (#253).
+            body=password_reset_body(
+                user.display_name if user.email_verified_at is not None else None,
+                code,
+                settings.password_reset_ttl_minutes,
+            ),
             purpose="password_reset",
             user_id=user.id,
         )

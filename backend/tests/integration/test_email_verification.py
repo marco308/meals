@@ -30,6 +30,17 @@ def headers(auth: dict) -> dict:
     return {"Authorization": f"Bearer {auth['token']}"}
 
 
+async def wait_a_minute(sessions) -> None:
+    """Move every verification code's minting past the resend cooldown."""
+    async with sessions() as db:
+        await db.execute(
+            update(AuthToken)
+            .where(AuthToken.kind == "verify")
+            .values(created_at=datetime.now(UTC) - timedelta(minutes=2))
+        )
+        await db.commit()
+
+
 @pytest.fixture
 def outbox(monkeypatch, settings_override):
     """Verification emails, captured, on a server that says it can send."""
@@ -164,12 +175,68 @@ class TestTheCode:
         second = code_from(outbox[-1])
         assert second != first
         async with sessions() as db:
-            assert len((await db.execute(select(AuthToken).where(AuthToken.kind == "verify"))).scalars().all()) == 1
+            live = (
+                await db.execute(
+                    select(AuthToken).where(AuthToken.kind == "verify", AuthToken.expires_at > datetime.now(UTC))
+                )
+            ).scalars()
+            assert len(live.all()) == 1
 
         stale = await client.post("/auth/verify-email", json={"code": first}, headers=headers(auth))
         assert stale.status_code == 400
         fresh = await client.post("/auth/verify-email", json={"code": second}, headers=headers(auth))
         assert fresh.status_code == 200
+
+    async def test_resends_stop_at_the_cap(self, client, outbox, sessions, settings_override):
+        """Issue #253: a minute apart is a pace, not a ceiling, and the address
+        may be a stranger's."""
+        settings_override(EMAIL_VERIFICATION_MAX_SENDS="3")
+        auth, _ = await signed_up(client, outbox)
+        for _ in range(2):
+            await wait_a_minute(sessions)
+            assert (await client.post("/auth/verify-email/resend", headers=headers(auth))).status_code == 202
+        await wait_a_minute(sessions)
+        refused = await client.post("/auth/verify-email/resend", headers=headers(auth))
+        assert refused.status_code == 429
+        detail = refused.json()["detail"]
+        assert detail.startswith("3 codes have already been sent to this address")
+        assert "POST /auth/verify-email" in detail and "DELETE /auth/me" in detail
+        assert len([m for m in outbox if m["purpose"] == "email_verification"]) == 3
+
+        # The newest code still works after the cap, which is what the
+        # refusal tells them to use.
+        newest = code_from(outbox[-1])
+        assert (
+            await client.post("/auth/verify-email", json={"code": newest}, headers=headers(auth))
+        ).status_code == 200
+
+    async def test_the_cap_defaults_to_five_and_zero_turns_it_off(self, client, outbox, sessions, settings_override):
+        from app.config import get_settings
+
+        assert get_settings().email_verification_max_sends == 5
+        settings_override(EMAIL_VERIFICATION_MAX_SENDS="0")
+        auth, _ = await signed_up(client, outbox)
+        for _ in range(6):
+            await wait_a_minute(sessions)
+            assert (await client.post("/auth/verify-email/resend", headers=headers(auth))).status_code == 202
+
+    async def test_the_cap_is_per_account(self, client, outbox, sessions, settings_override):
+        settings_override(EMAIL_VERIFICATION_MAX_SENDS="2")
+        first, _ = await signed_up(client, outbox, email="one@example.com")
+        second, _ = await signed_up(client, outbox, email="two@example.com")
+        await wait_a_minute(sessions)
+        assert (await client.post("/auth/verify-email/resend", headers=headers(first))).status_code == 202
+        await wait_a_minute(sessions)
+        assert (await client.post("/auth/verify-email/resend", headers=headers(first))).status_code == 429
+        assert (await client.post("/auth/verify-email/resend", headers=headers(second))).status_code == 202
+
+    async def test_the_email_never_carries_the_name_typed_at_signup(self, client, outbox):
+        """Issue #253: the address has not been shown to be the caller's, so
+        their words do not go in a genuine email to it."""
+        await signed_up(client, outbox, name="Marcus\n\nUrgent: confirm at https://evil.example now")
+        [message] = outbox
+        assert message["body"].startswith("Hello,\n\n")
+        assert "evil.example" not in message["body"]
 
     async def test_nothing_to_resend_once_verified(self, client, outbox):
         auth, code = await signed_up(client, outbox)
