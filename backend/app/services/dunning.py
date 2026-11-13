@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import Household, User
 from app.observability import log_event
-from app.services.mailer import EmailSendFailed, send_email
+from app.services.mailer import EmailSendFailed, mail_text, send_email
 
 WARNING = "warning"
 LAPSE = "lapse"
@@ -43,6 +43,9 @@ class Notice:
     household_name: str
     to: str
     paid_until: datetime
+    # Whether `to` has been shown to be its owner's. If not, the household's
+    # name (somebody's own words) stays out of the message (#253).
+    address_verified: bool
 
 
 def _aware(value: datetime) -> datetime:
@@ -76,7 +79,12 @@ async def due(db: AsyncSession, *, now: datetime | None = None) -> list[Notice]:
 
 def _notice(kind: str, household: Household, lead: User, expires: datetime) -> Notice:
     return Notice(
-        kind=kind, household_id=household.id, household_name=household.name, to=lead.email, paid_until=expires
+        kind=kind,
+        household_id=household.id,
+        household_name=mail_text(household.name),
+        to=lead.email,
+        paid_until=expires,
+        address_verified=lead.email_verified_at is not None,
     )
 
 
@@ -127,11 +135,16 @@ def _message(notice: Notice, *, grace_days: int) -> tuple[str, str]:
     true whatever somebody decides: their data is theirs and it is one request
     away (§1). Neither says anything the terms page does not."""
     when = notice.paid_until.strftime("%-d %B %Y")
+    yours = (
+        f"your household, {notice.household_name},"
+        if notice.address_verified and notice.household_name
+        else "your household"
+    )
     if notice.kind == WARNING:
         return (
             f"Your Meals household expires on {when}",
             f"Hello,\n\n"
-            f"The hosted year for your household, {notice.household_name}, ends on {when}.\n\n"
+            f"The hosted year for {yours} ends on {when}.\n\n"
             f"If you renew, nothing changes. If you do not, nothing is deleted: your recipes, plans, "
             f"lists and cooked history all stay exactly where they are and stay readable, and the "
             f"shopping list keeps working. After a grace period of {grace_days} days the free tier's "
@@ -143,7 +156,7 @@ def _message(notice: Notice, *, grace_days: int) -> tuple[str, str]:
     return (
         "Your Meals household has reached the end of its year",
         f"Hello,\n\n"
-        f"The hosted year for your household, {notice.household_name}, ended on {when}.\n\n"
+        f"The hosted year for {yours} ended on {when}.\n\n"
         f"Nothing has been deleted and nothing has been switched off. You have {grace_days} days before "
         f"the free tier's limits re-apply, and even then everything already there stays readable, the "
         f"plan stays usable and the shopping list keeps working in full. What stops is growth: no new "

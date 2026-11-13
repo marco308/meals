@@ -5,9 +5,16 @@ notices (services/dunning.py). Nothing else sends any.
 Deliberately plain SMTP rather than a provider SDK: this project is self-hosted
 by design, and every relay speaks SMTP while every SDK needs an account with one
 particular company.
+
+Every message goes to an address somebody typed, and until a code has come
+back from it that somebody may not be its owner. So no message to an address
+that is not verified carries text the caller chose (`greeting`), and any that
+does goes through `mail_text` first (#253).
 """
 
 import asyncio
+import re
+import unicodedata
 import uuid
 from email.message import EmailMessage
 
@@ -63,9 +70,47 @@ async def send_email(to: str, subject: str, body: str, *, purpose: str, **ids: u
         raise EmailSendFailed(error) from exc
 
 
-def password_reset_body(display_name: str, code: str, ttl_minutes: int) -> str:
+#: Characters that reorder or hide the text around them. Not control
+#: characters to `unicodedata` (they are format, Cf, like the joiners an emoji
+#: needs), so they are named here rather than stripped by category.
+_BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f\u061c")
+
+
+def mail_text(value: str) -> str:
+    """Caller-supplied text (a display name, a household name) made fit to sit
+    inside a sentence of a server email: one line, no control characters, no
+    bidi overrides, runs of whitespace folded to one space (#253).
+
+    Render side only. The fields themselves keep accepting what they always
+    have, because tightening validation on an existing field breaks clients
+    that are already out there; what is taken away is only the power to start
+    a new paragraph inside somebody else's message."""
+    kept = []
+    for char in value:
+        category = unicodedata.category(char)
+        if category in ("Zl", "Zp") or (category == "Cc" and char.isspace()):
+            kept.append(" ")
+        elif category == "Cc" or char in _BIDI_CONTROLS:
+            continue
+        else:
+            kept.append(char)
+    return re.sub(r"\s+", " ", "".join(kept)).strip()
+
+
+def greeting(name: str | None) -> str:
+    """The first line of a message. `None` is what a caller passes for an
+    address nobody has shown to be theirs: anyone can register with somebody
+    else's address and whatever name they like, so a name there is the
+    stranger's words in a genuine email from this server, and the greeting
+    stays plain."""
+    shown = mail_text(name) if name else ""
+    return f"Hello {shown}," if shown else "Hello,"
+
+
+def password_reset_body(display_name: str | None, code: str, ttl_minutes: int) -> str:
+    """`display_name` is None when the account's address is not verified."""
     return (
-        f"Hello {display_name},\n\n"
+        f"{greeting(display_name)}\n\n"
         f"Someone asked to reset the password on your Meals account. Enter this "
         f"code in the app:\n\n"
         f"    {code}\n\n"
@@ -75,9 +120,11 @@ def password_reset_body(display_name: str, code: str, ttl_minutes: int) -> str:
     )
 
 
-def email_verification_body(display_name: str, code: str, ttl_hours: int) -> str:
+def email_verification_body(code: str, ttl_hours: int) -> str:
+    """Always to an address that is not verified yet, which is the point of
+    it, so it never carries a name the caller chose."""
     return (
-        f"Hello {display_name},\n\n"
+        f"{greeting(None)}\n\n"
         f"Welcome to Meals. To confirm this is your address, enter this code in "
         f"Settings:\n\n"
         f"    {code}\n\n"

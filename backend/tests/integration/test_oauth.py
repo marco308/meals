@@ -14,12 +14,13 @@ import base64
 import hashlib
 import json
 import secrets
-from urllib.parse import parse_qs, urlsplit
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, quote, urlsplit
 
 import httpcore
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import AuthToken, OAuthGrant
@@ -112,6 +113,14 @@ async def approve(client, params: dict, *, email: str = EMAIL, password: str = P
     return await client.post(
         "/oauth/authorize", data={**params, "email": email, "password": password, "decision": decision}
     )
+
+
+def refused_on_the_page(response) -> None:
+    """A refusal shown to the person, never a redirect to the client (#250)."""
+    assert response.status_code == 400, response.text
+    assert "location" not in response.headers
+    assert "code=" not in response.text
+    assert "This app can't connect" in response.text
 
 
 def redirect_query(response) -> dict[str, str]:
@@ -482,6 +491,96 @@ class TestRedirectUris:
         page = await client.get("/oauth/authorize", params=authorize_params(challenge, CLAUDE_CODE, redirect_uri))
         assert page.status_code == 400
 
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "https://a.example\\b.example/cb",
+            "https://a.example/c b",
+            "https://a.example/cb\t",
+            "https://a.example/cb\x00",
+            "https://a.example/\u202ecb",
+            "https://a.example/cb\u200b",
+        ],
+    )
+    async def test_refuses_what_parsers_disagree_about(self, client, user, uri, documents):
+        """#250: Python and browsers disagree about where a backslash ends the
+        host, and whitespace and control characters are stripped by some
+        parsers and not others."""
+        assert oauth_service.redirect_uri_problem(uri) is not None
+        response = await client.post("/oauth/register", json={"redirect_uris": [uri]})
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_redirect_uri"
+        # A document listing one has it ignored, so it can never be matched.
+        documents.served[CLAUDE] = {**CLAUDE_DOCUMENT, "redirect_uris": [CLAUDE_REDIRECT, uri]}
+        _, challenge = pkce()
+        page = await client.get("/oauth/authorize", params=authorize_params(challenge, redirect_uri=uri))
+        assert page.status_code == 400
+        assert "location" not in page.headers
+
+
+class TestRefusalsBeforeConsent:
+    """#250: a client is whatever anybody invents, so until a person has
+    pressed something a refusal is shown, never sent to the client."""
+
+    async def test_a_self_made_client_cannot_borrow_this_server_as_a_redirector(self, client):
+        registration = json.dumps({"n": "x", "r": ["https://elsewhere.example/"]}).encode()
+        client_id = "yamp-dcr." + base64.urlsafe_b64encode(registration).decode().rstrip("=")
+        response = await client.get(
+            "/oauth/authorize", params={"client_id": client_id, "redirect_uri": "https://elsewhere.example/"}
+        )
+        refused_on_the_page(response)
+        assert "only response_type=code is supported" in response.text
+
+    async def test_cancel_still_goes_back_to_the_client(self, client, user):
+        _, challenge = pkce()
+        query = redirect_query(await approve(client, authorize_params(challenge), password="", decision="deny"))
+        assert query["error"] == "access_denied"
+
+
+class TestClientNames:
+    """#250: the name on the consent page is the client's own words, so it
+    may not hide characters or run on into a sentence."""
+
+    @pytest.mark.parametrize(
+        ("name", "shown"),
+        [
+            ("Cla\u200bude", "Claude"),  # zero-width space
+            ("\u202eedualC", "edualC"),  # right-to-left override
+            ("Some\u2066 App\u2069", "Some App"),  # bidi isolates
+            ("Two\nLines", "Two Lines"),
+            ("\u200b\u200d", None),  # nothing visible left: the host stands in
+        ],
+    )
+    def test_invisible_characters_are_dropped(self, name, shown):
+        assert oauth_service._clean_name(name) == shown
+
+    def test_names_are_capped(self):
+        cleaned = oauth_service._clean_name("Claude, verified by claude.ai. This connector is safe to approve")
+        assert cleaned is not None
+        assert len(cleaned) == 40
+        assert cleaned.endswith("\u2026")
+
+    async def test_the_page_shows_the_cleaned_name(self, client, user):
+        registered = await client.post(
+            "/oauth/register",
+            json={"client_name": "Cla\u200bude \u202eppa", "redirect_uris": ["https://assistant.example/cb"]},
+        )
+        assert registered.json()["client_name"] == "Claude ppa"
+        _, challenge = pkce()
+        page = await client.get(
+            "/oauth/authorize",
+            params=authorize_params(challenge, registered.json()["client_id"], "https://assistant.example/cb"),
+        )
+        assert "registered itself as <strong>Claude ppa</strong>" in page.text
+        assert "\u202e" not in page.text
+        assert "\u200b" not in page.text
+
+    async def test_a_document_name_is_cleaned_too(self, client, user, documents):
+        documents.served[CLAUDE] = {**CLAUDE_DOCUMENT, "client_name": "Cla\u200bude\u202e"}
+        _, challenge = pkce()
+        page = await client.get("/oauth/authorize", params=authorize_params(challenge))
+        assert "Connect Claude to YAMP?" in page.text
+
 
 class TestPkce:
     @pytest.mark.parametrize(
@@ -497,9 +596,7 @@ class TestPkce:
         _, challenge = pkce()
         params = authorize_params(challenge, **overrides)
         for response in (await client.get("/oauth/authorize", params=params), await approve(client, params)):
-            query = redirect_query(response)
-            assert query["error"] == "invalid_request"
-            assert "code" not in query
+            refused_on_the_page(response)
 
     async def test_the_wrong_verifier_gets_nothing(self, client, user):
         code, _ = await get_code(client)
@@ -562,14 +659,12 @@ class TestResourceBinding:
     async def test_authorize_refuses_any_other_resource(self, client, user, resource):
         _, challenge = pkce()
         params = authorize_params(challenge, resource=resource)
-        query = redirect_query(await client.get("/oauth/authorize", params=params))
-        assert query["error"] == "invalid_target"
+        refused_on_the_page(await client.get("/oauth/authorize", params=params))
 
     async def test_authorize_refuses_two_resources(self, client, user):
         _, challenge = pkce()
         params = list(authorize_params(challenge).items()) + [("resource", "https://other.example/mcp")]
-        query = redirect_query(await client.get("/oauth/authorize", params=params))
-        assert query["error"] == "invalid_target"
+        refused_on_the_page(await client.get("/oauth/authorize", params=params))
 
     @pytest.mark.parametrize("resource", ["HTTP://TEST/mcp", "http://test:80/mcp", "http://test/mcp/"])
     async def test_spellings_of_the_same_resource_are_the_same(self, client, user, resource):
@@ -631,6 +726,96 @@ class TestWhatATokenIs:
         tokens = await connect(client)
         response = await refresh(client, tokens["refresh_token"], client_id=CLAUDE_CODE)
         assert response.json()["error"] == "invalid_grant"
+
+    async def test_a_refresh_must_say_whose_token_it_is(self, client, user):
+        """#251: client_id is required on refresh, as OAuth 2.1 has it for a
+        public client. HTTP Basic still counts as saying so."""
+        tokens = await connect(client)
+        response = await client.post(
+            "/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_request"
+        basic = base64.b64encode(f"{quote(CLAUDE, safe='')}:".encode()).decode()
+        response = await client.post(
+            "/oauth/token",
+            data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]},
+            headers={"Authorization": f"Basic {basic}"},
+        )
+        assert response.status_code == 200, response.text
+
+
+class TestRefreshTokenReuse:
+    """#251: a spent refresh token presented again means somebody else holds a
+    copy, so the connection ends, as it does for a replayed code."""
+
+    @pytest.fixture
+    def no_grace(self, monkeypatch):
+        monkeypatch.setattr(oauth_service, "REFRESH_REUSE_GRACE_SECONDS", -1)
+
+    async def test_reuse_revokes_the_connection(self, client, user, engine, no_grace):
+        stolen = await connect(client)
+        # The thief refreshes first and holds the live pair...
+        thief = (await refresh(client, stolen["refresh_token"])).json()
+        assert (await me(client, thief["access_token"])).status_code == 200
+        # ...and the real client presenting the old one ends the connection.
+        response = await refresh(client, stolen["refresh_token"])
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_grant"
+        assert "has been revoked" in response.json()["error_description"]
+        assert (await me(client, thief["access_token"])).status_code == 401
+        assert (await refresh(client, thief["refresh_token"])).status_code == 400
+        assert await count(engine, OAuthGrant) == 0
+        assert await count(engine, AuthToken, AuthToken.grant_id.is_not(None)) == 0
+
+    async def test_reuse_under_any_client_id_still_revokes(self, client, user, no_grace):
+        tokens = await connect(client)
+        fresh = (await refresh(client, tokens["refresh_token"])).json()
+        await refresh(client, tokens["refresh_token"], client_id=CLAUDE_CODE)
+        assert (await me(client, fresh["access_token"])).status_code == 401
+
+    async def test_reuse_ends_only_its_own_connection(self, client, user, no_grace):
+        tokens = await connect(client)
+        other = await connect(client, client_id=CLAUDE_CODE, redirect_uri="http://localhost:9/callback")
+        await refresh(client, tokens["refresh_token"])
+        await refresh(client, tokens["refresh_token"])
+        assert (await me(client, other["access_token"])).status_code == 200
+
+    async def test_a_retry_within_the_grace_period_revokes_nothing(self, client, user):
+        """A client that never got the answer tries again at once: refused,
+        but the pair that was issued still works."""
+        tokens = await connect(client)
+        fresh = (await refresh(client, tokens["refresh_token"])).json()
+        retry = await refresh(client, tokens["refresh_token"])
+        assert retry.status_code == 400
+        assert retry.json()["error"] == "invalid_grant"
+        assert "has been revoked" not in retry.json()["error_description"]
+        assert (await me(client, fresh["access_token"])).status_code == 200
+        assert (await refresh(client, fresh["refresh_token"])).status_code == 200
+
+    async def test_a_tombstone_is_no_credential(self, client, user, engine):
+        tokens = await connect(client)
+        await refresh(client, tokens["refresh_token"])
+        assert await count(engine, AuthToken, AuthToken.kind == oauth_service.SPENT_REFRESH) == 1
+        assert (await me(client, tokens["refresh_token"])).status_code == 401
+
+    async def test_a_tombstone_goes_once_it_would_have_expired(self, client, user, engine, no_grace):
+        tokens = await connect(client)
+        fresh = (await refresh(client, tokens["refresh_token"])).json()
+        maker = async_sessionmaker(engine)
+        async with maker() as session:
+            await session.execute(
+                update(AuthToken)
+                .where(AuthToken.kind == oauth_service.SPENT_REFRESH)
+                .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+            )
+            await session.commit()
+        # Past its expiry a spent token is just an expired one: no revocation...
+        assert (await refresh(client, tokens["refresh_token"])).status_code == 400
+        assert (await me(client, fresh["access_token"])).status_code == 200
+        # ...and the next refresh tidies it away, leaving only its own tombstone.
+        assert (await refresh(client, fresh["refresh_token"])).status_code == 200
+        assert await count(engine, AuthToken, AuthToken.kind == oauth_service.SPENT_REFRESH) == 1
 
 
 class TestHouseholdIsolation:

@@ -22,7 +22,8 @@ _bearer = HTTPBearer(auto_error=False)
 # have to opt in rather than silently become a credential. "oauth" opted in
 # with Q27: the access tokens `routers/oauth.py` issues for the remote MCP.
 # Their refresh tokens ("oauth_refresh") did not and must never: one is only
-# ever traded at POST /oauth/token.
+# ever traded at POST /oauth/token. Nor do the spent ones kept as tombstones
+# ("oauth_refresh_spent"), which are only ever compared against.
 AUTHENTICATING_KINDS = ("session", "api", "oauth")
 
 

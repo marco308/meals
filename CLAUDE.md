@@ -141,7 +141,13 @@ instrumentation a new feature usually needs.
   server that cannot send, because nobody there could ever verify. An
   unverified account is refused (`deps.require_verified_email`, 403) only for
   what reaches outward, inviting and fetching a URL; don't gate anything that
-  stays in the household on it. **Signup rate**: `deps.charge_signup`, per IP per
+  stays in the household on it. A resend expires the old code rather than
+  deleting it, because those rows are the count `EMAIL_VERIFICATION_MAX_SENDS`
+  caps (#253). Since that address may be a stranger's, no mail to an unverified
+  address carries caller-chosen text (`mailer.greeting`, the household name in
+  reaping and dunning), and any that does is flattened by `mailer.mail_text`.
+  A reset code is not re-minted within a minute of a live one (`RESET_COOLDOWN`,
+  after the 202). **Signup rate**: `deps.charge_signup`, per IP per
   hour, charged after every other refusal and only for a registration that
   starts a household, never an invited one. **Reaping**
   (`services/reaping.py`, `python -m app.reaping` from cron): off unless
@@ -164,7 +170,14 @@ instrumentation a new feature usually needs.
   redirect URIs (only a loopback *port* may vary), S256 only, single-use
   two-minute codes whose replay revokes the grant, the password on every
   consent, `resource` bound to this origin's `/mcp`, and a refresh token
-  rotated on every use. Changing or resetting a password calls
+  rotated on every use, with `client_id` required. A spent refresh token is
+  kept as an `oauth_refresh_spent` tombstone until its own expiry, and
+  presenting it again revokes the grant like a replayed code (after a few
+  seconds' grace for a client retrying a lost answer). A client is whatever
+  anybody invents, so a refusal of the request itself is shown on the page
+  and never redirected; only Cancel sends `error=` back. Client names lose
+  every invisible character and stop at 40, and a redirect URI may hold no
+  backslash, whitespace or control character. Changing or resetting a password calls
   `oauth.revoke_grants`; account deletion takes grants with the user. API
   tokens are untouched by all of it. "This origin" is `routers/skill.base_url`,
   which is `PUBLIC_URL` when set and the forwarded headers otherwise (#252):

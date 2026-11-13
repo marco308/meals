@@ -7,12 +7,15 @@ holding one is not the same as being logged in.
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.main import app
+from app.models import AuthToken, User
 from app.routers import auth as auth_router
 from app.services import mailer
 from tests.conftest import register
@@ -47,6 +50,17 @@ def code_from(email: dict) -> str:
 
 async def request_reset(client, email: str = "marcus@example.com"):
     return await client.post("/auth/password-reset", json={"email": email})
+
+
+async def age_reset_codes(engine, seconds: int = 120) -> None:
+    """Push every reset code's minting into the past, past the cooldown."""
+    async with async_sessionmaker(engine)() as db:
+        await db.execute(
+            update(AuthToken)
+            .where(AuthToken.kind == "reset")
+            .values(created_at=datetime.now(UTC) - timedelta(seconds=seconds))
+        )
+        await db.commit()
 
 
 class TestRequestingAReset:
@@ -91,9 +105,10 @@ class TestRequestingAReset:
         assert detail.split(".")[0] == "this server isn't set up to send email, so it can't send a reset code"
         assert "password_reset_enabled" in detail
 
-    async def test_requesting_again_supersedes_the_first_code(self, client, outbox):
+    async def test_requesting_again_supersedes_the_first_code(self, client, outbox, engine):
         await register(client)
         await request_reset(client)
+        await age_reset_codes(engine)
         await request_reset(client)
         first, second = code_from(outbox[0]), code_from(outbox[1])
 
@@ -326,3 +341,87 @@ class TestASlowRelayIsGivenUpOn:
         async with asyncio.timeout(5):  # the bound under test, not this one, must be what ends it
             with pytest.raises(mailer.EmailSendFailed, match="TimeoutError"):
                 await mailer.send_email("someone@example.com", "subject", "body", purpose="password_reset")
+
+
+class TestRepeatedRequests:
+    """Issue #253: each request supersedes the last code, so without a pause
+    anybody who knows an address can keep its owner's inbox busy and kill
+    whatever code they are typing."""
+
+    async def test_a_second_request_within_a_minute_sends_nothing(self, client, outbox, engine):
+        await register(client)
+        first = await request_reset(client)
+        again = await request_reset(client)
+        assert first.status_code == again.status_code == 202
+        assert first.json() == again.json(), "the answer must not say whether anything was sent"
+        assert len(outbox) == 1
+
+        # And the code already sent still works: it was not superseded.
+        response = await client.post(
+            "/auth/password/reset-confirm",
+            json={"code": code_from(outbox[0]), "new_password": "brand-new-password"},
+        )
+        assert response.status_code == 200
+
+    async def test_after_the_minute_a_new_code_goes(self, client, outbox, engine):
+        await register(client)
+        await request_reset(client)
+        await age_reset_codes(engine, seconds=61)
+        await request_reset(client)
+        assert len(outbox) == 2
+
+    async def test_a_recent_code_that_has_already_expired_does_not_hold_up_a_new_one(self, client, outbox, engine):
+        await register(client)
+        await request_reset(client)
+        async with async_sessionmaker(engine)() as db:
+            await db.execute(
+                update(AuthToken)
+                .where(AuthToken.kind == "reset")
+                .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+            )
+            await db.commit()
+        await request_reset(client)
+        assert len(outbox) == 2
+
+    async def test_a_spent_code_does_not_hold_up_a_new_one(self, client, outbox):
+        await register(client)
+        await request_reset(client)
+        await client.post(
+            "/auth/password/reset-confirm",
+            json={"code": code_from(outbox[0]), "new_password": "brand-new-password"},
+        )
+        await request_reset(client)
+        assert len(outbox) == 2
+
+
+class TestTheNameInTheEmail:
+    """Issue #253: anyone can register with somebody else's address and any
+    name they like, so a name in mail to an address nobody has verified is a
+    stranger's words in a genuine email from this server."""
+
+    CRAFTED = "Marcus\n\nYour account is locked. Unlock it at https://evil.example/unlock\n\n"
+
+    async def test_an_unverified_address_is_greeted_plainly(self, client, outbox):
+        await register(client, name=self.CRAFTED)
+        await request_reset(client)
+        body = outbox[0]["body"]
+        assert body.startswith("Hello,\n\n")
+        assert "evil.example" not in body
+        assert "Marcus" not in body
+
+    async def test_a_verified_address_is_greeted_by_name_on_one_line(self, client, outbox, engine):
+        await register(client, name=self.CRAFTED)
+        async with async_sessionmaker(engine)() as db:
+            await db.execute(update(User).values(email_verified_at=datetime.now(UTC)))
+            await db.commit()
+        await request_reset(client)
+        first_line, blank, *_ = outbox[0]["body"].split("\n")
+        assert first_line == "Hello Marcus Your account is locked. Unlock it at https://evil.example/unlock,"
+        assert blank == ""
+
+    async def test_the_field_itself_still_takes_what_it_always_took(self, client, engine):
+        """Render side only: validation on an existing field is never tightened."""
+        await register(client, name=self.CRAFTED)
+        async with async_sessionmaker(engine)() as db:
+            stored = (await db.execute(select(User.display_name))).scalar_one()
+        assert "\n" in stored.strip()

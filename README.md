@@ -101,6 +101,17 @@ database runs in SQLite's WAL mode, so the latest writes can still be sitting
 in `meals.db-wal` beside it. `ghcr.io/marco308/meals-mcp` is the MCP server on
 its own, for deployments that want it on a separate host.
 
+Every published image (`meals`, `meals-mcp` and `meals-backup`) carries a
+signed build provenance attestation saying which commit and which run of this
+repo's release workflow built it. To check that before you run one:
+
+```bash
+gh attestation verify oci://ghcr.io/marco308/meals:<tag> --owner marco308
+```
+
+Releases are only cut from commits already on `main`, and the release
+workflow refuses a tag that points anywhere else.
+
 ### Sending email (optional)
 
 Only password reset sends any, and it's plain SMTP so any relay works. Leave it
@@ -439,7 +450,9 @@ Leaving registration open is safer with three things this server does for you
 (decision Q26). On a server with SMTP configured, a new account is emailed a
 code to confirm its address, and until it does it can use its household freely
 but cannot invite anyone or import a recipe from a URL, the two things that
-reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Starting a
+reach outward (`EMAIL_VERIFICATION_TTL_HOURS`, 48 by default). Codes can be
+resent once a minute, up to `EMAIL_VERIFICATION_MAX_SENDS` per account (5 by
+default, the one at signup included, 0 for no cap). Starting a
 household is limited per client address per hour (`SIGNUP_RATE_LIMIT_PER_HOUR`,
 5 by default, 0 for off), which joining one with an invite never is. And
 `python -m app.reaping` from cron can clear out households that were made and
