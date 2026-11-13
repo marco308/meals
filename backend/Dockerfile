@@ -5,8 +5,12 @@
 # CA - G3, whose intermediate keys leaked. The Docker Hub base drops G3 and
 # ships pip 26.2.2; uv comes from its own pinned minor (0.13.4+ has the fixed
 # bundle). Build with --pull so the base is never a stale local copy.
-FROM python:3.14-slim-bookworm
-COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /uvx /usr/local/bin/
+# Both bases are pinned by digest (#259) so a rebuild cannot silently pick up
+# a republished tag; Dependabot's docker entry moves the pins. uv is its own
+# FROM stage rather than an inline COPY --from so Dependabot can see it.
+FROM ghcr.io/astral-sh/uv:0.13@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
+FROM python:3.14-slim-bookworm@sha256:3fe1a0b6c2d6b2ebb572906cdabeca75aeb558c0c17db5ffefbcf8094871c32b
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /srv/meals
 

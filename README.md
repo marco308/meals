@@ -101,6 +101,17 @@ database runs in SQLite's WAL mode, so the latest writes can still be sitting
 in `meals.db-wal` beside it. `ghcr.io/marco308/meals-mcp` is the MCP server on
 its own, for deployments that want it on a separate host.
 
+Every published image (`meals`, `meals-mcp` and `meals-backup`) carries a
+signed build provenance attestation saying which commit and which run of this
+repo's release workflow built it. To check that before you run one:
+
+```bash
+gh attestation verify oci://ghcr.io/marco308/meals:<tag> --owner marco308
+```
+
+Releases are only cut from commits already on `main`, and the release
+workflow refuses a tag that points anywhere else.
+
 ### Sending email (optional)
 
 Only password reset sends any, and it's plain SMTP so any relay works. Leave it
