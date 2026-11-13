@@ -25,7 +25,7 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 
 from app.config import get_settings
-from app.deps import CurrentUser, DbSession
+from app.deps import CurrentUser, DbSession, charge_billing_call
 from app.models import Household, User
 from app.routers.skill import base_url
 from app.schemas.billing import CheckoutOut, SubscriptionOut
@@ -104,6 +104,9 @@ async def checkout(user: CurrentUser, db: DbSession, request: Request) -> Checko
     **This is not a payment.** Nothing is granted until the processor says the
     money arrived, and it says so with a billing period end that a grant cannot
     happen without. An abandoned checkout leaves nothing behind.
+
+    429 once a household has opened `BILLING_RATE_LIMIT_PER_HOUR` checkouts and
+    portal sessions between them in the last hour.
     """
     _require_billing(selling=True)
     household = user.household
@@ -112,6 +115,9 @@ async def checkout(user: CurrentUser, db: DbSession, request: Request) -> Checko
     refusal = billing.checkout_refusal(household)
     if refusal is not None:
         raise HTTPException(status_code=409, detail=refusal)
+
+    # Last, so that being told no for any other reason costs nothing (#260).
+    charge_billing_call(household.id)
 
     # Back to the web app's settings page either way: a checkout that was
     # abandoned should land somewhere that makes sense, not on a dead end.
@@ -135,7 +141,8 @@ async def portal(user: CurrentUser, db: DbSession, request: Request) -> Checkout
     The payer's alone: it shows their card, their address and their invoices,
     and it can cancel. Whoever leads the household today may not be who paid.
     A household with no payer on record, which only gets the configured page,
-    falls back to the lead. 409 when there is nothing to manage.
+    falls back to the lead. 409 when there is nothing to manage, and 429 past
+    the same hourly allowance `POST /billing/checkout` draws on.
     """
     _require_billing()
     household = user.household
@@ -151,6 +158,7 @@ async def portal(user: CurrentUser, db: DbSession, request: Request) -> Checkout
                 f"their address and their invoices. {who}"
             ),
         )
+    charge_billing_call(household.id)
     try:
         url = await billing.portal_url(household, user=user, return_url=f"{base_url(request)}/app/#/settings")
     except billing.CheckoutError as exc:

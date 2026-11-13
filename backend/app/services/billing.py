@@ -66,6 +66,8 @@ entitlement, and each was a way to give away a year or take one that was paid:
   than the last one applied, can move it.
 - **Whose it is.** A comp in force is the operator's, and a processor never
   changes it. The subscription belongs to its payer, who alone opens the portal.
+- **What it bought.** A grant's first item has to be on a price this server
+  sells, or an older one listed beside it (#260); a paused collection is a hold.
 """
 
 import hashlib
@@ -76,7 +78,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import Select, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -172,6 +174,12 @@ class Incoming:
     renews: bool = True
     # The member who opened the checkout, carried beside the household id.
     payer_id: uuid.UUID | None = None
+    # What was bought: the first item's price id (a Lemon Squeezy variant id),
+    # which a grant must find among the prices this server accepts (#260).
+    price_id: str | None = None
+    # Stripe only: an `active` subscription whose collection is paused charges
+    # nobody while its period keeps rolling on, so it is held, not granted.
+    collection_paused: bool = False
 
 
 # --------------------------------------------------------------- verification
@@ -357,6 +365,7 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
     processor = get_settings().billing_processor
     lowered = {name.lower(): value for name, value in headers.items()}
     price_pence = price_currency = customer_id = None
+    collection_paused = False
     if processor == PADDLE:
         event_type = str(payload.get("event_type") or "")
         event_id = str(payload.get("event_id") or "")
@@ -365,8 +374,11 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         renews_at = _timestamp((data.get("current_billing_period") or {}).get("ends_at"))
         # Paddle sends the amount as a string of minor units and the currency
         # beside it, on the price of each item.
-        unit = ((data.get("items") or [{}])[0].get("price") or {}).get("unit_price") or {}
+        item = _first(data.get("items"))
+        price = _object(item.get("price"))
+        unit = _object(price.get("unit_price"))
         price_pence, price_currency = _money(unit.get("amount"), unit.get("currency_code"))
+        price_id = _identifier(price.get("id") or item.get("price_id"))
         customer_id = _identifier(data.get("customer_id"))
         status = data.get("status")
         # A subscription event carries the subscription itself; a transaction
@@ -384,6 +396,11 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         custom = obj.get("metadata") or {}
         renews_at = _stripe_period_end(obj)
         price_pence, price_currency = _stripe_amount(obj)
+        price_id = _stripe_price_id(obj)
+        # `pause_collection` is null unless somebody paused it, and while it is
+        # set the subscription stays `active` and its period rolls on with no
+        # invoice paid (#260). Any behaviour of it means nothing was collected.
+        collection_paused = obj.get("pause_collection") is not None
         # `customer` is an id, or the expanded object when somebody has asked
         # for it. Read both rather than assume which.
         customer = obj.get("customer")
@@ -424,6 +441,8 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         first, second = ("ends_at", "renews_at") if ending else ("renews_at", "ends_at")
         renews_at = _timestamp(attributes.get(first)) or _timestamp(attributes.get(second))
         customer_id = _identifier(attributes.get("customer_id"))
+        # The variant is what BILLING_PRICE_ID names for Lemon Squeezy.
+        price_id = _identifier(attributes.get("variant_id"))
         subscription_id = _identifier(
             data.get("id")
             if data.get("type", "subscriptions") == "subscriptions"
@@ -452,6 +471,8 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         # the household is found: a payment nobody could credit is an orphan
         # whatever else is wrong with it.
         action, status_known = (refined, True) if refined else (GRANT, False)
+        if action == GRANT and status_known and collection_paused:
+            action = HOLD
 
     return Incoming(
         processor=processor,
@@ -469,7 +490,26 @@ def parse(raw_body: bytes, headers: dict[str, str], payload: dict) -> Incoming:
         status_known=status_known,
         renews=renews,
         payer_id=_uuid(custom, "user_id"),
+        price_id=price_id,
+        collection_paused=collection_paused,
     )
+
+
+def _first(value: object) -> dict:
+    """The first entry of a JSON list, if it is an object."""
+    return value[0] if isinstance(value, list) and value and isinstance(value[0], dict) else {}
+
+
+def _stripe_price_id(obj: dict) -> str | None:
+    """The price the subscription's first item is on. `plan` is the older shape
+    of the same thing, on the item or on the subscription itself."""
+    first = _first(_object(obj.get("items")).get("data"))
+    for price in (first.get("price"), first.get("plan"), obj.get("plan")):
+        if isinstance(price, dict) and price.get("id"):
+            return _identifier(price.get("id"))
+        if isinstance(price, str):
+            return _identifier(price)
+    return None
 
 
 def _stripe_amount(obj: dict) -> tuple[int | None, str | None]:
@@ -583,7 +623,14 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
     # ledger's household column is a foreign key, and an id naming no row here
     # written into it failed the insert: an uncounted 500 that the processor
     # retried until it gave up on the endpoint.
-    household = await db.get(Household, event.household_id) if event.household_id is not None else None
+    #
+    # Locked as it is read (#260): the decisions below read the household's
+    # newest event time and subscription, and two events delivered together
+    # used to both read them before either wrote, so the older could land last.
+    # On Postgres the second waits here and then reads what the first wrote.
+    household = (
+        (await db.execute(_locked(event.household_id))).scalar_one_or_none() if event.household_id is not None else None
+    )
     if household is None:
         return await _record_absent(db, event)
     if event.action == IGNORE:
@@ -598,6 +645,8 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
 
     note = f"{event.event_type} via {event.processor}"
     if event.action in (HOLD, REVOKE):
+        if not await _claim_event_time(db, event, household):
+            return await _record(db, event, IGNORED, detail=_stale(event))
         # The end of a subscription, or a renewal it could not collect, brings
         # the expiry to now and keeps the tier, so the grace period TERMS
         # promises runs, then the free tier's caps, and dunning sends the lapse
@@ -615,11 +664,12 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
         )
         if event.action == REVOKE:
             return await _record(db, event, REVOKED, detail=None)
+        held = f"status {event.status}" + (" with collection paused" if event.collection_paused else "")
         return await _record(
             db,
             event,
             UNPAID,
-            detail=f"status {event.status}, so nothing is granted and the grace period runs from here",
+            detail=f"{held}, so nothing is granted and the grace period runs from here",
         )
 
     if not event.status_known:
@@ -644,6 +694,11 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
             REFUSED,
             detail="event carries no billing period end, and a grant without one would never expire",
         )
+    unaccepted = _unaccepted_price(event)
+    if unaccepted is not None:
+        return await _record(db, event, REFUSED, detail=unaccepted)
+    if not await _claim_event_time(db, event, household):
+        return await _record(db, event, IGNORED, detail=_stale(event))
 
     try:
         await entitlements.grant(
@@ -679,6 +734,9 @@ async def handle(db: AsyncSession, raw_body: bytes, headers: dict[str, str], pay
         # Deterministic: retrying will fail identically, so the endpoint answers
         # 200 to stop the retries and the alert is what gets a human involved.
         # This is the one branch where somebody has paid and not been credited.
+        # The event time claimed above goes back with whatever else was staged,
+        # because nothing was applied.
+        await db.rollback()
         return await _record(db, event, REFUSED, detail=str(exc)[:300])
     return await _record(db, event, GRANTED, detail=None)
 
@@ -729,9 +787,7 @@ def _out_of_scope(event: Incoming, household: Household) -> tuple[str, str] | No
         # arrive after the `active` one stamped the same second, and it must not
         # pull back a year that has just been paid for.
         if event.occurred_at < last or (event.occurred_at == last and event.action == HOLD):
-            return IGNORED, (
-                f"stamped {event.occurred_at:%Y-%m-%d %H:%M:%S} UTC, older than the newest event already applied here"
-            )
+            return IGNORED, _stale(event)
 
     tracked = household.billing_subscription_id
     ended = household.billing_subscription_state == entitlements.ENDED
@@ -787,6 +843,8 @@ async def _leave_the_comp_alone(db: AsyncSession, event: Incoming, household: Ho
     pages a human.
     """
     if event.subscription_id == household.billing_subscription_id:
+        if not await _claim_event_time(db, event, household):
+            return await _record(db, event, IGNORED, detail=_stale(event))
         entitlements.track(
             household,
             entitlements.Tracking(subscription_id=None, state=_tracked_state(event), at=event.occurred_at),
@@ -808,6 +866,75 @@ async def _leave_the_comp_alone(db: AsyncSession, event: Incoming, household: Ho
             ),
         )
     return await _record(db, event, IGNORED, detail="comped by the operator, so there is nothing here to end")
+
+
+def _locked(household_id: uuid.UUID) -> Select:
+    """The household, read under a row lock that lasts until the ledger row is
+    committed. SQLite has no row locks and drops the clause, which is why
+    `_claim_event_time` exists as well."""
+    return (
+        select(Household)
+        .where(Household.id == household_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def _claim_event_time(db: AsyncSession, event: Incoming, household: Household) -> bool:
+    """Move the household's newest-event time to this event's, or answer False
+    if a newer one has been applied since `_out_of_scope` looked (#260).
+
+    One conditional UPDATE, the shape `_claim_invite` uses, because the read in
+    `_out_of_scope` and the write that follows it are two statements, and on
+    SQLite, where a SELECT takes no lock, another delivery can commit between
+    them. The UPDATE takes the write lock, and its WHERE is evaluated against
+    whatever is committed by then: on Postgres the row lock already held makes
+    it agree with the read, and on SQLite writers take turns. Staged in the
+    transaction the ledger row commits, so a refusal after it rolls it back.
+    """
+    at = event.occurred_at
+    if at is None:
+        return True
+    column = Household.billing_event_at
+    # The same rule as `_out_of_scope`: equal times pass, except for a hold.
+    newer = or_(column.is_(None), column < at) if event.action == HOLD else or_(column.is_(None), column <= at)
+    claimed = await db.execute(
+        update(Household)
+        .where(Household.id == household.id, newer)
+        .values(billing_event_at=at)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        return False
+    household.billing_event_at = at
+    return True
+
+
+def _stale(event: Incoming) -> str:
+    stamp = f"{event.occurred_at:%Y-%m-%d %H:%M:%S} UTC" if event.occurred_at else "undated"
+    return f"stamped {stamp}, older than the newest event already applied here"
+
+
+def _unaccepted_price(event: Incoming) -> str | None:
+    """Why this grant is for something this server does not sell, or None.
+
+    A signed snapshot with this server's household id in it used to grant
+    whatever product it was for, so a second product on the same processor
+    account carrying that metadata key bought this one's tier (#260). Nothing
+    is checked on a box that names no price, which is a webhook-only one.
+    """
+    accepted = get_settings().billing_accepted_prices
+    if not accepted or event.price_id in accepted:
+        return None
+    if event.price_id is None:
+        return (
+            "the subscription names no price, so it cannot be checked against the prices this server sells "
+            "(BILLING_PRICE_ID, BILLING_ACCEPTED_PRICE_IDS)"
+        )
+    return (
+        f"the subscription is for price {event.price_id}, which is not one this server sells. If existing "
+        "subscribers are still on it, add it to BILLING_ACCEPTED_PRICE_IDS; otherwise refund it at the processor"
+    )
 
 
 def _tracked_state(event: Incoming) -> str:

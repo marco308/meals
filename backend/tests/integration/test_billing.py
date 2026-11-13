@@ -166,10 +166,13 @@ def stripe_event(
     at: datetime | None = None,
     payer: uuid.UUID | None = None,
     cancelling: bool = False,
+    price: str | None = None,
+    pause_collection: dict | None = None,
 ):
     """An event the way Stripe sends one: `created` in Unix seconds, and the
     subscription object with its status. `payer` is the member id the checkout
-    put in the metadata beside the household's."""
+    put in the metadata beside the household's; `price` the id its first item
+    is on."""
     obj: dict = {"id": subscription, "object": "subscription", "status": status, "cancel_at_period_end": cancelling}
     if household is not None:
         obj["metadata"] = {"household_id": str(household)}
@@ -182,6 +185,10 @@ def stripe_event(
             obj["items"] = {"data": [{"id": "si_1", "current_period_end": period_end}]}
         else:
             obj["current_period_end"] = period_end
+    if price is not None:
+        items = obj.setdefault("items", {"data": [{"id": "si_1"}]})
+        items["data"][0]["price"] = {"id": price}
+    obj["pause_collection"] = pause_collection
     created = int((at or datetime.now(UTC)).timestamp())
     return {"id": event_id, "object": "event", "type": kind, "created": created, "data": {"object": obj}}
 
@@ -1375,6 +1382,7 @@ async def pays(client, household: uuid.UUID, payer: dict, *, event_id="evt_paid"
         payer=uuid.UUID(payer["user"]["id"]),
         at=at or datetime.now(UTC) - timedelta(days=1),
         cancelling=cancelling,
+        price="price_founding_year",
     )
     event["data"]["object"]["customer"] = "cus_marcus"
     assert await webhook(client, event) == "granted"
@@ -1519,3 +1527,186 @@ class TestBillingBelongsToThePayer:
 
         response = await as_(client, marcus).request("DELETE", "/auth/me", json={"password": "a-strong-password"})
         assert response.status_code == 409
+
+
+class TestAGrantIsForWhatThisServerSells:
+    """#260: a signed snapshot carrying this server's household id used to grant
+    whatever it was a subscription to, so another product on the same processor
+    account bought this one's tier. Now the first item's price has to be one this
+    server sells, or an older one somebody is still paying."""
+
+    @pytest.fixture
+    def priced(self, settings_override):
+        settings_override(BILLING_PROCESSOR="stripe", BILLING_WEBHOOK_SECRET=SECRET, BILLING_PRICE_ID="price_now")
+
+    async def test_a_subscription_to_something_else_is_refused_and_alerted(self, client, priced, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        assert await webhook(client, stripe_event(target, price="price_another_product")) == "refused"
+        async with sessions() as db:
+            household = await db.get(Household, target)
+            row = (await db.execute(select(BillingEvent))).scalars().one()
+        assert household.paid_until is None
+        assert household.billing_subscription_id is None
+        assert "price_another_product" in row.detail
+        assert "BILLING_ACCEPTED_PRICE_IDS" in row.detail
+
+    async def test_the_price_on_sale_grants(self, client, priced, sessions):
+        await register(client)
+        assert await webhook(client, stripe_event(await household_id(sessions), price="price_now")) == "granted"
+
+    async def test_an_older_price_somebody_still_pays_is_accepted(self, client, settings_override, sessions):
+        """What keeps a live subscriber on last year's price renewing after the
+        price on sale changes."""
+        settings_override(
+            BILLING_PROCESSOR="stripe",
+            BILLING_WEBHOOK_SECRET=SECRET,
+            BILLING_PRICE_ID="price_now",
+            BILLING_ACCEPTED_PRICE_IDS=" price_launch , price_founding ,",
+        )
+        await register(client)
+        assert await webhook(client, stripe_event(await household_id(sessions), price="price_founding")) == "granted"
+
+    async def test_the_older_plan_shape_is_read_too(self, client, priced, sessions):
+        await register(client)
+        event = stripe_event(await household_id(sessions))
+        event["data"]["object"]["plan"] = {"id": "price_now", "amount": 2000, "currency": "gbp"}
+        assert await webhook(client, event) == "granted"
+
+    async def test_a_subscription_naming_no_price_is_refused_where_one_is_sold(self, client, priced, sessions):
+        await register(client)
+        assert await webhook(client, stripe_event(await household_id(sessions))) == "refused"
+
+    async def test_a_webhook_only_box_names_no_price_and_checks_none(self, client, stripe, sessions):
+        await register(client)
+        assert await webhook(client, stripe_event(await household_id(sessions), price="price_any")) == "granted"
+
+    async def test_an_ending_is_never_refused_over_its_price(self, client, priced, sessions):
+        """Only a grant is checked: refusing to take something away would keep
+        a household paid that has stopped paying."""
+        await register(client)
+        target = await household_id(sessions)
+        now = datetime.now(UTC)
+        assert await webhook(client, stripe_event(target, price="price_now", at=now - timedelta(hours=1))) == "granted"
+        ended = stripe_event(
+            target,
+            kind="customer.subscription.deleted",
+            event_id="evt_end",
+            status="canceled",
+            price="price_gone",
+            at=now,
+        )
+        assert await webhook(client, ended) == "revoked"
+
+    async def test_paddle_checks_the_first_items_price(self, client, settings_override, sessions):
+        settings_override(BILLING_PROCESSOR="paddle", BILLING_WEBHOOK_SECRET=SECRET, BILLING_PRICE_ID="pri_now")
+        await register(client)
+        target = await household_id(sessions)
+        other = paddle_event(target, event_id="evt_other")
+        other["data"]["items"] = [{"price": {"id": "pri_other"}}]
+        assert await webhook(client, other, post=paddle_post) == "refused"
+        ours = paddle_event(target, event_id="evt_ours")
+        ours["data"]["items"] = [{"price": {"id": "pri_now"}}]
+        assert await webhook(client, ours, post=paddle_post) == "granted"
+
+    async def test_lemonsqueezy_checks_the_variant(self, client, settings_override, sessions):
+        settings_override(
+            BILLING_PROCESSOR="lemonsqueezy",
+            BILLING_WEBHOOK_SECRET=SECRET,
+            BILLING_PRICE_ID="998877",
+            BILLING_STORE_ID="1",
+        )
+        await register(client)
+        target = await household_id(sessions)
+        now = datetime.now(UTC)
+        other = lemon_event(target, at=now - timedelta(minutes=2))
+        other["data"]["attributes"]["variant_id"] = 112233
+        assert await webhook(client, other, post=lemon_post) == "refused"
+        ours = lemon_event(target, at=now)
+        ours["data"]["attributes"]["variant_id"] = 998877  # an integer, as Lemon Squeezy sends it
+        assert await webhook(client, ours, post=lemon_post) == "granted"
+
+
+class TestPausedCollectionIsNotAPayment:
+    """#260: Stripe keeps a subscription `active` while its collection is paused,
+    and rolls its period on with nothing paid."""
+
+    async def test_an_active_subscription_with_collection_paused_is_held(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        now = datetime.now(UTC)
+        paid_to = int((now + timedelta(days=30)).timestamp())
+        assert await webhook(client, stripe_event(target, period_end=paid_to, at=now - timedelta(days=1))) == "granted"
+
+        paused_at = now - timedelta(minutes=5)
+        paused = stripe_event(
+            target,
+            event_id="evt_paused",
+            period_end=int((now + timedelta(days=395)).timestamp()),
+            pause_collection={"behavior": "void", "resumes_at": None},
+            at=paused_at,
+        )
+        assert await webhook(client, paused) == "unpaid"
+        async with sessions() as db:
+            household = await db.get(Household, target)
+            row = (await db.execute(select(BillingEvent).where(BillingEvent.event_id == "evt_paused"))).scalar_one()
+        assert _stamp(household.paid_until) == int(paused_at.timestamp())
+        assert entitlements.state(household) == entitlements.GRACE
+        assert "collection paused" in row.detail
+
+    async def test_a_first_subscription_with_collection_paused_grants_nothing(self, client, stripe, sessions):
+        await register(client)
+        target = await household_id(sessions)
+        paused = stripe_event(target, pause_collection={"behavior": "keep_as_draft"})
+        # A hold with nothing yet to hold, so there is nothing to change.
+        assert await webhook(client, paused) == "ignored"
+        async with sessions() as db:
+            assert entitlements.state(await db.get(Household, target)) != entitlements.PAID
+
+
+class TestTheOrderingGuardHoldsUnderConcurrency:
+    """#260: `handle` read the household's newest event time and then wrote, so
+    two deliveries could both pass the read and the older could land last."""
+
+    def test_postgres_locks_the_household_as_it_is_read(self):
+        from sqlalchemy.dialects import postgresql
+
+        compiled = str(billing._locked(uuid.uuid4()).compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in compiled
+
+    async def test_a_newer_event_committed_after_the_read_still_wins(self, client, stripe, sessions, monkeypatch):
+        """SQLite takes no lock on a read, so the write has to settle it. Let
+        this event past `_out_of_scope`, as a read made before the deletion
+        committed would have: the conditional UPDATE must still find the newer
+        time and apply nothing."""
+        await register(client)
+        target = await household_id(sessions)
+        now = datetime.now(UTC)
+        assert await webhook(client, stripe_event(target, event_id="evt_1", at=now - timedelta(hours=2))) == "granted"
+        ended_at = now - timedelta(hours=1)
+        deleted = stripe_event(
+            target, kind="customer.subscription.deleted", event_id="evt_3", status="canceled", at=ended_at
+        )
+        assert await webhook(client, deleted) == "revoked"
+
+        monkeypatch.setattr(billing, "_out_of_scope", lambda event, household: None)
+        late = stripe_event(target, event_id="evt_2", period_end=1_900_000_000, at=now - timedelta(minutes=90))
+        assert await webhook(client, late) == "ignored"
+        async with sessions() as db:
+            household = await db.get(Household, target)
+        assert _stamp(household.paid_until) == int(ended_at.timestamp())
+        assert _stamp(household.billing_event_at) == int(ended_at.timestamp())
+
+    async def test_a_refused_grant_does_not_move_the_clock(self, client, stripe, sessions, monkeypatch):
+        """The claim is staged with the grant, so a grant the entitlement layer
+        refuses leaves the newest-event time where it was."""
+        await register(client)
+        target = await household_id(sessions)
+
+        async def refuse(*args, **kwargs):
+            raise entitlements.EntitlementError("no")
+
+        monkeypatch.setattr(entitlements, "grant", refuse)
+        assert await webhook(client, stripe_event(target)) == "refused"
+        async with sessions() as db:
+            assert (await db.get(Household, target)).billing_event_at is None

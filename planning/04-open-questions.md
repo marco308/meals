@@ -597,3 +597,25 @@ loose ingredients: a freezer batch and how many portions of it. Decisions:
   one with loose ingredients, and freezer lines count towards `meal_lines`.
 - The playbook is v24: assistants make the meal with `from_freezer` and the
   sides, instead of planning the batch's recipe.
+
+**Q31: a payment grants only what this server sells** (2026-11-13, #260). A
+signed subscription event carrying a household id used to grant the paid tier
+whatever product it was for, so a second product on the same processor account
+that put `household_id` in its metadata bought this server's tier. Decisions:
+
+- **The first item's price has to be an accepted one.** Accepted means
+  `BILLING_PRICE_ID` plus `BILLING_ACCEPTED_PRICE_IDS`, a comma-separated list
+  of older prices somebody is still paying. Stripe's is `items.data[0].price.id`
+  (or the older `plan.id`), Paddle's `items[0].price.id`, Lemon Squeezy's
+  `variant_id`, which is what `BILLING_PRICE_ID` names there. Anything else is
+  `refused`, answered 200 and alerted on, like every deterministic refusal; an
+  event naming no price is refused too, because a grant needs positive evidence.
+- **Changing the price on sale is two settings, not one.** The old id moves to
+  `BILLING_ACCEPTED_PRICE_IDS` in the same deploy, or every renewal on it is
+  refused. This is the operator action the change needs before it ships.
+- **Only a grant is checked.** A hold or an ending is never refused over its
+  price: refusing to take something away keeps paid a household that stopped
+  paying. A box that names no price at all (webhook-only) checks nothing.
+- **A paused collection is a hold.** Stripe keeps a subscription `active` while
+  `pause_collection` is set and rolls the period on with nothing paid, so it is
+  treated like `paused` and `past_due`: outcome `unpaid`, expiry held to the event.
