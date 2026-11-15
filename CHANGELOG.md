@@ -22,7 +22,7 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ### Fixed
 
-- **Italian recipe imports keep their amounts** (#277, thanks Simone Fassio).
+- **Italian recipe imports keep their amounts** (#277, thanks [Simone Fassio](https://github.com/SimoneFassio)).
   GialloZafferano-style lines with the amount after the food ("Patate 300 g",
   "Uova 8", "Cipolle ½") import as the amount and the food, and "q.b." lines
   as a name with no amount. Decimal commas ("Latte 0,5 l"), "un"/"mezzo"
