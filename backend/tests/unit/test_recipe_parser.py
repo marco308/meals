@@ -65,24 +65,38 @@ class TestExtractRecipe:
         assert by_name["salt and pepper to taste"].quantity is None
         assert by_name["salt and pepper to taste"].raw == "Salt and pepper to taste"
 
-    @pytest.mark.parametrize(("html_language", "recipe_language"), [("it-IT", None), ("en-GB", "it")])
+    @pytest.mark.parametrize(("html_language", "recipe_language"), [("it-IT", None), ("en-GB", "it"), (None, None)])
     def test_source_language_controls_decimal_commas(self, html_language, recipe_language):
         line = "Latte 0,5 l"
         node = {"@type": "Recipe", "name": "Crema", "recipeIngredient": [line]}
         if recipe_language:
             node["inLanguage"] = recipe_language
-        recipe = extract_recipe(f'<html lang="{html_language}">{_page(node)}</html>')
+        page = f'<html lang="{html_language}">{_page(node)}</html>' if html_language else _page(node)
+        recipe = extract_recipe(page)
         (ingredient,) = recipe.ingredients
         assert (ingredient.name, ingredient.quantity, ingredient.unit, ingredient.raw) == ("latte", 500, "ml", line)
 
-    def test_an_english_page_does_not_read_a_thousands_separator_as_a_decimal(self):
+    @pytest.mark.parametrize("language", ["en-GB", None])
+    def test_a_thousands_separator_is_not_a_decimal_without_an_italian_locale(self, language):
         node = {"@type": "Recipe", "name": "Bread", "recipeIngredient": ["Flour 1,000 g"]}
-        (ingredient,) = extract_recipe(f'<html lang="en-GB">{_page(node)}</html>').ingredients
+        page = f'<html lang="{language}">{_page(node)}</html>' if language else _page(node)
+        (ingredient,) = extract_recipe(page).ingredients
         assert ingredient.quantity is None
 
-    def test_a_pan_diameter_is_not_a_serving_count(self):
-        node = {"@type": "Recipe", "name": "Torta di mele", "recipeYield": "una tortiera da 24 cm"}
-        assert extract_recipe(_page(node)).servings is None
+    @pytest.mark.parametrize(
+        ("text", "servings"),
+        [
+            ("una tortiera da 24 cm", None),
+            ("Per una tortiera da 24 cm, 8 porzioni", 8),
+            ("Makes one 9-inch pie", None),
+            ("23,5 cm x 9.5-in pan, serves 6", 6),
+            ("9 in. cake pan, serves 8", 8),
+            ("Serves 4 in total", 4),
+        ],
+    )
+    def test_yield_skips_pan_dimensions(self, text, servings):
+        node = {"@type": "Recipe", "name": "Torta di mele", "recipeYield": text}
+        assert extract_recipe(_page(node)).servings == servings
 
     def test_webpage_graph_without_a_recipe_suggests_structured_import(self):
         # The pages from Cooker Girl publish a graph for the page, image and site.
@@ -221,6 +235,8 @@ class TestParseIngredientLine:
             ("2 x 2 cloves garlic", "garlic", 4, "clove"),
             ("Patate 300 grammi", "patate", 300, "g"),
             ("Potatoes 300 grams", "potatoes", 300, "g"),
+            ("Chicken stock, about 500 ml", "chicken stock", 500, "ml"),
+            ("200 g Di farina", "farina", 200, "g"),
         ],
     )
     def test_lines(self, line, name, quantity, unit):
@@ -230,9 +246,34 @@ class TestParseIngredientLine:
         assert parsed.unit == unit
         assert parsed.raw == line
 
-    def test_a_trailing_number_without_a_unit_may_be_part_of_the_name(self):
-        parsed = parse_ingredient_line("Farina tipo 1")
-        assert (parsed.name, parsed.quantity, parsed.unit) == ("farina tipo 1", None, None)
+    @pytest.mark.parametrize("line", ["Farina tipo 1", "Farina 00", "Spaghetti 5", "Uova tipo 1"])
+    def test_a_trailing_number_without_a_unit_may_be_part_of_the_name(self, line):
+        parsed = parse_ingredient_line(line, language="it")
+        assert (parsed.name, parsed.quantity, parsed.unit) == (line.lower(), None, None)
+
+    @pytest.mark.parametrize(
+        ("line", "name"),
+        [
+            ("Juice of half a lemon, plus 1 tbsp", "juice of half a lemon"),
+            ("Vinegar, or 2 tbsp", "vinegar"),
+            ("Stock, and 1 1/2 tbsp", "stock"),
+        ],
+    )
+    def test_a_trailing_extra_does_not_measure_the_main_ingredient(self, line, name):
+        parsed = parse_ingredient_line(line)
+        assert (parsed.name, parsed.quantity, parsed.unit, parsed.raw) == (name, None, None, line)
+
+    @pytest.mark.parametrize(
+        ("line", "name", "quantity", "unit"),
+        [
+            ("un cucchiaio di zucchero", "zucchero", 15, "ml"),
+            ("mezzo litro di latte", "latte", 500, "ml"),
+            ("mezza bustina di lievito", "lievito", 0.5, "sachet"),
+        ],
+    )
+    def test_written_italian_amounts_before_units(self, line, name, quantity, unit):
+        parsed = parse_ingredient_line(line, language="it")
+        assert (parsed.name, parsed.quantity, parsed.unit, parsed.raw) == (name, quantity, unit, line)
 
     @pytest.mark.parametrize(
         ("line", "name"),

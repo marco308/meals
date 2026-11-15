@@ -184,6 +184,7 @@ BIG_PAGES: dict[str, Callable[[], str]] = {
         {"@type": "Recipe", "name": "x", "recipeCategory": [f"t{i}" for i in range(200_000)]}
     ),
     "1MB-yield": lambda: _page({"@type": "Recipe", "name": "x", "recipeYield": "a" * 1_000_000 + "1" * 100_000}),
+    "yield-with-spaces": lambda: _page({"@type": "Recipe", "name": "x", "recipeYield": "4" + " " * LONG + "persons"}),
     "100k-graph-nodes": lambda: _page({"@graph": [{"@type": "Thing"}] * 100_000 + [{"@type": "Recipe", "name": "x"}]}),
     "10k-scripts": lambda: _page({"@type": "Thing"}) * 10_000 + _page({"@type": "Recipe", "name": "x"}),
     "10k-hostile-ingredient-lines": lambda: _page(

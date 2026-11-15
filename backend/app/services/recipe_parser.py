@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.schemas.catalog import MAX_RECIPE_LINES
 from app.services.cook_steps import MAX_METHOD_CHARS
 from app.services.ingredient_lines import ParsedIngredient, parse_ingredient_line
+from app.services.units import IMPERIAL_LENGTH_UNITS, METRIC_LENGTH_UNITS
 
 
 class RecipeFetchError(Exception):
@@ -512,18 +513,26 @@ def _as_text(value: object) -> str | None:
     return None
 
 
+_YIELD_NUMBER_RE = re.compile(r"(?P<count>\d++)(?:[.,]\d++)?")
+# A standalone "in" may be a preposition ("serves 4 in total").
+_YIELD_LENGTH_SUFFIX_RE = re.compile(
+    rf"\s*+(?:[-–‑]\s*+)?(?:{'|'.join(sorted((METRIC_LENGTH_UNITS | IMPERIAL_LENGTH_UNITS) - {'in'}))})\b"
+    r"|(?:\s*+[-–‑]\s*+)?in\b|\s++in(?=[.,;)]|$)",
+    re.IGNORECASE,
+)
+
+
 def _parse_yield(value: object) -> int | None:
     if isinstance(value, int):
         return value if value > 0 else None
     text = _as_text(value)
     if text:
-        match = re.search(r"\d+", text)
-        if match:
-            # A pan size ("una tortiera da 24 cm") provides no portion count.
-            if re.match(r"\s*(?:cm|mm|inches|inch)\b", text[match.end() :], re.IGNORECASE):
-                return None
+        for match in _YIELD_NUMBER_RE.finditer(text):
+            # Skip pan dimensions, even if they're written before the servings.
+            if _YIELD_LENGTH_SUFFIX_RE.match(text, match.end()):
+                continue
             try:
-                return int(match.group())
+                return int(match["count"])
             except ValueError:  # past int()'s 4,300-digit limit, and no serving count either
                 return None
     return None

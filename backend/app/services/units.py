@@ -18,6 +18,9 @@ from fractions import Fraction
 
 from app.services.wordforms import IRREGULAR_SINGULARS, singular
 
+METRIC_LENGTH_UNITS = frozenset({"mm", "cm"})
+IMPERIAL_LENGTH_UNITS = frozenset({"in", "inch", "inches"})
+
 # Metric units → (canonical unit, multiplier)
 METRIC_UNITS: dict[str, tuple[str, float]] = {
     "g": ("g", 1),
@@ -135,6 +138,10 @@ INGEST_UNIT_ALIASES: dict[str, str] = {
     "spicchi": "clove",
     "rametto": "sprig",
     "rametti": "sprig",
+    "foglia": "leaf",
+    "foglie": "leaf",
+    "bicchiere": "glass",
+    "bicchieri": "glass",
     "mazzetto": "bunch",
     "mazzetti": "bunch",
     "bustina": "sachet",
@@ -170,6 +177,7 @@ NATURAL_UNITS: frozenset[str] = frozenset(
         "ball",
         "sachet",
         "jar",
+        "glass",
         "pack",
         "packet",
         "block",
