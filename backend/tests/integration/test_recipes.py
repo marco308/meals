@@ -188,6 +188,23 @@ class TestIngest:
         beef = next(line for line in body["recipe"]["ingredients"] if line["name"] == "minced beef")
         assert (beef["quantity"], beef["unit"]) == (500, "g")
 
+    async def test_ingest_stores_amounts_after_italian_ingredient_names(self, auth_client, fetch_stub):
+        # These lines are from the Recipe JSON-LD for GialloZafferano's Patate al forno.
+        ingredients = ["Patate (a pasta gialla) 1 kg", "Aglio 2 spicchi", "Sale fino q.b."]
+        node = {"@type": "Recipe", "name": "Patate al forno", "recipeIngredient": ingredients}
+        fetch_stub(f'<html lang="it"><script type="application/ld+json">{json.dumps(node)}</script></html>')
+
+        url = "https://ricette.giallozafferano.it/Patate-al-forno.html"
+        response = await auth_client.post("/recipes/ingest", json={"url": url})
+
+        assert response.status_code == 200
+        lines = response.json()["recipe"]["ingredients"]
+        assert [(line["name"], line["quantity"], line["unit"], line["raw"]) for line in lines] == [
+            ("patate", 1000, "g", ingredients[0]),
+            ("aglio", 2, "clove", ingredients[1]),
+            ("sale fino", None, None, ingredients[2]),
+        ]
+
     async def test_reingesting_returns_cache_without_fetching(self, auth_client, fetch_stub):
         calls = fetch_stub(fixture_html("jsonld_simple.html"))
         first = await auth_client.post("/recipes/ingest", json={"url": "https://example.com/chilli"})

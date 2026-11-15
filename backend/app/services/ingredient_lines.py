@@ -19,7 +19,10 @@ from app.services.units import (
     BANNED_UNITS,
     BUTTER_STICK_G,
     CONTAINER_UNITS,
+    IMPERIAL_LENGTH_UNITS,
     INGEST_CONVERSIONS,
+    INGEST_UNIT_ALIASES,
+    METRIC_LENGTH_UNITS,
     METRIC_UNITS,
     NATURAL_UNITS,
     UNIT_SYNONYMS,
@@ -69,10 +72,8 @@ _NUMBER_TOKEN = (
 # ingestion off the INGEST_CONVERSIONS approximations when a precise number is
 # right there. Requiring a metric unit before the slash is what keeps real
 # fractions ("juice of 1/2 lemon") intact.
-_METRIC_MEASURES = sorted(set(METRIC_UNITS) | {"mm", "cm"}, key=len, reverse=True)
-_IMPERIAL_MEASURES = sorted(
-    set(BANNED_UNITS) | set(INGEST_CONVERSIONS) | {"in", "inch", "inches"}, key=len, reverse=True
-)
+_METRIC_MEASURES = sorted(set(METRIC_UNITS) | METRIC_LENGTH_UNITS, key=len, reverse=True)
+_IMPERIAL_MEASURES = sorted(set(BANNED_UNITS) | set(INGEST_CONVERSIONS) | IMPERIAL_LENGTH_UNITS, key=len, reverse=True)
 _IMPERIAL_AMOUNT = (
     rf"(?:(?:generous|scant|heaped|heaping|level|about|around)\s+)?(?:{_NUMBER_TOKEN})\s*"
     rf"(?:{'|'.join(re.escape(u) for u in _IMPERIAL_MEASURES)})\b"
@@ -107,7 +108,8 @@ _HYPHENATED_MIXED_RE = re.compile(r"^(?P<whole>\d++)-(?P<fraction>\d++/\d++)(?= 
 # "thumb-sized piece ginger", "1 thumb-sized piece of ginger": a size of a
 # piece, which is bought as one of the food (#208), like "1 (2-inch) piece".
 _SIZED_LOOSE_PIECE_RE = re.compile(
-    r"^(?:(?P<count>\d++) )?(?:thumb[- ]?sized?|\d++(?:\.\d++)?\s?(?:cm|mm|in|inch|inches)(?:[- ]long)?)"
+    rf"^(?:(?P<count>\d++) )?(?:thumb[- ]?sized?|\d++(?:\.\d++)?\s?"
+    rf"(?:{'|'.join(sorted(METRIC_LENGTH_UNITS | IMPERIAL_LENGTH_UNITS))})(?:[- ]long)?)"
     r" pieces? (?:of )?",
     re.IGNORECASE,
 )
@@ -137,19 +139,66 @@ _UNSTATED_ONE_RE = re.compile(
 _CONTAINER = "|".join(sorted(unit_forms(CONTAINER_UNITS), key=len, reverse=True))
 
 _UNIT_WORDS = sorted(
-    set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(UNIT_SYNONYMS) | _NATURAL_UNIT_WORDS,
+    set(METRIC_UNITS) | set(INGEST_CONVERSIONS) | set(INGEST_UNIT_ALIASES) | set(UNIT_SYNONYMS) | _NATURAL_UNIT_WORDS,
     key=len,
     reverse=True,
 )
+_UNIT_PATTERN = "|".join(re.escape(unit) for unit in _UNIT_WORDS)
 _LINE_RE = re.compile(
-    rf"^\s*(?P<qty>{_NUMBER_TOKEN})?\s*(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})?\.?\s+(?P<rest>.+)$",
+    rf"^\s*(?P<qty>{_NUMBER_TOKEN})?\s*(?P<unit>{_UNIT_PATTERN})?\.?\s+(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+# GialloZafferano puts the amount last ("Patate (a pasta gialla) 1 kg").
+# Require a known unit so a name like "farina tipo 1" stays a name.
+_TRAILING_AMOUNT_RE = re.compile(
+    rf"(?<= )(?P<qty>{_NUMBER_TOKEN})\s*(?P<unit>{_UNIT_PATTERN})\.?$",
+    re.IGNORECASE,
+)
+# A last amount that joins an extra or alternative need not measure the main ingredient.
+_TRAILING_EXTRA_RE = re.compile(r"(?:\b(?:plus|or|and)|\+)(?: (?:about|around))?$", re.IGNORECASE)
+# Cookist separates a bare count from its food with a comma ("Uova, 3").
+_COMMA_COUNT_RE = re.compile(r"(?<!\d), *(?P<qty>[1-9]\d*+)$")
+# A bare number is a count for familiar foods and descriptors ("Uova medio 1").
+# Restrict the shapes so product numbers such as "Spaghetti 5" stay in the name.
+_ITALIAN_BARE_COUNT_RE = re.compile(
+    r"^(?:album[ei]|carot[ae]|cipoll[ae]|limon[ei]|mel[ae]|scorza di limone|tuorl[oi]|uov[ao])"
+    r"(?: (?:bianc(?:[ao]|h[ei])|dorat[oaie]|grand[ei]|medi[oaie]|non trattat[oaie]|piccol[oaie]|ross[oaie]|\([^()]*\)))*"
+    rf" (?P<qty>(?!0\d){_NUMBER_TOKEN})$",
+    re.IGNORECASE,
+)
+_ITALIAN_OF = r"(?:di |d['’])"
+_ITALIAN_COUNT_UNITS = "|".join(alias for alias, unit in INGEST_UNIT_ALIASES.items() if unit in NATURAL_UNITS)
+_ITALIAN_WORD_AMOUNTS = {"un": "1", "uno": "1", "una": "1", "mezzo": "0.5", "mezza": "0.5"}
+_ITALIAN_WORD_AMOUNT_RE = re.compile(
+    rf"^(?P<word>{'|'.join(_ITALIAN_WORD_AMOUNTS)}) (?=(?:{_UNIT_PATTERN})\b)", re.IGNORECASE
+)
+# Cookaround can put a count after both the unit and the food ("Spicchio di aglio 2").
+_ITALIAN_COUNT_LAST_RE = re.compile(
+    rf"^(?P<unit>{_ITALIAN_COUNT_UNITS}) (?P<food>{_ITALIAN_OF}.+) (?P<qty>[1-9]\d*+)$", re.IGNORECASE
+)
+# Try each run of separators once, even if no marker follows it.
+_ITALIAN_TO_TASTE_RE = re.compile(rf"^q\.\s*b\.?(?: {_ITALIAN_OF}| )|(?<![ ,])[ ,]++q\.\s*b\.?$", re.IGNORECASE)
+# Recognise a decimal comma next to a unit. Without a language hint, only
+# accept one or two decimal digits, since three could group thousands.
+_DECIMAL_COMMA_RE = re.compile(rf"(?<!\S)\d++,(?P<decimal>\d++)(?= *(?:{_UNIT_PATTERN})\b)", re.IGNORECASE)
+_INGEST_METRIC_PATTERN = "|".join(
+    sorted(
+        set(METRIC_UNITS) | {alias for alias, unit in INGEST_UNIT_ALIASES.items() if unit in METRIC_UNITS},
+        key=len,
+        reverse=True,
+    )
+)
+# Ricetta.it writes "100/150 g" for a range. Both bounds are three digits or more,
+# and a metric unit follows, so ordinary fractions such as "1/2 g" still parse as fractions.
+_ITALIAN_METRIC_RANGE_RE = re.compile(
+    rf"(?<!\S)(?P<first>[1-9]\d{{2,}}+)/(?P<last>[1-9]\d{{2,}}+)(?= *(?:{_INGEST_METRIC_PATTERN})\b)",
     re.IGNORECASE,
 )
 # The unit has to be one this parser knows. Any word used to do, so "4 x 150
 # salmon fillets" came out as 600 of the unit "salmon".
 _MULTIPLIER_RE = re.compile(
     rf"^\s*(?P<count>\d+)\s*x\s*(?P<qty>{_NUMBER_TOKEN})\s*"
-    rf"(?:(?P<unit>{'|'.join(re.escape(u) for u in _UNIT_WORDS)})\b)?\.?\s+(?P<rest>.+)$",
+    rf"(?:(?P<unit>{_UNIT_PATTERN})\b)?\.?\s+(?P<rest>.+)$",
     re.IGNORECASE,
 )
 # "2 400g cans of black beans", "1 (400g) tin chickpeas", "1 (14.5 ounce) can
@@ -205,8 +254,7 @@ _WORD_AMOUNT_RE = re.compile(
 )
 # "juice of 1 lemon", "zest and juice 1 lemon", "finely grated zest of an
 # orange": the shop is the fruit, so the lead-in goes and the line reads as
-# "1 lemon". Only when an amount follows, so "juice 500ml" or a name that
-# merely starts with "juice" is left alone.
+# "1 lemon". A name that merely starts with "juice" keeps that word.
 _JUICE_OR_ZEST_OF_RE = re.compile(
     r"^(?:(?:finely\s+)?(?:grated\s+)?zest|juice)(?:\s+(?:and|&)\s+(?:(?:finely\s+)?(?:grated\s+)?zest|juice))?"
     r"\s+(?:of\s+)?(?=(?:\d|[½⅓⅔¼¾]|(?:a|an|one|two|three)\s))",
@@ -217,14 +265,15 @@ _JUICE_OR_ZEST_OF_RE = re.compile(
 _BARE_TIMES_RE = re.compile(r"^(?P<count>\d+)\s*x\s+(?=[a-z])", re.IGNORECASE)
 
 
-def parse_ingredient_line(raw: str) -> ParsedIngredient:
+def parse_ingredient_line(raw: str, *, language: str | None = None) -> ParsedIngredient:
     """Parse a human ingredient line ('500g minced beef', '2 x 400g tins chopped tomatoes').
 
     A stick of butter leaves as grams (#187): "stick" is a natural unit for
     celery and cinnamon, but the API refuses it for butter, and a refused line
     is stored with no amount at all.
     """
-    parsed = _parse_ingredient_line(raw)
+    language = (language or "").strip().lower().replace("_", "-").split("-", 1)[0]
+    parsed = _parse_ingredient_line(raw, language)
     if parsed.unit == "stick" and parsed.quantity is not None and is_butter(parsed.name):
         return ParsedIngredient(
             raw=parsed.raw, name=parsed.name, quantity=round(parsed.quantity * BUTTER_STICK_G, 3), unit="g"
@@ -232,7 +281,7 @@ def parse_ingredient_line(raw: str) -> ParsedIngredient:
     return parsed
 
 
-def _parse_ingredient_line(raw: str) -> ParsedIngredient:
+def _parse_ingredient_line(raw: str, language: str) -> ParsedIngredient:
     """Parse a human ingredient line ('500g minced beef', '2 x 400g tins chopped tomatoes').
 
     Conservative by design: anything unparseable keeps quantity=None and the
@@ -247,6 +296,17 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
     raw = html.unescape(raw)[:_MAX_LINE_CHARS]
     line = raw.strip()
     cleaned = re.sub(r"\s+", " ", line)
+    italian = language == "it"
+    if italian or not language:
+        cleaned = _DECIMAL_COMMA_RE.sub(
+            lambda m: m[0].replace(",", ".") if italian or len(m["decimal"]) <= 2 else m[0], cleaned
+        )
+    if italian:
+        cleaned = _ITALIAN_METRIC_RANGE_RE.sub(r"\g<first>-\g<last>", cleaned)
+        cleaned = _ITALIAN_WORD_AMOUNT_RE.sub(
+            lambda m: _ITALIAN_WORD_AMOUNTS[m["word"].lower()] + " ", cleaned, count=1
+        )
+        cleaned = _ITALIAN_COUNT_LAST_RE.sub(r"\g<qty> \g<unit> \g<food>", cleaned, count=1)
     cleaned = _JUICE_OR_ZEST_OF_RE.sub("", cleaned, count=1)
     cleaned = _WORD_AMOUNT_RE.sub(lambda m: _WORD_AMOUNTS[m.group("word").lower()] + " ", cleaned, count=1)
     cleaned = _BARE_TIMES_RE.sub(r"\g<count> ", cleaned, count=1)
@@ -303,13 +363,14 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
         unit_token = (match.group("unit") or "").lower()
         rest = match.group("rest")
         if quantity is not None:
-            if unit_token in METRIC_UNITS or unit_token in INGEST_CONVERSIONS:
-                rest = _drop_container(rest)
-            name = _clean_name(rest)
             if unit_token:
                 quantity, unit = _convert_unit(quantity, unit_token)
+                if unit in {"g", "ml"}:
+                    rest = _drop_container(rest)
+                rest = re.sub(rf"^{_ITALIAN_OF}", "", rest, flags=re.IGNORECASE)
+                name = _clean_name(rest)
             else:
-                name, lifted = _lift_trailing_unit(name)
+                name, lifted = _lift_trailing_unit(_clean_name(rest))
                 quantity, unit = round(quantity, 3), lifted or "item"
             return ParsedIngredient(raw=raw, name=name, quantity=quantity, unit=unit)
 
@@ -319,7 +380,22 @@ def _parse_ingredient_line(raw: str) -> ParsedIngredient:
         quantity, unit = _convert_unit(float(glued.group(1)), glued.group(2).lower())
         return ParsedIngredient(raw=raw, name=_clean_name(glued.group("rest")), quantity=quantity, unit=unit)
 
-    return ParsedIngredient(raw=raw, name=_clean_name(cleaned), quantity=None, unit=None)
+    trailing = _TRAILING_AMOUNT_RE.search(cleaned)
+    if trailing is None and italian:
+        trailing = _COMMA_COUNT_RE.search(cleaned) or _ITALIAN_BARE_COUNT_RE.match(cleaned)
+    if trailing:
+        prefix = cleaned[: trailing.start("qty")].rstrip(" ,")
+        if not _TRAILING_EXTRA_RE.search(prefix):
+            name = _clean_name(prefix)
+            quantity = parse_number(trailing["qty"], digits=None)
+            unit_token = trailing.groupdict().get("unit")
+            if name and quantity is not None and (unit_token or quantity > 0):
+                quantity, unit = _convert_unit(quantity, unit_token or "item")
+                return ParsedIngredient(raw=raw, name=name, quantity=quantity, unit=unit)
+
+    if italian:
+        cleaned = _ITALIAN_TO_TASTE_RE.sub("", cleaned) or cleaned
+    return ParsedIngredient(raw=raw, name=_clean_name(cleaned))
 
 
 def _drop_container(rest: str) -> str:
@@ -333,6 +409,7 @@ def _drop_container(rest: str) -> str:
 
 def _convert_unit(quantity: float, unit_token: str) -> tuple[float, str]:
     unit_token = unit_token.lower()
+    unit_token = INGEST_UNIT_ALIASES.get(unit_token, unit_token)
     if unit_token in METRIC_UNITS:
         canonical, factor = METRIC_UNITS[unit_token]
         return round(quantity * factor, 3), canonical

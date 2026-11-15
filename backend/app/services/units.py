@@ -18,6 +18,9 @@ from fractions import Fraction
 
 from app.services.wordforms import IRREGULAR_SINGULARS, singular
 
+METRIC_LENGTH_UNITS = frozenset({"mm", "cm"})
+IMPERIAL_LENGTH_UNITS = frozenset({"in", "inch", "inches"})
+
 # Metric units → (canonical unit, multiplier)
 METRIC_UNITS: dict[str, tuple[str, float]] = {
     "g": ("g", 1),
@@ -110,6 +113,46 @@ INGEST_CONVERSIONS: dict[str, tuple[str, float]] = {
     "gallons": ("ml", 3785),
 }
 
+# Spellings used in Italian recipe markup, folded before the usual conversion.
+INGEST_UNIT_ALIASES: dict[str, str] = {
+    "gr": "g",
+    "grammo": "g",
+    "grammi": "g",
+    "chilogrammo": "kg",
+    "chilogrammi": "kg",
+    "millilitro": "ml",
+    "millilitri": "ml",
+    "litro": "l",
+    "litri": "l",
+    "cucchiaio": "tbsp",
+    "cucchiai": "tbsp",
+    "cucchiaio da tavola": "tbsp",
+    "cucchiai da tavola": "tbsp",
+    "cucchiaino": "tsp",
+    "cucchiaini": "tsp",
+    "cucchiaio da tè": "tsp",
+    "cucchiai da tè": "tsp",
+    "cucchiaino da tè": "tsp",
+    "cucchiaini da tè": "tsp",
+    "spicchio": "clove",
+    "spicchi": "clove",
+    "rametto": "sprig",
+    "rametti": "sprig",
+    "foglia": "leaf",
+    "foglie": "leaf",
+    "bicchiere": "glass",
+    "bicchieri": "glass",
+    "mazzetto": "bunch",
+    "mazzetti": "bunch",
+    "bustina": "sachet",
+    "bustine": "sachet",
+    "pizzico": "pinch",
+    "pizzichi": "pinch",
+    "pz": "item",
+    "pezzo": "item",
+    "pezzi": "item",
+}
+
 # Natural units, singular. This is the one list of countable unit words: the
 # ingestion parser recognises each of them and its plural as a unit
 # ("2 cloves garlic", "3 garlic cloves"), and ingredient_names strips the
@@ -134,6 +177,7 @@ NATURAL_UNITS: frozenset[str] = frozenset(
         "ball",
         "sachet",
         "jar",
+        "glass",
         "pack",
         "packet",
         "block",
@@ -335,7 +379,8 @@ def format_buy_quantity(quantity: float | None, unit: str | None) -> str:
     return format_quantity(quantity, unit)
 
 
-_SPOON_IN_TEXT = re.compile(r"\b(tsps?|teaspoons?|tbsps?|tablespoons?)\b", re.IGNORECASE)
+_SPOON_WORDS = SPOON_UNITS | {alias: unit for alias, unit in INGEST_UNIT_ALIASES.items() if unit in SPOON_ML}
+_SPOON_IN_TEXT = re.compile(rf"\b({'|'.join(sorted(_SPOON_WORDS, key=len, reverse=True))})\b", re.IGNORECASE)
 
 #: The largest volume shown in spoons when the recipe didn't say spoons (Q28):
 #: four tablespoons. Past it a jug is the easier measure.
@@ -355,7 +400,7 @@ def spoon_hint(unit: str | None, raw: str | None = None) -> str | None:
     if raw:
         found = _SPOON_IN_TEXT.search(raw)
         if found:
-            return SPOON_UNITS.get(found.group(1).lower())
+            return _SPOON_WORDS.get(found.group(1).lower())
     return None
 
 

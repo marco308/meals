@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.schemas.catalog import MAX_RECIPE_LINES
 from app.services.cook_steps import MAX_METHOD_CHARS
 from app.services.ingredient_lines import ParsedIngredient, parse_ingredient_line
+from app.services.units import IMPERIAL_LENGTH_UNITS, METRIC_LENGTH_UNITS
 
 
 class RecipeFetchError(Exception):
@@ -421,6 +422,8 @@ def extract_recipe(html: str, url: str | None = None) -> ParsedRecipe:
     off the event loop.
     """
     soup = BeautifulSoup(html, "html.parser")
+    html_language = soup.html.get("lang") if soup.html else None
+    page_language = html_language if isinstance(html_language, str) else None
     for script in soup.find_all("script", type="application/ld+json"):
         text = script.string or script.get_text()
         if not text or not text.strip():
@@ -433,7 +436,7 @@ def extract_recipe(html: str, url: str | None = None) -> ParsedRecipe:
             continue
         if node is not None:
             try:
-                return _node_to_recipe(node, url)
+                return _node_to_recipe(node, url, page_language)
             except (RecursionError, ValueError, TypeError) as exc:
                 raise NoRecipeFound(
                     f"this page's schema.org/Recipe JSON-LD could not be read ({exc.__class__.__name__}); "
@@ -467,7 +470,7 @@ def _is_recipe_type(type_value: object) -> bool:
     return False
 
 
-def _node_to_recipe(node: dict, url: str | None) -> ParsedRecipe:
+def _node_to_recipe(node: dict, url: str | None, page_language: str | None) -> ParsedRecipe:
     # A name of only whitespace is no title, and a blank one can't be stored.
     title = (_as_text(node.get("name")) or "").strip() or "Untitled recipe"
     recipe = ParsedRecipe(
@@ -492,7 +495,11 @@ def _node_to_recipe(node: dict, url: str | None) -> ParsedRecipe:
     lines = [line for line in raw_lines if isinstance(line, str) and line.strip()]
     # Only as many as a recipe holds: the rest could never be stored, and
     # parsing them anyway is CPU spent on the page's say-so.
-    recipe.ingredients = [parse_ingredient_line(line) for line in lines[:MAX_RECIPE_LINES]]
+    recipe_language = node.get("inLanguage")
+    language = recipe_language.strip() if isinstance(recipe_language, str) else None
+    recipe.ingredients = [
+        parse_ingredient_line(line, language=language or page_language) for line in lines[:MAX_RECIPE_LINES]
+    ]
     return recipe
 
 
@@ -506,15 +513,26 @@ def _as_text(value: object) -> str | None:
     return None
 
 
+_YIELD_NUMBER_RE = re.compile(r"(?P<count>\d++)(?:[.,]\d++)?")
+# A standalone "in" may be a preposition ("serves 4 in total").
+_YIELD_LENGTH_SUFFIX_RE = re.compile(
+    rf"\s*+(?:[-–‑]\s*+)?(?:{'|'.join(sorted((METRIC_LENGTH_UNITS | IMPERIAL_LENGTH_UNITS) - {'in'}))})\b"
+    r"|(?:\s*+[-–‑]\s*+)?in\b|\s++in(?=[.,;)]|$)",
+    re.IGNORECASE,
+)
+
+
 def _parse_yield(value: object) -> int | None:
     if isinstance(value, int):
         return value if value > 0 else None
     text = _as_text(value)
     if text:
-        match = re.search(r"\d+", text)
-        if match:
+        for match in _YIELD_NUMBER_RE.finditer(text):
+            # Skip pan dimensions, even if they're written before the servings.
+            if _YIELD_LENGTH_SUFFIX_RE.match(text, match.end()):
+                continue
             try:
-                return int(match.group())
+                return int(match["count"])
             except ValueError:  # past int()'s 4,300-digit limit, and no serving count either
                 return None
     return None
