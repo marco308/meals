@@ -20,6 +20,17 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+### Fixed
+
+- **Italian recipe imports keep their amounts** (#277, thanks Simone Fassio).
+  GialloZafferano-style lines with the amount after the food ("Patate 300 g",
+  "Uova 8", "Cipolle ½") import as the amount and the food, and "q.b." lines
+  as a name with no amount. Decimal commas ("Latte 0,5 l"), "un"/"mezzo"
+  before a unit, and `foglia` and `bicchiere` parse too. Any language gets a
+  trailing amount ("Chicken stock, about 500 ml"), except one joined by
+  "plus", "or" or "and". A pan size in a recipe's yield ("tortiera da 24 cm")
+  is no longer read as its servings.
+
 ## 2026-11-13: security review
 
 Released as **1.13.0**. No migration, **playbook v24** (unchanged). Decision
