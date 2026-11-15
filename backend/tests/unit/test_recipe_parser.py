@@ -65,6 +65,31 @@ class TestExtractRecipe:
         assert by_name["salt and pepper to taste"].quantity is None
         assert by_name["salt and pepper to taste"].raw == "Salt and pepper to taste"
 
+    @pytest.mark.parametrize(("html_language", "recipe_language"), [("it-IT", None), ("en-GB", "it")])
+    def test_source_language_controls_decimal_commas(self, html_language, recipe_language):
+        line = "Latte 0,5 l"
+        node = {"@type": "Recipe", "name": "Crema", "recipeIngredient": [line]}
+        if recipe_language:
+            node["inLanguage"] = recipe_language
+        recipe = extract_recipe(f'<html lang="{html_language}">{_page(node)}</html>')
+        (ingredient,) = recipe.ingredients
+        assert (ingredient.name, ingredient.quantity, ingredient.unit, ingredient.raw) == ("latte", 500, "ml", line)
+
+    def test_an_english_page_does_not_read_a_thousands_separator_as_a_decimal(self):
+        node = {"@type": "Recipe", "name": "Bread", "recipeIngredient": ["Flour 1,000 g"]}
+        (ingredient,) = extract_recipe(f'<html lang="en-GB">{_page(node)}</html>').ingredients
+        assert ingredient.quantity is None
+
+    def test_a_pan_diameter_is_not_a_serving_count(self):
+        node = {"@type": "Recipe", "name": "Torta di mele", "recipeYield": "una tortiera da 24 cm"}
+        assert extract_recipe(_page(node)).servings is None
+
+    def test_webpage_graph_without_a_recipe_suggests_structured_import(self):
+        # The pages from Cooker Girl publish a graph for the page, image and site.
+        node = {"@graph": [{"@type": "WebPage"}, {"@type": "ImageObject"}, {"@type": "WebSite"}]}
+        with pytest.raises(NoRecipeFound, match="POST /recipes"):
+            extract_recipe(f'<html lang="it-IT">{_page(node)}</html>')
+
     def test_graph_and_type_list_and_sections(self):
         recipe = extract_recipe(fixture_html("jsonld_graph.html"))
         assert recipe.title == "Lemon Drizzle Cake"
@@ -194,6 +219,8 @@ class TestParseIngredientLine:
             ("2 x 400 g tins chopped tomatoes", "chopped tomatoes", 800, "g"),
             ("3 x 1l bottles water", "water", 3000, "ml"),
             ("2 x 2 cloves garlic", "garlic", 4, "clove"),
+            ("Patate 300 grammi", "patate", 300, "g"),
+            ("Potatoes 300 grams", "potatoes", 300, "g"),
         ],
     )
     def test_lines(self, line, name, quantity, unit):
@@ -202,6 +229,10 @@ class TestParseIngredientLine:
         assert parsed.quantity == pytest.approx(quantity)
         assert parsed.unit == unit
         assert parsed.raw == line
+
+    def test_a_trailing_number_without_a_unit_may_be_part_of_the_name(self):
+        parsed = parse_ingredient_line("Farina tipo 1")
+        assert (parsed.name, parsed.quantity, parsed.unit) == ("farina tipo 1", None, None)
 
     @pytest.mark.parametrize(
         ("line", "name"),

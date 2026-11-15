@@ -55,7 +55,7 @@ def _matches(got: tuple, expected: tuple) -> bool:
 
 @pytest.mark.parametrize("row", _rows())
 def test_real_line(row):
-    parsed = parse_ingredient_line(row["line"])
+    parsed = parse_ingredient_line(row["line"], language=row.get("language"))
     got = (parsed.name, parsed.quantity, parsed.unit)
     expected = [(row["name"], row["quantity"], row["unit"])]
     if "or" in row:
@@ -66,6 +66,8 @@ def test_real_line(row):
     # its amount thrown away, which is how a stick of butter went missing.
     (line,) = parsed_recipe_to_payload(ParsedRecipe(title="Corpus", ingredients=[parsed])).ingredients
     assert (line.quantity, line.unit) == (parsed.quantity, parsed.unit)
+    if "display_unit" in row:
+        assert line.display_unit == row["display_unit"]
 
 
 def test_the_corpus_is_what_it_says():
