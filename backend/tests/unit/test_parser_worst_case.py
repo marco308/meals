@@ -27,7 +27,7 @@ from collections.abc import Callable
 import pytest
 
 from app.schemas.catalog import MAX_RECIPE_LINES
-from app.services import cook_steps
+from app.services import cook_steps, ingredient_lines
 from app.services.aisles import guess_aisle
 from app.services.ingredient_names import canonical_ingredient_name, is_protected_name
 from app.services.recipe_parser import extract_recipe, parse_ingredient_line, parse_iso8601_duration
@@ -86,6 +86,11 @@ HOSTILE_LINES = {
 def test_a_recipe_of_hostile_lines_parses_quickly(line):
     """A recipe's worth of the same line: 100 of them in 20-30 ms here."""
     assert _timed(parse_ingredient_line, line, reps=MAX_RECIPE_LINES) < 0.5
+
+
+def test_italian_to_taste_marker_is_linear_on_commas():
+    # Time the regex directly so the ingredient line's length cap can't hide backtracking.
+    assert _timed(ingredient_lines._ITALIAN_TO_TASTE_RE.search, "sale" + "," * LONG) < 0.5
 
 
 HOSTILE_NAMES = {

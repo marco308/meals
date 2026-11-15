@@ -162,7 +162,8 @@ _ITALIAN_ONE_RE = re.compile(rf"^(?:un|uno|una) (?=(?:{_ITALIAN_COUNT_UNITS})\b)
 _ITALIAN_COUNT_LAST_RE = re.compile(
     rf"^(?P<unit>{_ITALIAN_COUNT_UNITS}) (?P<food>{_ITALIAN_OF}.+) (?P<qty>[1-9]\d*+)$", re.IGNORECASE
 )
-_ITALIAN_TO_TASTE_RE = re.compile(rf"^(?:q\.\s*b\.?)(?: {_ITALIAN_OF}| )|[ ,]+q\.\s*b\.?$", re.IGNORECASE)
+# Try each run of separators once, even if no marker follows it.
+_ITALIAN_TO_TASTE_RE = re.compile(rf"^q\.\s*b\.?(?: {_ITALIAN_OF}| )|(?<![ ,])[ ,]++q\.\s*b\.?$", re.IGNORECASE)
 # Use the source language for numeric punctuation. A comma can group thousands in English.
 _ITALIAN_DECIMAL_RE = re.compile(rf"(?<!\S)(?P<whole>\d++),(?P<decimal>\d++)(?= *(?:{_UNIT_PATTERN})\b)", re.IGNORECASE)
 _INGEST_METRIC_PATTERN = "|".join(
