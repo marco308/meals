@@ -20,6 +20,10 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+## 2026-11-16: Italian recipe imports
+
+Released as **1.13.1**. No migration, **playbook v24** (unchanged).
+
 ### Fixed
 
 - **Italian recipe imports keep their amounts** (#277, thanks [Simone Fassio](https://github.com/SimoneFassio)).
