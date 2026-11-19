@@ -20,6 +20,53 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+## 2026-11-19: recipe photos and single sign-on
+
+Released as **1.14.0**. **Two migrations** (`e4a1c7b92f30`, then
+`a5b027b21de0`), both additive and safe under a start-first rollout, and the
+second rebuilds `users` on SQLite. **Playbook v25.** Decisions Q32 and Q33.
+
+**Operator settings, all optional and off by default:**
+`RECIPE_PHOTO_UPLOADS_ENABLED` and `RECIPE_PHOTO_MAX_BYTES` for photo uploads;
+`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_PROVIDER_NAME`,
+`OIDC_SCOPES` and `OIDC_TIMEOUT_SECONDS` for signing in through an identity
+provider. A server that turns either on should set `PUBLIC_URL`. Nothing
+changes on a server that sets none of them.
+
+### Added
+
+- **Recipe photo uploads** (#280, #284, Q32). Where the operator allows it,
+  `PUT /recipes/{id}/photo` stores one JPEG per recipe with its metadata
+  stripped, served at an unguessable link that `image_url` points to;
+  `DELETE /recipes/{id}/photo` removes it. `/client-config` publishes
+  `recipe_photo_uploads` and `recipe_photo_max_bytes`, recipes gain
+  `image_uploaded`, and the household export carries the photos. Deleting a
+  recipe, a household or an account takes its photos. The iPhone picker comes
+  separately.
+- **Signing in through the operator's own identity provider** (#93, #285,
+  Q33): Authentik, Authelia, Keycloak, Pocket ID or anything else that speaks
+  OpenID Connect, beside email and password. Every sign-in ends in the same
+  session a password login gets, so iOS, MCP and API tokens are untouched.
+  People are matched by the provider's subject, never by email; a first
+  sign-in is a registration under Q19's rules; an address that already has an
+  account is refused, and its owner links the provider from Settings.
+  `/client-config` publishes `oidc_enabled` and `oidc_provider_name`. The web
+  app has the buttons, a Signing in card in Settings, and the OAuth consent
+  page for `/mcp` offers the provider too. The iPhone app doesn't yet (#286).
+
+### Changed
+
+- **An account can have no password.** One made through the identity
+  provider confirms deleting itself, setting a first password and leaving a
+  household that would be deleted behind it with a fresh sign-in there
+  (`POST /auth/oidc/reauth`) instead. `UserOut` gains `has_password`, and the
+  `password` and `current_password` fields on those requests are now optional
+  (still required of every account that has a password).
+- **Assistants ask before replacing or removing an uploaded photo**
+  (playbook v25).
+- Dependency updates (#282, #283), and `pyjwt[crypto]` is now a direct
+  dependency, credited in `/credits`.
+
 ## 2026-11-16: Italian recipe imports
 
 Released as **1.13.1**. No migration, **playbook v24** (unchanged).
