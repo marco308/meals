@@ -306,9 +306,11 @@ VERIFY_FIRST = (
 def require_verified_email(user: User, action: str) -> None:
     """403 unless this account may do something that reaches outward (Q26).
 
-    Inviting and URL ingest are the two: one sends a stranger into somebody's
-    household, the other makes this server fetch a page of the caller's
-    choosing. Everything that stays inside the household is open to an
+    Inviting and URL ingest are the two that were here first: one sends a
+    stranger into somebody's household, the other makes this server fetch a
+    page of the caller's choosing. Uploading a recipe photo (Q32) is the
+    third, because it makes this server publish a file at a link anyone
+    holding it can open. Everything that stays inside the household is open to an
     unverified account, because refusing it would only make signing up worse
     without making anybody safer.
     """

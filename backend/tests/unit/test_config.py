@@ -51,6 +51,8 @@ BLANK_IS_DEFAULT = [
     ("OAUTH_ACCESS_TOKEN_TTL_MINUTES", "oauth_access_token_ttl_minutes"),
     ("OAUTH_REFRESH_TOKEN_TTL_DAYS", "oauth_refresh_token_ttl_days"),
     ("OAUTH_CODE_TTL_SECONDS", "oauth_code_ttl_seconds"),
+    ("RECIPE_PHOTO_UPLOADS_ENABLED", "recipe_photo_uploads_enabled"),
+    ("RECIPE_PHOTO_MAX_BYTES", "recipe_photo_max_bytes"),
 ]
 
 # A real value for each, different from the default, so "blank falls back" and
@@ -71,6 +73,8 @@ SET_VALUES = {
     "OAUTH_ACCESS_TOKEN_TTL_MINUTES": ("15", 15),
     "OAUTH_REFRESH_TOKEN_TTL_DAYS": ("7", 7),
     "OAUTH_CODE_TTL_SECONDS": ("60", 60),
+    "RECIPE_PHOTO_UPLOADS_ENABLED": ("true", True),
+    "RECIPE_PHOTO_MAX_BYTES": ("2097152", 2_097_152),
 }
 
 

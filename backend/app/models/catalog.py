@@ -1,8 +1,21 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    exists,
+)
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.database import Base
 from app.models.users import utcnow
@@ -90,3 +103,43 @@ class RecipeIngredient(Base):
 
     recipe: Mapped[Recipe] = relationship(back_populates="ingredient_links")
     ingredient: Mapped[Ingredient] = relationship(lazy="selectin")
+
+
+class RecipePhoto(Base):
+    """A photo the household uploaded for a recipe (issue #280, Q32): the JPEG
+    itself, already stripped of its metadata (`services/photos.py`).
+
+    In the database rather than on a disk, so the nightly `pg_dump` (or the
+    SQLite file of a one-container install) carries it with no second backup
+    path, and deleting a recipe, a household or an account takes it along.
+    It is its own table so that nothing that reads a recipe ever loads the
+    bytes: there is deliberately no relationship from `Recipe`, only the
+    `image_uploaded` flag below.
+
+    `token` is the unguessable name it is served under, `GET /photos/{token}.jpg`,
+    because an image view cannot send an Authorization header. A replacement is
+    a new row with a new token, so the URL changes and no cache needs busting.
+    """
+
+    __tablename__ = "recipe_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id"), index=True)
+    # One photo per recipe, and it goes with the recipe.
+    recipe_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), unique=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# Whether the recipe's picture is one the household uploaded, rather than a
+# link to one hosted elsewhere. A correlated EXISTS on the unique recipe_id, so
+# every read of a recipe (the library listing included) knows without loading
+# a photo or keeping a second copy of the answer that could drift.
+Recipe.image_uploaded = column_property(
+    exists().where(RecipePhoto.recipe_id == Recipe.id).correlate_except(RecipePhoto),
+    deferred=False,
+)

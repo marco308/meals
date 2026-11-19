@@ -27,6 +27,7 @@ from app.models import (
     OAuthGrant,
     Plan,
     Recipe,
+    RecipePhoto,
     ShoppingList,
     Supermarket,
     User,
@@ -190,6 +191,9 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     await db.execute(delete(ShoppingList).where(ShoppingList.household_id == household_id))
     await db.execute(delete(Plan).where(Plan.household_id == household_id))
     await db.execute(delete(Meal).where(Meal.household_id == household_id))
+    # Photos before their recipes. The cascade would take them, but this
+    # module says its order out loud rather than trusting two engines (Q20).
+    await db.execute(delete(RecipePhoto).where(RecipePhoto.household_id == household_id))
     await db.execute(delete(Recipe).where(Recipe.household_id == household_id))
     # Ingredients last of the food: list items and meal/recipe lines reference
     # them without a cascade, so they must already be gone.

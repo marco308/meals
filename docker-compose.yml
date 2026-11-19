@@ -51,6 +51,9 @@ services:
       # headers; set it once OAuth or billing is on, which log a warning at
       # startup until it is. The mcp service below follows the same variable.
       PUBLIC_URL: ${PUBLIC_URL:-}
+      # Recipe photo uploads (README, "Recipe photos"). Blank is off. On, set
+      # PUBLIC_URL too: each photo's link is written once, from that origin.
+      RECIPE_PHOTO_UPLOADS_ENABLED: ${RECIPE_PHOTO_UPLOADS_ENABLED:-}
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     depends_on:

@@ -639,6 +639,7 @@ const RESOURCE_LABELS = {
   freezer_items: "Batches in the freezer",
   api_tokens: "API tokens",
   ingests_per_month: "Recipes read from a URL",
+  recipe_photos: "Uploaded recipe photos",
 };
 
 // A server vocabulary, so an unknown name must render rather than vanish —
