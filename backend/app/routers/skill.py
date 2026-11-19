@@ -67,14 +67,17 @@ def base_url(request: Request) -> str:
 
 
 def warn_if_origin_unpinned(settings: Settings) -> bool:
-    """Log once, at startup, that a server whose OAuth or checkout builds URLs
-    for other parties is taking its origin from request headers (#252).
+    """Log once, at startup, that a server whose OAuth, checkout or identity
+    provider builds URLs for other parties is taking its origin from request
+    headers (#252). For OIDC it is the redirect URI the provider sends people
+    back to, which the provider will refuse unless it matches what was
+    registered there exactly.
 
     A warning rather than a refusal to boot: a deployment that has run
     without `PUBLIC_URL` must keep starting on the release that introduces
     it. The fields are booleans, never the origin itself (CLAUDE.md, logging).
     """
-    if settings.public_url or not (settings.oauth_enabled or settings.billing_sells):
+    if settings.public_url or not (settings.oauth_enabled or settings.billing_sells or settings.oidc_enabled):
         return False
     _events_logger.warning(
         "config.public_url_unset",
@@ -84,6 +87,7 @@ def warn_if_origin_unpinned(settings: Settings) -> bool:
         extra={
             "oauth_enabled": True if settings.oauth_enabled else False,  # noqa: SIM210
             "billing_sells": True if settings.billing_sells else False,  # noqa: SIM210
+            "oidc_enabled": True if settings.oidc_enabled else False,  # noqa: SIM210
         },
     )
     return True

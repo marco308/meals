@@ -15,13 +15,20 @@
 // An account that has not confirmed its email address (Q26) gets a card at the
 // top for the code, because inviting and importing from a link both wait on it.
 // On a server that sends no email the card never appears: nothing waits there.
+//
+// On a server with an identity provider (Q33) a Signing in card links it. An
+// account made through the provider has no password, so the three things a
+// password confirms (setting one, deleting the account, leaving a household
+// that would go with you) send it to sign in there again instead, and pick up
+// where they left off when it comes back (sso.js `after`).
 
 import { aisles, api, download, invalidateAisles, session } from "../api.js";
 import { confirmDialog, fmtDate, fmtRel, html, openDialog, parseUtc, render, skeleton, toast } from "../dom.js";
+import { goToProvider, takeAfter } from "../sso.js";
 
 export async function renderSettings(root) {
   render(root, skeleton());
-  const [user, household, invites, tokens, markets, allowances, subscription, printer, helper] = await Promise.all([
+  const [user, household, invites, tokens, markets, allowances, subscription, printer, helper, sso] = await Promise.all([
     api("/auth/me"),
     api("/auth/household"),
     api("/auth/invites"),
@@ -33,8 +40,12 @@ export async function renderSettings(root) {
     api("/billing/subscription").catch(() => null),
     api("/household/label-printer").catch(() => null),
     api("/household/assistant").catch(() => null),
+    // 404 on a server with no identity provider: no card, nothing to link.
+    api("/auth/oidc").catch(() => null),
   ]);
   session.saveUser(user);
+  // Absent from a server that predates Q33, where every account has one.
+  const hasPassword = user.has_password !== false;
   const youLead = household.lead_user_id === user.id;
   const leadName = household.members.find((m) => m.is_lead)?.display_name || "whoever leads it";
 
@@ -193,17 +204,27 @@ export async function renderSettings(root) {
       ${printer?.available ? labelPrinterSection(printer) : ""}
       ${helper ? assistantSection(helper) : ""}
 
+      ${sso ? signingInSection(sso) : ""}
+
       <div class="section card">
         <h2>Password</h2>
         <form data-password>
-          <div class="form-row">
-            <label class="field"><span>Current password</span>
-              <input type="password" name="current_password" required autocomplete="current-password"></label>
-            <label class="field"><span>New password</span>
-              <input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
-          </div>
-          <p class="sub">Other signed-in devices get logged out; API tokens deliberately survive.</p>
-          <div class="dialog-actions"><button class="btn" type="submit">Change password</button></div>
+          ${hasPassword
+            ? html`<div class="form-row">
+                <label class="field"><span>Current password</span>
+                  <input type="password" name="current_password" required autocomplete="current-password"></label>
+                <label class="field"><span>New password</span>
+                  <input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+              </div>
+              <p class="sub">Other signed-in devices get logged out; API tokens deliberately survive.</p>
+              <div class="dialog-actions"><button class="btn" type="submit">Change password</button></div>`
+            : html`<p class="sub">
+                You sign in through ${sso?.provider_name || "your identity provider"}, so this account has no
+                password. Set one to be able to sign in either way; you'll be asked to sign in there again first.
+              </p>
+              <label class="field"><span>New password</span>
+                <input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+              <div class="dialog-actions"><button class="btn" type="submit">Set password</button></div>`}
         </form>
       </div>
 
@@ -328,7 +349,7 @@ export async function renderSettings(root) {
     await api("/household/assistant", { method: "DELETE" });
     renderSettings(root);
   });
-  root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household);
+  root.querySelector("[data-join-household]").onclick = () => joinHouseholdDialog(root, household, user, sso);
   root.querySelector("[data-rename-household]")?.addEventListener("click", () =>
     renameHouseholdDialog(root, household),
   );
@@ -462,12 +483,45 @@ export async function renderSettings(root) {
     try {
       const auth = await api("/auth/password", { method: "POST", body: data });
       session.save(auth); // the fresh token replaces the one just revoked
-      toast("Password changed — this device stays signed in.", "ok");
+      toast(hasPassword ? "Password changed — this device stays signed in." : "Password set.", "ok");
+      renderSettings(root);
+    } catch (error) {
+      // Typed again after the trip rather than carried through it: a
+      // password has no business in sessionStorage.
+      if (await offerProvider(error, user, sso, "password")) return;
+      toast(error.detail || error.message, "error");
+    }
+  };
+
+  root.querySelector("[data-sso-link]")?.addEventListener("click", async () => {
+    try {
+      await goToProvider("/auth/oidc/link");
+    } catch (error) {
+      toast(error.detail || error.message, "error");
+    }
+  });
+  root.querySelector("[data-sso-unlink]")?.addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: `Unlink ${sso.provider_name}?`,
+      body: "You'll sign in with your email and password only. You can link it again at any time.",
+      confirmLabel: "Unlink",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api("/auth/oidc/link", { method: "DELETE" });
+      toast(`${sso.provider_name} is unlinked.`, "ok");
       renderSettings(root);
     } catch (error) {
       toast(error.detail || error.message, "error");
     }
-  };
+  });
+
+  // Back from signing in again: carry on with what sent us there.
+  const after = takeAfter();
+  if (after === "delete") deleteAccountDialog(user, sso);
+  else if (after === "join") joinHouseholdDialog(root, household, user, sso);
+  else if (after === "password") root.querySelector("[data-password] [name=new_password]")?.focus();
 
   // The bars are the one place a width is computed rather than written, and
   // index.html's `style-src 'self'` forbids a style *attribute*, so the number
@@ -523,7 +577,7 @@ export async function renderSettings(root) {
     }
   };
 
-  root.querySelector("[data-delete-account]").onclick = () => deleteAccountDialog();
+  root.querySelector("[data-delete-account]").onclick = () => deleteAccountDialog(user, sso);
 }
 
 // ── the subscription ─────────────────────────────────────────────────────
@@ -639,6 +693,7 @@ const RESOURCE_LABELS = {
   freezer_items: "Batches in the freezer",
   api_tokens: "API tokens",
   ingests_per_month: "Recipes read from a URL",
+  recipe_photos: "Uploaded recipe photos",
 };
 
 // A server vocabulary, so an unknown name must render rather than vanish —
@@ -952,10 +1007,12 @@ function handOverDialog(root, household, user) {
   };
 }
 
-function joinHouseholdDialog(root, household) {
+function joinHouseholdDialog(root, household, user, sso) {
   // The last one out of a household deletes it, so the server asks for the
-  // password here just as it does for deleting the account.
+  // password here just as it does for deleting the account. An account with
+  // none confirms at the identity provider instead, when the server asks.
   const alone = household.members.length <= 1;
+  const askPassword = alone && user.has_password !== false;
   const dialog = openDialog(html`
     <h2>Join another household</h2>
     <p class="sub">
@@ -963,13 +1020,13 @@ function joinHouseholdDialog(root, household) {
       household you're in changes.
       ${alone
         ? html`You're the only member of “${household.name}”, so it goes when you do, recipes and all.
-            Type your password to confirm.`
+            ${askPassword ? "Type your password to confirm." : "You'll be asked to sign in again to confirm."}`
         : html`“${household.name}” keeps its recipes.`}
     </p>
     <form data-f>
       <label class="field"><span>Invite code</span>
         <input type="text" name="code" required maxlength="64" placeholder="XXXX-XXXX-XXXX" autofocus></label>
-      ${alone
+      ${askPassword
         ? html`<label class="field"><span>Your password</span>
             <input type="password" name="password" required autocomplete="current-password"></label>`
         : ""}
@@ -986,7 +1043,7 @@ function joinHouseholdDialog(root, household) {
     const code = form.get("code").trim();
     if (!code) return;
     // Left out of the JSON entirely (undefined) when nobody was asked for it.
-    const password = alone ? form.get("password") : undefined;
+    const password = askPassword ? form.get("password") : undefined;
     const join = async (force) =>
       api("/auth/invites/redeem", { method: "POST", body: { code, force, password } });
     try {
@@ -1011,9 +1068,53 @@ function joinHouseholdDialog(root, household) {
       location.hash = "#/plan";
       location.reload();
     } catch (error) {
+      if (await offerProvider(error, user, sso, "join")) return;
       toast(error.detail || error.message, "error");
     }
   };
+}
+
+// When the server says a passwordless account has to sign in again (403 from
+// deps.sign_in_again), offer the trip. Returns whether the error was that.
+async function offerProvider(error, user, sso, after) {
+  if (error.status !== 403 || user.has_password !== false || !sso?.linked) return false;
+  const ok = await confirmDialog({
+    title: `Sign in to ${sso.provider_name} again?`,
+    body: error.detail,
+    confirmLabel: `Continue with ${sso.provider_name}`,
+  });
+  if (ok) {
+    try {
+      await goToProvider("/auth/oidc/reauth", {}, after);
+    } catch (failure) {
+      toast(failure.detail || failure.message, "error");
+    }
+  }
+  return true;
+}
+
+function signingInSection(sso) {
+  const name = sso.provider_name;
+  return html`
+    <div class="section card">
+      <h2>Signing in</h2>
+      ${sso.linked
+        ? html`<p class="sub">
+              You can sign in with ${name}${sso.linked_at ? html`, linked ${fmtRel(sso.linked_at)}` : ""}.
+              ${sso.has_password
+                ? "Your email and password still work too."
+                : "It's the only way into this account: set a password below to have a second one."}
+            </p>
+            ${sso.has_password
+              ? html`<div class="dialog-actions"><button class="btn ghost" data-sso-unlink>Unlink ${name}</button></div>`
+              : ""}`
+        : html`<p class="sub">
+              Link your ${name} account to sign in with it as well as your password. You'll be sent there
+              to sign in, and brought back here.
+            </p>
+            <div class="dialog-actions"><button class="btn ghost" data-sso-link>Link ${name}</button></div>`}
+    </div>
+  `;
 }
 
 function inviteStatus(invite) {
@@ -1097,13 +1198,24 @@ function verifySection(user) {
   `;
 }
 
-function deleteAccountDialog() {
+function deleteAccountDialog(user, sso) {
+  // No password to type for an account made through the identity provider:
+  // the server takes a sign-in there in the last few minutes instead, and
+  // says so with a 403 when there hasn't been one.
+  const askPassword = user.has_password !== false;
   const dialog = openDialog(html`
     <h2>Delete your account?</h2>
-    <p class="sub">This cannot be undone. Type your password to confirm.</p>
+    <p class="sub">
+      This cannot be undone.
+      ${askPassword
+        ? "Type your password to confirm."
+        : `If you haven't just signed in to ${sso?.provider_name || "your identity provider"}, you'll be asked to first.`}
+    </p>
     <form data-f>
-      <label class="field"><span>Password</span>
-        <input type="password" name="password" required autocomplete="current-password"></label>
+      ${askPassword
+        ? html`<label class="field"><span>Password</span>
+            <input type="password" name="password" required autocomplete="current-password"></label>`
+        : ""}
       <div class="dialog-actions">
         <button class="btn ghost" type="button" data-x>Keep my account</button>
         <button class="btn danger" type="submit">Delete it</button>
@@ -1116,13 +1228,15 @@ function deleteAccountDialog() {
     try {
       const result = await api("/auth/me", {
         method: "DELETE",
-        body: { password: new FormData(event.target).get("password") },
+        body: askPassword ? { password: new FormData(event.target).get("password") } : {},
       });
       dialog.close();
       session.clear();
       alert(result.detail); // last words before the login screen
       window.location.hash = "#/login";
     } catch (error) {
+      if (!askPassword) dialog.close();
+      if (await offerProvider(error, user, sso, "delete")) return;
       toast(error.detail || error.message, "error");
     }
   };

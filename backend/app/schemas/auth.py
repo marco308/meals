@@ -63,7 +63,10 @@ class LogoutIn(BaseModel):
 
 
 class PasswordChangeIn(BaseModel):
-    current_password: str
+    # Optional since Q33, for the one account that has none: one made through
+    # the identity provider sets its first password with a fresh sign-in there
+    # instead. Every account with a password still has to send it.
+    current_password: str | None = None
     new_password: NewPassword
 
 
@@ -87,6 +90,10 @@ class UserOut(BaseModel):
     # emailed to it, which is when inviting and URL ingest are refused. Always
     # false on a server that cannot send email, which verifies nobody.
     email_verification_pending: bool = False
+    # Q33: false for an account made by signing in through the identity
+    # provider, which confirms what a password would (deleting the account,
+    # say) by signing in there again. A client reads it to know which to ask.
+    has_password: bool = True
 
     @model_validator(mode="before")
     @classmethod
@@ -132,7 +139,13 @@ class TokenCreatedOut(TokenOut):
 class AccountDeleteIn(BaseModel):
     # In the body, never a query parameter — a password in a URL ends up in
     # access logs and proxy caches.
-    password: str = Field(description="Your current password, to confirm the deletion.")
+    password: str | None = Field(
+        default=None,
+        description=(
+            "Your current password, to confirm the deletion. An account with no password (one made through the "
+            "identity provider) leaves it out and confirms by having signed in there in the last few minutes."
+        ),
+    )
 
 
 class AccountDeletedOut(BaseModel):
@@ -250,3 +263,51 @@ class InviteRedeemIn(BaseModel):
             "DELETE /auth/me asks for."
         ),
     )
+
+
+# ------------------------------------------------------------ OpenID Connect
+
+
+class OidcStartIn(BaseModel):
+    """Where a sign-in through the identity provider starts (Q33). Both fields
+    only matter if this turns out to be somebody's first visit, and mean what
+    they mean on `POST /auth/register`."""
+
+    invite_code: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "A household invite code. If this sign-in makes a new account, it joins that household rather than "
+            "starting one of its own. Ignored for somebody who already has an account."
+        ),
+    )
+    household_name: Name | None = Field(
+        default=None, description="Names the household a new account starts. Ignored with an invite code."
+    )
+
+
+class OidcRedirectOut(BaseModel):
+    authorization_url: str = Field(description="Send the browser here; it comes back to /auth/oidc/callback.")
+
+
+class OidcCompleteIn(BaseModel):
+    handoff: str = Field(min_length=1, max_length=128, description="What the callback put after #/sso/.")
+
+
+class OidcCompleteOut(BaseModel):
+    #: "signin", "link" or "reauth": what the trip was for.
+    intent: str
+    #: A new session for signin and reauth; none for link, which keeps the one
+    #: it started with.
+    token: str | None = None
+    token_type: str = "bearer"
+    user: UserOut
+    #: Anything worth saying beside the success, as a sentence.
+    detail: str | None = None
+
+
+class OidcStatusOut(BaseModel):
+    provider_name: str
+    linked: bool
+    linked_at: datetime | None = None
+    has_password: bool

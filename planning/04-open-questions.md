@@ -619,3 +619,93 @@ that put `household_id` in its metadata bought this server's tier. Decisions:
 - **A paused collection is a hold.** Stripe keeps a subscription `active` while
   `pause_collection` is set and rolls the period on with nothing paid, so it is
   treated like `paused` and `past_due`: outcome `unpaid`, expiry held to the event.
+
+**Q32: a household may upload a recipe's photo, where the operator allows it**
+(2026-11-19, #280). A recipe's picture used to be a link only, so a photo the
+cook took had to be hosted somewhere first. #3 (copying every imported page's
+image) stays declined; this is one photo somebody took and chose to upload.
+Decisions:
+
+- **Off unless the operator says so.** `RECIPE_PHOTO_UPLOADS_ENABLED`, published
+  as `recipe_photo_uploads` on `/client-config` with `recipe_photo_max_bytes`.
+  The hosted server leaves it off for now. Off later stops new uploads only.
+- **In the database, in its own table.** The backups need no second path and
+  every delete (recipe, household, account) takes the photo along. Nothing that
+  reads a recipe loads the bytes: `image_uploaded` is an EXISTS.
+- **The link is the secret.** An image view cannot send a header, so the photo
+  is served without one at an unguessable URL written into `image_url`, and
+  every client already out there shows it. "Private to the household" means
+  "private unless somebody has the link", which the issue agreed to. The path
+  is never logged and the token is not exported.
+- **The server strips the metadata, whatever the client did.** Every segment but
+  JFIF, ICC and Adobe goes, and anything after EOI, with no re-encode. The
+  orientation tag goes too, so clients bake orientation into the pixels.
+- **One recipe, one picture.** JPEG only, longest side at most 2048 px.
+  Replacing makes a new URL and never counts against the `recipe_photos`
+  allowance (unlimited unless configured). Linking another `image_url`, or
+  null, deletes the upload; a reparse never replaces one. Uploads are online
+  only, never queued like the shopping list.
+- **An unverified account cannot upload** (amending Q26's list of things that
+  reach outward): an upload makes this server publish a file at a link.
+- **The export carries the photos as base64**, since a link back to the server
+  you are leaving is not your data.
+- **The iPhone picker waits for the privacy work.** An app that can upload
+  photos has to say so in its App Store privacy details and on `/privacy`, even
+  against a server with uploads off, so the build that adds the picker ships in
+  a release lined up with those changes.
+- The playbook is v25: assistants ask before replacing or removing a photo
+  that says `image_uploaded: true`, since that deletes somebody's own photo.
+
+**Q33: signing in through the operator's identity provider** (2026-11-19,
+#93). Self-hosters who run single sign-on for everything else on the box expect
+this to join in, and an account that signs in that way needs no SMTP for a
+password reset. This server is the relying party here, the mirror of Q27 where
+it is the authorization server. Decisions:
+
+- **A second front door, not a second credential.** Every trip ends in the same
+  `kind="session"` token a password login mints, so iOS, the MCP server and API
+  tokens are untouched and `AUTHENTICATING_KINDS` stays as it was. Behind
+  `OIDC_ISSUER` + `OIDC_CLIENT_ID`, off by default, and every `/auth/oidc/*`
+  route 404s when off. `GET /client-config` publishes `oidc_enabled` and
+  `oidc_provider_name`, so an older client never shows a button.
+- **Identity is `(issuer, sub)`, in `user_identities`.** OpenID Connect
+  promises only that `sub` is stable; an email claim can change and on some
+  providers was never checked. The address fills in a new account and decides
+  nothing else. An address that already has an account is refused, never
+  joined: its owner signs in with the password and links from Settings, which
+  needs a signed-in session (never an API token, since it adds a way in).
+- **A first sign-in is a registration (Q19 unchanged).** A household of its
+  own, or the household of an invite code the person gave before leaving for
+  the provider; `REGISTRATION_ENABLED`, the signup rate and the instance
+  ceilings all apply exactly as they do to `POST /auth/register`.
+  `email_verified` from the provider is believed (the operator chose it); an
+  address it doesn't vouch for is confirmed by code as Q26 does.
+- **Nothing secret in a URL, and a trip finishes only where it started.** The
+  flow row (`oidc_flows`) holds the state and nonce (hashed / compared), the
+  PKCE verifier, and a hash of a cookie bound to the browser; a return in any
+  other browser is refused, which is what stops somebody signing a victim in as
+  themselves. The callback leaves a one-time, two-minute handoff instead of a
+  token, and the web app trades it (`POST /auth/oidc/complete`) in the same
+  browser.
+- **Every token check is a test**: signature by a published key (one refetch
+  for a rotation, at most once a minute), never `none`, HMAC only on the client
+  secret and only if the provider says so, `iss`, `aud`, `azp`, expiry and the
+  nonce. The issuer in the discovery document must match the setting exactly.
+  The provider is the operator's, so it gets a deadline and a size cap but no
+  public-address guard.
+- **No password is a real state, not a sentinel.** `users.password_hash` is
+  nullable. Password login never matches it. What a password confirms
+  (deleting the account, the household-collecting move, setting a first
+  password) is confirmed instead by a session minted in the last ten minutes,
+  which for a passwordless account can only come from a fresh trip to the
+  provider (`POST /auth/oidc/reauth`, sent with `prompt=login`). A reset code
+  still sets a password: the way back if the operator ever turns the provider
+  off. Unlinking is refused while it would leave no way in.
+- **The MCP consent page (Q27) offers it too, and coming back approves
+  nothing.** A person already signed in at the provider may be sent straight
+  back, so the return lands on a page naming who signed in that still has to
+  be approved, with the trip's handoff in the form: the CSRF protection the
+  password gave the original form. Nobody is signed up from that page.
+- **iOS is a follow-up.** It wants `ASWebAuthenticationSession` and a build;
+  until then it never reads the new flags, and an account made through the
+  provider can still use the app by setting a password.

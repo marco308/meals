@@ -44,7 +44,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 24
+PLAYBOOK_VERSION = 25
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -357,7 +357,10 @@ async def set_recipe_image(recipe: str, image_url: str) -> str:
     submit_recipe's image_url.
 
     Only the photo changes, but like any edit it marks the recipe as edited by
-    the household, so reparse_recipe will then refuse it without force=True."""
+    the household, so reparse_recipe will then refuse it without force=True.
+    A recipe whose image_uploaded is true has a photo the household uploaded
+    itself, and replacing or removing it deletes that photo for good: ask
+    before you do."""
     url = image_url.strip()
     try:
         found = (await _resolve_recipes([recipe]))[0]

@@ -173,6 +173,10 @@ class RecipeOut(BaseModel):
     prep_minutes: int | None
     cook_minutes: int | None
     image_url: str | None
+    # True when image_url is a photo the household uploaded to this server
+    # (PUT /recipes/{id}/photo) rather than a link to one hosted elsewhere:
+    # what tells an editor to offer "Remove photo" instead of a URL field.
+    image_uploaded: bool = False
     instructions: str | None
     tags: list[str]
     parse_source: str
@@ -205,6 +209,7 @@ class RecipeSummary(BaseModel):
     # Carried on the summary too so a library listing can show thumbnails
     # without a detail fetch per row.
     image_url: str | None
+    image_uploaded: bool = False
     tags: list[str]
     times_cooked: int
     last_cooked_at: datetime | None

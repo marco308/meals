@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated, Any, Self
 from urllib.parse import urlsplit
 
-from pydantic import BeforeValidator, model_validator
+from pydantic import BeforeValidator, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -28,6 +28,28 @@ def _blank_is_unset(value: object) -> object:
 # An int a deployment may leave unset, including by wiring it to an empty
 # `${VAR:-}` expansion. `None` is the only spelling of "unset" any reader sees.
 OptionalInt = Annotated[int | None, BeforeValidator(_blank_is_unset)]
+
+
+def _issuer_or_unset(value: object) -> object:
+    """`OIDC_ISSUER` exactly as the provider spells it, or unset.
+
+    Kept verbatim, trailing slash and all, because OpenID Connect compares the
+    issuer as a string: Authentik's ends in a slash and Keycloak's does not, and
+    the `iss` in every ID token has to match it character for character."""
+    value = _blank_is_unset(value)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("OIDC_ISSUER must be a URL")
+    value = value.strip()
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError(
+            "OIDC_ISSUER must be an absolute http(s) URL, such as https://auth.example.org/application/o/meals/"
+        )
+    if parts.query or parts.fragment or parts.username or parts.password:
+        raise ValueError("OIDC_ISSUER must not carry a query, a fragment or credentials")
+    return value
 
 
 def _json_object_or_unset(value: object) -> object:
@@ -177,6 +199,26 @@ class Settings(BaseSettings):
     oauth_refresh_token_ttl_days: Annotated[int, BlankIsDefault] = 30
     # An authorization code only has to survive one redirect and one POST.
     oauth_code_ttl_seconds: Annotated[int, BlankIsDefault] = 120
+
+    # Signing in through the operator's own identity provider (issue #93,
+    # decision Q33, `services/oidc.py`): Authentik, Authelia, Keycloak, Pocket
+    # ID or anything else that speaks OpenID Connect. **Off unless both
+    # OIDC_ISSUER and OIDC_CLIENT_ID are set**, and then it is a second front
+    # door beside email and password, never a replacement: it ends in the same
+    # session token `POST /auth/login` issues. The issuer is the operator's, so
+    # it may be on their own network, which is why it gets no public-address
+    # guard; the redirect URI to register with the provider is
+    # `<PUBLIC_URL>/auth/oidc/callback`. The secret is optional because a
+    # provider may register this server as a public client, and PKCE is sent
+    # either way.
+    oidc_issuer: Annotated[str | None, BeforeValidator(_issuer_or_unset)] = None
+    oidc_client_id: Annotated[str | None, BeforeValidator(_blank_is_unset)] = None
+    oidc_client_secret: Annotated[str | None, BeforeValidator(_blank_is_unset)] = None
+    # What the buttons call it: "Continue with Authentik".
+    oidc_provider_name: Annotated[str, BlankIsDefault] = "single sign-on"
+    oidc_scopes: Annotated[str, BlankIsDefault] = "openid email profile"
+    # One deadline for each call to the provider, connection to last byte.
+    oidc_timeout_seconds: Annotated[float, BlankIsDefault] = 10.0
 
     # Requests per minute per IP on the auth endpoints (public API hardening).
     auth_rate_limit_per_minute: int = 10
@@ -364,6 +406,10 @@ class Settings(BaseSettings):
     billing_api_timeout_seconds: float = 20.0
 
     @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id)
+
+    @property
     def billing_configured(self) -> bool:
         return bool(self.billing_processor and self.billing_webhook_secret)
 
@@ -408,6 +454,21 @@ class Settings(BaseSettings):
     # because the service may have to find and wake the printer first.
     label_service_url: str | None = None
     label_service_timeout_seconds: float = 30.0
+
+    # Recipe photo uploads (issue #280, Q32, `services/photos.py`). **Off
+    # unless RECIPE_PHOTO_UPLOADS_ENABLED is set**: `PUT /recipes/{id}/photo`
+    # then 404s and `GET /client-config` tells clients not to show a picker.
+    # On, a household may store one JPEG per recipe in this server's database,
+    # where the backups already reach, served at an unguessable URL that needs
+    # no sign-in. Set PUBLIC_URL with it: the URL is written into the recipe's
+    # `image_url` once, so it should name the origin every member reaches.
+    # Switching it off later stops new uploads only; stored photos are still
+    # served and can still be removed.
+    recipe_photo_uploads_enabled: Annotated[bool, BlankIsDefault] = False
+    # The most one upload may weigh, published on `/client-config`. It replaces
+    # MAX_REQUEST_BODY_BYTES on the upload route alone, so raising it does not
+    # raise what every other request may send.
+    recipe_photo_max_bytes: Annotated[PositiveInt, BlankIsDefault] = 1_048_576
 
     # A household's own AI assistant (services/assistant.py, Q29): a webhook
     # it sets in Settings, told when a recipe's cook-mode steps want writing.

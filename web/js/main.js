@@ -3,6 +3,7 @@
 
 import { api, session } from "./api.js";
 import { html, render, toast } from "./dom.js";
+import { finishSso } from "./sso.js";
 import { renderCookMode } from "./views/cook.js";
 import { renderFreezer } from "./views/freezer.js";
 import { renderIngredients } from "./views/ingredients.js";
@@ -94,6 +95,14 @@ function markActive(hash) {
 
 async function route() {
   const hash = window.location.hash || "#/plan";
+
+  // Back from the identity provider (sso.js), signed in or not yet: the
+  // handoff decides which, so it is looked at before anything else is.
+  const sso = hash.match(/^#\/sso\/([A-Za-z0-9_-]{1,128})$/);
+  if (sso) {
+    await finishSso(sso[1]);
+    return;
+  }
 
   if (!session.token) {
     contentRoot = null;

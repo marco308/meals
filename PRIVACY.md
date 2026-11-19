@@ -49,7 +49,10 @@ every picture it shows goes through.
 The server holds an account and a household:
 
 - **Your account** — email address, display name, a bcrypt hash of your
-  password (never the password), and the creation date.
+  password (never the password), and the creation date. If your server lets
+  you sign in through its own identity provider and you do, it also keeps
+  which provider, the identifier that provider uses for you, and when you last
+  signed in that way. Never your password there, which this server never sees.
 - **Access tokens** — stored as hashes, not as usable tokens. These are your
   app sign-in and any personal API tokens you create for AI assistants. If you
   connect an assistant by signing in to it instead (where a server offers
@@ -125,6 +128,9 @@ asked for:
   from that site, which sees your device's IP address. Delete the photo URL on a
   recipe if you'd rather it didn't. A photo you uploaded is not one of these: it
   is served by your own server, and no other site is involved.
+- **Signing in through an identity provider.** If you choose to, your browser
+  goes to the provider your server's operator set up, and the server then asks
+  that provider who signed in. Nothing about you goes the other way.
 - **Password reset emails.** If your server has email configured, a reset code
   is sent through its mail relay. If it isn't configured, password reset is
   simply unavailable.

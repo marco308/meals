@@ -151,6 +151,68 @@ SMTP_PASSWORD=<16-character app password>
 SMTP_FROM=you@gmail.com
 ```
 
+### Signing in through your identity provider (optional)
+
+If you already run single sign-on for everything else on the box (Authentik,
+Authelia, Keycloak, Pocket ID, anything that speaks OpenID Connect), people can
+sign in with it too. It is a second door beside email and password, not a
+replacement, and it ends in exactly the session a password login gets, so the
+iPhone app, the MCP server and API tokens never notice. Register YAMP with the
+provider as a confidential client (authorization code flow) whose redirect URI
+is `<PUBLIC_URL>/auth/oidc/callback`, then:
+
+```bash
+OIDC_ISSUER=https://auth.example.org/application/o/yamp/   # exactly as the provider publishes it
+OIDC_CLIENT_ID=...
+OIDC_CLIENT_SECRET=...          # leave unset for a public client; PKCE is sent either way
+OIDC_PROVIDER_NAME=Authentik    # what the buttons say; default "single sign-on"
+OIDC_SCOPES="openid email profile"   # default; the email scope is required
+PUBLIC_URL=https://meals.example.org # so the redirect URI is the one you registered
+```
+
+What it does, and what it deliberately doesn't (decision Q33):
+
+- **A first sign-in makes an account the way registering does**: a household of
+  its own, or the one an invite code belongs to (the Register tab passes the
+  code along). `REGISTRATION_ENABLED=false`, the signup rate and the instance
+  ceilings all apply, and an invite still gets past a closed server.
+- **People are matched by the provider's subject, never by email.** An address
+  that already has an account here is refused rather than joined; its owner
+  signs in with their password and links the provider from Settings.
+- **An account made this way has no password.** Deleting it, setting a password
+  or leaving a household that would go with it ask for a fresh sign-in at the
+  provider instead. A reset code still sets a password, which is the way back if
+  the provider is ever turned off.
+- **The OAuth consent page** (for connecting Claude to `/mcp`) offers the
+  provider too, and still has to be approved after coming back.
+
+The issuer is your own, so the server calls it wherever it is, on your network
+included. `GET /client-config` reports `oidc_enabled` and `oidc_provider_name`,
+and the iPhone app does not offer it yet.
+
+### Recipe photos (optional)
+
+Off by default. Turn it on and the app can upload a photo for a recipe (one
+each, JPEG), instead of only linking to a picture hosted elsewhere:
+
+```bash
+RECIPE_PHOTO_UPLOADS_ENABLED=true
+RECIPE_PHOTO_MAX_BYTES=1048576   # default; the upload route's own body limit
+PUBLIC_URL=https://meals.example.org
+```
+
+Photos live in the database, so the backups already carry them and deleting a
+recipe or an account takes its photo along. The server removes location and
+every other kind of metadata from each upload, whatever the client did. Each
+photo is served at a link with 256 random bits in it and no sign-in, because an
+image view cannot send a token: private to the household means private unless
+somebody has the link. Set `PUBLIC_URL` with it, since that link is written
+into the recipe once and has to work for everyone in the household.
+`GET /client-config` publishes `recipe_photo_uploads`, so clients only show a
+picker when it is on. Turning it off later stops new uploads; photos already
+stored are still served and can still be removed. The household export
+carries the photos themselves.
+
 ### Behind a reverse proxy
 
 The auth endpoints are rate-limited per client address (`AUTH_RATE_LIMIT_PER_MINUTE`,
@@ -179,11 +241,11 @@ URLs from `X-Forwarded-Proto` and `X-Forwarded-Host` (or `Host`), which is fine
 for a page reflected back to the same caller and not for the URLs it hands to
 somebody else: the OAuth metadata and the resource a sign-in is bound to, a
 billing checkout's return URLs, and the `/skill` and `/prompt-pack` an assistant
-follows. A proxy that passes a caller's `X-Forwarded-Host` through would let
+follows, and the redirect URI an identity provider sends people back to. A proxy that passes a caller's `X-Forwarded-Host` through would let
 them choose those. Set, every one of them uses `PUBLIC_URL` and ignores the
 headers; a separate MCP container takes the same value as `MEALS_PUBLIC_URL`.
 It is optional so an existing server keeps booting, but a server with
-`OAUTH_ENABLED` or a checkout logs a `config.public_url_unset` warning at
+`OAUTH_ENABLED`, a checkout or an identity provider logs a `config.public_url_unset` warning at
 startup until it is set.
 
 The app sends its own `X-Content-Type-Options`, `X-Frame-Options`,

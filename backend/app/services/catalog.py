@@ -81,13 +81,16 @@ async def update_recipe_from_payload(db: AsyncSession, recipe: Recipe, payload: 
     In place, because the recipe's id is what meals and their shopping-list
     contributions point at — re-parsing into a new row would strand every one
     of them. So everything that isn't the page's to say survives: the id, the
-    `source_url` cache key (Q3), and the cooked history.
+    `source_url` cache key (Q3), and the cooked history. So does a photo the
+    household uploaded (Q32): the page's picture is the page's to say only
+    while the recipe has none of its own.
     """
     recipe.title = payload.title.strip()
     recipe.servings = payload.servings
     recipe.prep_minutes = payload.prep_minutes
     recipe.cook_minutes = payload.cook_minutes
-    recipe.image_url = payload.image_url
+    if not recipe.image_uploaded:
+        recipe.image_url = payload.image_url
     recipe.instructions = payload.instructions
     recipe.tags = payload.tags
     await set_recipe_ingredients(db, recipe, payload.ingredients)

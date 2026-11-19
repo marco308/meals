@@ -49,6 +49,9 @@ EXEMPT_PREFIXES = (
     # And an attribution page that a licence upstream might one day depend on
     # is not something to put behind a client version.
     "/credits",
+    # An uploaded recipe photo (Q32) is a picture, not an API call: whatever
+    # loads it is showing something the household already has.
+    "/photos/",
 )
 
 

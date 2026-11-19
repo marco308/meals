@@ -14,6 +14,7 @@ endpoint exists at all:
 """
 
 import json
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -38,6 +39,7 @@ from app.models import (
     PlanMeal,
     Recipe,
     RecipeIngredient,
+    RecipePhoto,
     ShoppingList,
     Supermarket,
     User,
@@ -46,6 +48,13 @@ from app.services import export
 from tests.conftest import create_meal, create_plan, create_recipe, register
 
 PASSWORD = "a-strong-password"
+PHOTO = (Path(__file__).resolve().parents[1] / "fixtures" / "photo.jpg").read_bytes()
+
+
+@pytest.fixture(autouse=True)
+def uploads_on(settings_override):
+    """So that `furnish` can give the household an uploaded photo (Q32)."""
+    settings_override(RECIPE_PHOTO_UPLOADS_ENABLED="true")
 
 
 def headers(auth: dict) -> dict:
@@ -55,6 +64,8 @@ def headers(auth: dict) -> dict:
 async def furnish(client, *, extra: dict | None = None) -> dict:
     """One of everything, so an export has something of every kind in it."""
     recipe = await create_recipe(client, **(extra or {}))
+    photo = await client.put(f"/recipes/{recipe['id']}/photo", content=PHOTO, headers={"Content-Type": "image/jpeg"})
+    assert photo.status_code == 200, photo.text
     meal = await create_meal(
         client,
         name="Monday",
@@ -322,6 +333,9 @@ class TestNothingIsLeftBehind:
         Ingredient: {"household_id"},
         # When this server last asked an assistant is its own bookkeeping.
         Recipe: {"household_id", "cook_steps_requested_at"},
+        # The token names the photo on this server only, and the bytes are
+        # written as data_base64 because the document is JSON.
+        RecipePhoto: {"household_id", "token", "data"},
         # Link rows: their own id and their parent are implied by the nesting.
         RecipeIngredient: {"id", "recipe_id"},
         Meal: {"household_id"},
@@ -347,6 +361,7 @@ class TestNothingIsLeftBehind:
             User: doc["members"][0],
             Ingredient: doc["ingredients"][0],
             Recipe: recipe,
+            RecipePhoto: doc["recipe_photos"][0],
             RecipeIngredient: recipe["ingredients"][0],
             Meal: meal,
             MealRecipe: meal["recipes"][0],
