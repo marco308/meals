@@ -55,6 +55,27 @@ The display name, so other people in the household know who's who.
 Recipes, meals, plans, shopping lists and cooked history — the substance of the
 app.
 
+### User Content → Photos or Videos (from the build with the recipe photo picker)
+
+| Question | Answer |
+|---|---|
+| Used for | App Functionality |
+| Linked to the user's identity | Yes |
+| Used for tracking | No |
+
+A photo somebody picks for a recipe's cover (issue #280, decision Q32), sent to
+their server and stored there. **Change this in App Store Connect before the
+first build with the picker is submitted**, and declare it even though most
+servers, the hosted one included, have uploads switched off: the binary can
+send a photo, and the label describes the binary. Until that build, Photos stays
+in the list below.
+
+Two things keep the answer this small, and the iOS code has to keep them true:
+the picker is the system one (`PhotosPicker`), so the app never asks for photo
+library access and only ever receives the photo chosen; and the server strips
+location and every other metadata segment from the upload, so no Location
+label follows from it. [PRIVACY.md](../../PRIVACY.md) says both.
+
 ### Everything else — **not collected**
 
 Explicitly not, and worth being able to say so:
@@ -63,7 +84,8 @@ Explicitly not, and worth being able to say so:
 - No Usage Data (no analytics code in the app, first- or third-party)
 - No Diagnostics (no crash reporting SDK)
 - No Location, Contacts, Health, Financial Info, Purchases, Search History,
-  Browsing History, Sensitive Info, Photos, Audio
+  Browsing History, Sensitive Info, Audio
+- No Photos, until the build with the recipe photo picker (above)
 - No third-party SDKs at all, so nothing collects anything on our behalf
 
 **Why Location is "not collected" even though the app asks for it** (build 30,

@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 27 September 2026**
+**Last updated: 19 November 2026**
 
 YAMP is a meal planner that runs on a server: your own, or a hosted one. The
 iOS app is a client: it talks to whichever server you point it at, and to
@@ -21,6 +21,9 @@ That shape is the whole privacy story, so it is worth being precise about it.
 - If you run that server, you hold the data and nobody else can read it.
 - You can delete your account, and everything belonging to it, from inside the
   app.
+- A photo you upload for a recipe has its location, device and time **removed
+  by the server**, whatever your phone sent. See [Recipe photos you
+  upload](#recipe-photos-you-upload).
 - **No money changes hands anywhere in this project today**, and no payment
   details have ever reached it. See [Paying for hosting](#paying-for-hosting).
 
@@ -34,6 +37,12 @@ That shape is the whole privacy story, so it is worth being precise about it.
 | Shopping-list changes made offline | App container on disk | Queued until the server is reachable, then sent and discarded. Changes not yet sent when you sign out (or someone else signs in) stay on the device, and are only ever sent as the account and household that made them, once that account signs back in. Deleting your account in the app deletes them. |
 
 None of this leaves the device except to reach your server.
+
+If you give a recipe a photo of your own, the app sees only the photo you pick,
+when you pick it: it does not ask for access to your photo library and cannot
+look through it. That photo is made smaller on your phone and sent to your
+server, and the app keeps no copy of its own beyond the ordinary image cache
+every picture it shows goes through.
 
 ## What your server stores
 
@@ -52,6 +61,9 @@ The server holds an account and a household:
 - **Your household's content** — recipes, meals, plans, shopping lists,
   ingredient notes, which meals you have cooked, and the supermarkets you
   saved: each one's aisle order and, if you gave it one, where the store is.
+- **Recipe photos you upload**, where your server takes them: the picture
+  itself, its size, and when it was uploaded. Nothing else about it, as the
+  next section explains.
 
 **Where you are is never stored.** A supermarket's location is the shop's, and
 the server has no field that could hold yours. The iPhone app only ever sets it
@@ -61,25 +73,58 @@ store's. Any check of whether you are standing in a saved store happens on your
 phone, and your position goes nowhere.
 
 A household is the entire privacy boundary. Everyone in your household can see
-and edit all of its content; nobody outside it can see any of it. There are no
-roles and no administrator, so treat an invite code like a password.
+and edit all of its content; nobody outside it can see any of it, with the one
+exception of an uploaded photo's link, described next. There are no roles and
+no administrator, so treat an invite code like a password.
 
 Servers also keep ordinary web-server logs, which typically include IP
-addresses and request paths. How long those are kept is up to whoever runs the
-server.
+addresses and request paths. The one path this software never logs is an
+uploaded photo's, because that path is what keeps the photo private. How long
+logs are kept is up to whoever runs the server.
+
+## Recipe photos you upload
+
+A server can let you give a recipe a photo of your own, such as the one you
+took after cooking it, instead of only linking to a picture on another site.
+**This is off unless whoever runs the server turns it on**, and it is off on
+`meals.marcuslab.uk`. The app only offers it on a server that says it is on.
+
+Where it is on:
+
+- **The server removes everything about the photo except the picture.** A phone
+  photo usually records where it was taken, on what device and when. The server
+  strips all of that from every upload, whatever the app or anything else sent
+  it, before the photo is stored. It keeps the colour information the picture
+  needs to look right, and nothing more. Nothing about the picture itself is
+  changed.
+- **It is stored with the rest of your household's data**, on your server and in
+  its database, so it is covered by the same backups and goes when the rest
+  does.
+- **Anyone who has its link can see it, without signing in.** Picture views in
+  apps and browsers cannot sign in the way the rest of the app does, so each
+  photo is served at a link with a long random code in it, too long to guess.
+  The link is only ever given to your household, inside the recipe, but if
+  somebody in your household passes it on, whoever receives it can open the
+  photo. Replacing or removing the photo stops the old link working at once,
+  though nobody can take back a copy someone has already saved.
+- **One photo per recipe.** Uploading another replaces it. Pointing the recipe
+  at a picture on another site, or removing its picture, deletes the upload.
+- **Deleting the recipe deletes the photo**, and so does anything that deletes
+  the recipe: deleting the last account in a household, for instance.
 
 ## What leaves your server, and when
 
-Only three things ever cause an outbound request, and each one is something you
+Only these things ever cause an outbound request, and each one is something you
 asked for:
 
 - **Recipe import.** When you submit a recipe URL, the server fetches that page
   to read its structured recipe data. The site you named sees a request from
   your server.
-- **Recipe photos.** Imported recipes carry a photo URL from the original site.
-  When the app displays one, your device requests that image from that site,
-  which sees your device's IP address. Delete the photo URL on a recipe if you'd
-  rather it didn't.
+- **Photos linked from other sites.** Imported recipes carry a photo URL from
+  the original site. When the app displays one, your device requests that image
+  from that site, which sees your device's IP address. Delete the photo URL on a
+  recipe if you'd rather it didn't. A photo you uploaded is not one of these: it
+  is served by your own server, and no other site is involved.
 - **Password reset emails.** If your server has email configured, a reset code
   is sent through its mail relay. If it isn't configured, password reset is
   simply unavailable.
@@ -173,8 +218,8 @@ it, and the author is the data controller for what is stored there. See
 - **Delete your account** — Settings → Delete account, inside the app. It asks
   for your password and a typed confirmation, then deletes immediately: no
   grace period and no undo. Your sign-in and every API token you created are
-  removed. If you were the last person in your household, its recipes, meals,
-  plans, shopping list and cooked history go with it. If other people are still
+  removed. If you were the last person in your household, its recipes, recipe
+  photos, meals, plans, shopping list and cooked history go with it. If other people are still
   in the household, their shared content stays — it is theirs too.
 - **Leave a household** — Settings → Household → Leave. Your account, your
   password and your API tokens all survive; you land in a household of your own
@@ -184,8 +229,9 @@ it, and the author is the data controller for what is stored there. See
   ends your access to its recipes, plans and lists, and nothing else: your
   account is untouched and you keep everything signed in on it.
 - **Export your data** — one request returns everything your household owns as
-  a JSON file: recipes, ingredients, meals, plans, cooked history, saved
-  supermarkets and every shopping list including the archived ones.
+  a JSON file: recipes, the photos you uploaded for them, ingredients, meals,
+  plans, cooked history, saved supermarkets and every shopping list including
+  the archived ones.
 
   ```
   curl -H "Authorization: Bearer <your API token>" https://<your server>/household/export -O -J
