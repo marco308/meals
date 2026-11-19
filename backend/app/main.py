@@ -27,6 +27,7 @@ from app.routers import (
     ingredients,
     meals,
     oauth,
+    oidc,
     pages,
     plans,
     recipes,
@@ -263,6 +264,7 @@ app.middleware("http")(observability.request_logging_middleware)
 
 
 app.include_router(auth.router)
+app.include_router(oidc.router)
 app.include_router(ingredients.router)
 app.include_router(recipes.router)
 app.include_router(meals.router)
@@ -401,7 +403,12 @@ async def client_config() -> dict:
     what one household holds and have no way to take a penny, and almost every
     one does. It is the single answer to that question — a client that inferred
     it from the shape of the limits, or from a 404, would eventually disagree
-    with the server about it."""
+    with the server about it.
+
+    `oidc_enabled` says whether people can sign in through the operator's
+    identity provider (Q32), and `oidc_provider_name` what to call it on the
+    button ("Continue with Authentik"). A build that predates them never reads
+    them, so it simply never shows the button."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -411,6 +418,8 @@ async def client_config() -> dict:
         "password_reset_enabled": config.email_configured,
         "free_tier_limits": limits.free_tier_allowances(),
         "billing_enabled": config.billing_sells,
+        "oidc_enabled": config.oidc_enabled,
+        "oidc_provider_name": config.oidc_provider_name if config.oidc_enabled else None,
     }
 
 

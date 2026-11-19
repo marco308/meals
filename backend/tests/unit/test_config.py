@@ -51,6 +51,9 @@ BLANK_IS_DEFAULT = [
     ("OAUTH_ACCESS_TOKEN_TTL_MINUTES", "oauth_access_token_ttl_minutes"),
     ("OAUTH_REFRESH_TOKEN_TTL_DAYS", "oauth_refresh_token_ttl_days"),
     ("OAUTH_CODE_TTL_SECONDS", "oauth_code_ttl_seconds"),
+    ("OIDC_PROVIDER_NAME", "oidc_provider_name"),
+    ("OIDC_SCOPES", "oidc_scopes"),
+    ("OIDC_TIMEOUT_SECONDS", "oidc_timeout_seconds"),
 ]
 
 # A real value for each, different from the default, so "blank falls back" and
@@ -71,6 +74,9 @@ SET_VALUES = {
     "OAUTH_ACCESS_TOKEN_TTL_MINUTES": ("15", 15),
     "OAUTH_REFRESH_TOKEN_TTL_DAYS": ("7", 7),
     "OAUTH_CODE_TTL_SECONDS": ("60", 60),
+    "OIDC_PROVIDER_NAME": ("Authentik", "Authentik"),
+    "OIDC_SCOPES": ("openid email", "openid email"),
+    "OIDC_TIMEOUT_SECONDS": ("3.5", 3.5),
 }
 
 
@@ -308,3 +314,28 @@ class TestUnpinnedOriginWarning:
             # Booleans only, never the origin or any other URL.
             assert isinstance(record.oauth_enabled, bool)
             assert isinstance(record.billing_sells, bool)
+
+
+class TestOidcIssuer:
+    """`OIDC_ISSUER` is compared character for character with the `iss` of
+    every ID token, so it is kept exactly as given and only refused when it
+    could never be an issuer."""
+
+    @pytest.mark.parametrize(
+        "issuer",
+        ["https://auth.example.org/application/o/yamp/", "https://kc.example.org/realms/home", "http://idp.lan:9000"],
+    )
+    def test_kept_verbatim(self, monkeypatch, issuer):
+        assert _settings(monkeypatch, OIDC_ISSUER=issuer).oidc_issuer == issuer
+
+    @pytest.mark.parametrize(
+        "issuer", ["auth.example.org", "ftp://auth.example.org", "https://a.example/?x=1", "https://u:p@a.example"]
+    )
+    def test_refused_when_it_cannot_be_an_issuer(self, monkeypatch, issuer):
+        with pytest.raises(ValueError, match="OIDC_ISSUER"):
+            _settings(monkeypatch, OIDC_ISSUER=issuer)
+
+    def test_off_until_both_halves_are_set(self, monkeypatch):
+        assert not _settings(monkeypatch, OIDC_ISSUER="https://a.example/", OIDC_CLIENT_ID="").oidc_enabled
+        assert not _settings(monkeypatch, OIDC_ISSUER="", OIDC_CLIENT_ID="yamp").oidc_enabled
+        assert _settings(monkeypatch, OIDC_ISSUER="https://a.example/", OIDC_CLIENT_ID="yamp").oidc_enabled

@@ -5,6 +5,7 @@
 
 import { api, session } from "../api.js";
 import { html, render, toast } from "../dom.js";
+import { goToProvider } from "../sso.js";
 
 let mode = "signin"; // signin | register | reset
 let joinMode = "new"; // new | invite
@@ -21,6 +22,7 @@ export function renderLogin(root) {
           <button data-mode="register" class="${mode === "register" ? "on" : ""}">Register</button>
         </div>
         <form data-form>${formBody()}</form>
+        <div data-sso></div>
         <div data-allowances></div>
         <p class="login-foot" data-foot></p>
       </div>
@@ -42,6 +44,7 @@ export function renderLogin(root) {
   }
 
   paintFoot(root);
+  paintSso(root);
   paintAllowances(root);
   loadConfig(root);
 
@@ -108,6 +111,7 @@ function loadConfig(root) {
     })
     .finally(() => {
       paintFoot(root);
+      paintSso(root);
       paintAllowances(root);
     });
 }
@@ -126,6 +130,57 @@ function paintAllowances(root) {
       <ul>${rows.map(([name, phrase]) => html`<li>${phrase(allowances[name])}</li>`)}</ul>
     </div>
   `);
+}
+
+// ── the operator's identity provider (Q32) ────────────────────────────────
+//
+// Offered only where /client-config says so, which an older server never does.
+// Registering through it reads the same household-name and invite-code fields
+// the password form has, because a first sign-in makes exactly the account
+// POST /auth/register would: a household of its own, or the invite's.
+
+function paintSso(root) {
+  const slot = root.querySelector("[data-sso]");
+  if (!slot) return;
+  if (!config?.oidc_enabled || mode === "reset") {
+    render(slot, html``);
+    return;
+  }
+  const name = config.oidc_provider_name || "single sign-on";
+  const label =
+    mode === "signin"
+      ? `Continue with ${name}`
+      : joinMode === "new"
+        ? `Start a household with ${name}`
+        : `Join with ${name}`;
+  render(slot, html`
+    <div class="sso">
+      <span class="sso-or">or</span>
+      <button class="btn ghost" type="button" data-sso-go>${label}</button>
+    </div>
+  `);
+  slot.querySelector("[data-sso-go]").onclick = async (event) => {
+    const form = root.querySelector("[data-form]");
+    const body = {};
+    if (mode === "register" && joinMode === "invite") {
+      const code = form.querySelector("[name=invite_code]")?.value.trim();
+      if (!code) {
+        toast("Enter the invite code first, then continue.", "error");
+        return;
+      }
+      body.invite_code = code;
+    } else if (mode === "register") {
+      const household = form.querySelector("[name=household_name]")?.value.trim();
+      if (household) body.household_name = household;
+    }
+    event.target.disabled = true;
+    try {
+      await goToProvider("/auth/oidc/start", body);
+    } catch (error) {
+      event.target.disabled = false;
+      toast(error.detail || error.message, "error");
+    }
+  };
 }
 
 // The foot's buttons are bound here rather than in renderLogin because a

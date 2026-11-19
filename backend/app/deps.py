@@ -2,7 +2,7 @@ import ipaddress
 import time
 import uuid
 from collections import deque
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -68,6 +68,7 @@ async def get_current_user(
     # (`POST /auth/logout` deletes the row it was presented with).
     request.state.token_kind = token.kind
     request.state.token_id = token.id
+    request.state.token_created_at = token.created_at
     return token.user
 
 
@@ -103,6 +104,48 @@ async def get_session_user(request: Request, user: CurrentUser) -> User:
 
 
 SessionUser = Annotated[User, Depends(get_session_user)]
+
+
+# ------------------------------------------------------ confirming without one
+
+#: How long a sign-in counts as "just now" for an account with no password.
+REAUTH_WINDOW = timedelta(minutes=10)
+
+
+def signed_in_recently(request: Request) -> bool:
+    """Whether this request carries a session minted in the last
+    `REAUTH_WINDOW`.
+
+    Deleting an account, and the move that would delete a household, ask for
+    the password, which is what stops somebody holding only a copied token
+    from doing either. An account made through the identity provider (Q32) has
+    no password to ask for, so it confirms by signing in there again
+    (`POST /auth/oidc/reauth`, which asks the provider for a fresh login), and
+    the session that trip returns is what this recognises. Nothing else mints
+    a session for a passwordless account, so "a new session" and "a fresh
+    sign-in at the provider" are the same thing for every account this is
+    asked about.
+    """
+    if getattr(request.state, "token_kind", None) != "session":
+        return False
+    created = getattr(request.state, "token_created_at", None)
+    return created is not None and datetime.now(UTC) - as_aware(created) < REAUTH_WINDOW
+
+
+def sign_in_again(action: str) -> str:
+    """The refusal a passwordless account gets for something a password would
+    otherwise confirm, true whether or not the provider is still configured."""
+    settings = get_settings()
+    if not settings.oidc_enabled:
+        return (
+            f"your account has no password, and this server no longer signs anybody in through an identity "
+            f"provider, so {action} needs a password first: set one with a reset code (POST /auth/password-reset)"
+        )
+    return (
+        f"your account signs in through {settings.oidc_provider_name} and has no password, so {action} is "
+        f"confirmed by signing in there again instead. Do that (POST /auth/oidc/reauth; on the web, the button "
+        f"beside this) and try again within {int(REAUTH_WINDOW.total_seconds() // 60)} minutes"
+    )
 
 
 # ---------------------------------------------------------------- rate limiting

@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -161,7 +161,12 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id"))
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(200))
+    # Null for an account made by signing in through the operator's identity
+    # provider (Q32), which has never had a password. Every reader treats that
+    # as a password nothing matches: `verify_password(pw, None)` is False, and
+    # the places that ask for one to confirm something take a fresh sign-in at
+    # the provider instead (`deps.signed_in_recently`).
+    password_hash: Mapped[str | None] = mapped_column(String(200), default=None)
     display_name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # When this address was shown to be theirs, by a code sent to it (Q26).
@@ -171,6 +176,10 @@ class User(Base):
 
     household: Mapped[Household] = relationship(back_populates="users", lazy="selectin", foreign_keys=[household_id])
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def has_password(self) -> bool:
+        return self.password_hash is not None
 
     @property
     def email_verification_pending(self) -> bool:
@@ -255,6 +264,84 @@ class OAuthGrant(Base):
     code_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     code_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserIdentity(Base):
+    """An account at the operator's OpenID Connect provider that signs in as
+    this user (Q32).
+
+    Keyed by `(issuer, subject)` and nothing else: OpenID Connect promises that
+    `sub` is the one stable identifier, while an email claim can change and on
+    some providers was never checked. So an address is used once, to fill in a
+    new account, and never to decide which account somebody is. An existing
+    password account gains a row only by linking from Settings while signed in,
+    never by a matching address.
+
+    One per provider per user, so "which Authentik account is this?" has a
+    single answer, and CASCADE because the row means nothing without its user
+    (`services/accounts.py` deletes it explicitly first all the same)."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_user_identities_issuer_subject"),
+        UniqueConstraint("user_id", "issuer", name="uq_user_identities_user_issuer"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    issuer: Mapped[str] = mapped_column(String(500))
+    subject: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class OidcFlow(Base):
+    """One trip to the identity provider and back (Q32), alive for minutes.
+
+    Started by a button, it holds what the return needs: the `state` that names
+    it (hashed, like every secret here), the nonce the ID token must carry, the
+    PKCE verifier, and a hash of the cookie the browser was given, so a return
+    in any other browser is refused (that is what stops somebody signing a
+    victim in as themselves). What it was *for* is `intent`:
+
+    - `signin`: find the account this identity signs in as, or make one, with
+      the invite code or household name the person gave before they left;
+    - `link`: add this identity to `user_id`, who started it signed in;
+    - `reauth`: prove `user_id` is still at the keyboard, for the few things a
+      password would otherwise confirm;
+    - `connect`: approve an OAuth client for the remote MCP (Q27), whose
+      request waits in `payload` meanwhile.
+
+    The callback does the work and leaves its answer here, either `result_user_id`
+    or a human sentence in `error`, behind a one-time `handoff` code. Handing
+    that back to the browser, rather than a session token, keeps every token out
+    of URLs: the web app trades it with `POST /auth/oidc/complete`, in the same
+    browser, for whatever the trip earned."""
+
+    __tablename__ = "oidc_flows"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    browser_hash: Mapped[str] = mapped_column(String(64))
+    intent: Mapped[str] = mapped_column(String(20))
+    nonce: Mapped[str] = mapped_column(String(64))
+    code_verifier: Mapped[str] = mapped_column(String(128))
+    redirect_uri: Mapped[str] = mapped_column(String(500))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), default=None)
+    # The invite code's hash, never the code: the same lookup `_find_invite`
+    # makes, done when the person is back.
+    invite_code_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    household_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    payload: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    handoff_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
+    result_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    error_status: Mapped[int | None] = mapped_column(Integer, default=None)
+    # Said alongside a success: an invite that went unused because the person
+    # already had an account, say.
+    notice: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 class HouseholdInvite(Base):

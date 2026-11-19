@@ -13,7 +13,7 @@ ask for each of those live in the router; what is here is what the answer costs.
 
 import uuid
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -25,11 +25,13 @@ from app.models import (
     Ingredient,
     Meal,
     OAuthGrant,
+    OidcFlow,
     Plan,
     Recipe,
     ShoppingList,
     Supermarket,
     User,
+    UserIdentity,
 )
 
 
@@ -209,6 +211,8 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     await db.execute(update(Household).where(Household.billing_user_id.in_(members)).values(billing_user_id=None))
     await db.execute(delete(AuthToken).where(AuthToken.user_id.in_(members)))
     await db.execute(delete(OAuthGrant).where(OAuthGrant.user_id.in_(members)))
+    await db.execute(delete(UserIdentity).where(UserIdentity.user_id.in_(members)))
+    await db.execute(delete(OidcFlow).where(or_(OidcFlow.user_id.in_(members), OidcFlow.result_user_id.in_(members))))
     await db.execute(delete(User).where(User.household_id == household_id))
     await db.execute(delete(Household).where(Household.id == household_id))
 
@@ -250,5 +254,9 @@ async def delete_user(db: AsyncSession, user: User) -> bool:
     # leaving a stale credential behind would matter.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))
     await db.execute(delete(OAuthGrant).where(OAuthGrant.user_id == user.id))
+    # And the ways in through the identity provider (Q32), with any trip
+    # there still in flight for them.
+    await db.execute(delete(UserIdentity).where(UserIdentity.user_id == user.id))
+    await db.execute(delete(OidcFlow).where(or_(OidcFlow.user_id == user.id, OidcFlow.result_user_id == user.id)))
     await db.delete(user)
     return False

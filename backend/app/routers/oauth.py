@@ -43,18 +43,21 @@ person had to press.
 import base64
 import binascii
 import contextlib
+import json
+from datetime import UTC, datetime
 from html import escape
 from typing import Annotated
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.config import get_settings
-from app.deps import DbSession, auth_rate_limit, forgive_auth_attempt
-from app.models import User
+from app.deps import DbSession, as_aware, auth_rate_limit, forgive_auth_attempt
+from app.models import OidcFlow, User
 from app.observability import log_event
+from app.routers import oidc as oidc_router
 from app.routers.pages import _ICON, _STYLE
 from app.routers.skill import base_url
 from app.services import oauth
@@ -215,9 +218,9 @@ def _error_page(message: str, status_code: int = 400) -> HTMLResponse:
     )
 
 
-def _consent_page(
-    client: oauth.Client, params: dict[str, str], *, error: str | None = None, email: str = ""
-) -> HTMLResponse:
+def _consent_card(client: oauth.Client, params: dict[str, str]) -> str:
+    """Who is asking, where the code will go, and what it will be able to do:
+    the part of the page that is the same however the person signs in."""
     name = escape(client.name)
     back_to = escape(urlsplit(params["redirect_uri"]).hostname or "")
     if client.verified_host is not None:
@@ -233,20 +236,43 @@ def _consent_page(
             "<p class='warn'>That is an app running on this computer, not a website. Only continue if you started "
             "connecting one on this computer just now.</p>"
         )
-    hidden = "".join(
-        f"<input type='hidden' name='{field}' value='{escape(params[field])}'>"
-        for field in _FIELDS
-        if params.get(field)
-    )
-    problem = f"<p class='error'>{escape(error)}</p>" if error else ""
-    return _html(
-        f"Connect {client.name}",
+    return (
         f"<h1>Connect {name} to YAMP?</h1>"
         f"<div class='card'>{who}{where}"
         "<p>It will be able to do anything you can do in YAMP, for as long as it stays connected: read and change "
         "your household's recipes, meals, plans, shopping list and freezer. It can't create API tokens, and changing "
         "your password ends the connection.</p></div>"
-        f"{problem}"
+    )
+
+
+def _hidden(params: dict[str, str]) -> str:
+    return "".join(
+        f"<input type='hidden' name='{field}' value='{escape(params[field])}'>"
+        for field in _FIELDS
+        if params.get(field)
+    )
+
+
+def _consent_page(
+    client: oauth.Client, params: dict[str, str], *, error: str | None = None, email: str = ""
+) -> HTMLResponse:
+    hidden = _hidden(params)
+    problem = f"<p class='error'>{escape(error)}</p>" if error else ""
+    settings = get_settings()
+    # Q32: an account made through the identity provider has no password to
+    # type here, so the provider is offered beside the form. Pressing it signs
+    # in there and comes back to a page that still has to be approved.
+    sso = (
+        "<form method='post' action='/oauth/authorize/sso'>"
+        f"{hidden}"
+        f"<div class='actions'><button type='submit'>Continue with {escape(settings.oidc_provider_name)}</button>"
+        "</div></form>"
+        if settings.oidc_enabled
+        else ""
+    )
+    return _html(
+        f"Connect {client.name}",
+        _consent_card(client, params) + f"{problem}"
         "<form method='post' action='/oauth/authorize'>"
         f"{hidden}"
         "<label for='email'>Email</label>"
@@ -257,6 +283,7 @@ def _consent_page(
         "<button class='primary' type='submit' name='decision' value='approve'>Approve</button>"
         "<button type='submit' name='decision' value='deny' formnovalidate>Cancel</button>"
         "</div></form>"
+        f"{sso}"
         "<p class='muted'>Your password is sent to this server only, never to the app.</p>",
     )
 
@@ -364,6 +391,144 @@ async def approve(request: Request, db: DbSession) -> Response:
     user_id, household_id = user.id, user.household_id
     await db.commit()
     log_event("oauth.authorized", user_id=user_id, household_id=household_id, client_type=client.kind)
+    return _redirect(redirect_uri, code=code, state=params.get("state"), iss=issuer)
+
+
+# ------------------------------------------------- through the identity provider
+#
+# Q32. The password form above is CSRF-proof because a page on another site
+# cannot know the password. Signing in at the provider has no such property: a
+# person already signed in there may be sent straight back. So the return is
+# never an approval by itself. It lands on a page of its own, which names who
+# was signed in and still has to be approved, and that page's form carries the
+# trip's one-time handoff, which only the browser that made the trip was given.
+
+
+def _require_oidc() -> None:
+    if not get_settings().oidc_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+async def _returned(db: DbSession, request: Request, handoff: str | None):
+    """The connect trip a handoff names, if it is alive and this browser's."""
+    if not handoff or len(handoff) > 128:
+        return None
+    flow = (await db.execute(oidc_router.handoff_flow_query(handoff))).scalar_one_or_none()
+    if flow is None or as_aware(flow.expires_at) <= datetime.now(UTC) or not oidc_router.same_browser(request, flow):
+        return None
+    if flow.result_user_id is None and flow.error is None:
+        return None
+    return flow
+
+
+def _trip_params(flow) -> dict:
+    try:
+        params = json.loads(flow.payload or "{}")
+    except ValueError:
+        params = {}
+    params = {key: value for key, value in params.items() if key in _FIELDS and isinstance(value, str)}
+    params["_resources"] = [params["resource"]] if params.get("resource") else []
+    return params
+
+
+_TRIP_OVER = "That sign-in has expired or was already used. Go back to the app and start connecting again"
+
+
+@router.post("/oauth/authorize/sso", dependencies=[Depends(_require_oidc)])
+async def approve_via_provider(request: Request, db: DbSession) -> Response:
+    """Leave the consent page for the identity provider, keeping the request."""
+    form = await request.form()
+    params: dict = {key: value for key, value in form.items() if isinstance(value, str)}
+    params["_resources"] = form.getlist("resource")
+    checked = await _checked(request, params)
+    if isinstance(checked, Response):
+        return checked
+    try:
+        auth_rate_limit(request)
+    except HTTPException:
+        return _error_page("Too many attempts from here; wait a minute and try again", status_code=429)
+    kept = json.dumps({field: params[field] for field in _FIELDS if params.get(field)})
+    try:
+        url, browser = await oidc_router.start_flow(db, request, intent="connect", payload=kept)
+    except HTTPException as exc:
+        return _error_page(str(exc.detail).rstrip("."), status_code=exc.status_code)
+    response = RedirectResponse(url, status_code=303, headers=_NO_STORE)
+    oidc_router.bind_browser(response, request, browser)
+    return response
+
+
+@router.get("/oauth/authorize/sso", dependencies=[Depends(_require_oidc)])
+async def returned_from_provider(request: Request, db: DbSession, flow: str | None = None) -> Response:
+    """Back from the identity provider: say who was signed in, and ask."""
+    trip = await _returned(db, request, flow)
+    if trip is None:
+        return _error_page(_TRIP_OVER)
+    if trip.error is not None:
+        message = trip.error
+        await db.delete(trip)
+        await db.commit()
+        return _error_page(message[:1].upper() + message[1:].rstrip("."))
+    params = _trip_params(trip)
+    checked = await _checked(request, params)
+    if isinstance(checked, Response):
+        return checked
+    client, _ = checked
+    user = await db.get(User, trip.result_user_id)
+    if user is None:
+        return _error_page(_TRIP_OVER)
+    provider = escape(get_settings().oidc_provider_name)
+    return _html(
+        f"Connect {client.name}",
+        _consent_card(client, params)
+        + f"<p>You signed in through {provider} as <strong>{escape(user.display_name)}</strong> "
+        f"({escape(user.email)}).</p>"
+        "<form method='post' action='/oauth/authorize/sso/approve'>"
+        f"<input type='hidden' name='flow' value='{escape(flow or '')}'>"
+        "<div class='actions'>"
+        "<button class='primary' type='submit' name='decision' value='approve'>Approve</button>"
+        "<button type='submit' name='decision' value='deny'>Cancel</button>"
+        "</div></form>",
+    )
+
+
+@router.post("/oauth/authorize/sso/approve", dependencies=[Depends(_require_oidc)])
+async def approve_returned(request: Request, db: DbSession) -> Response:
+    form = await request.form()
+    handoff = form.get("flow")
+    trip = await _returned(db, request, handoff if isinstance(handoff, str) else None)
+    if trip is None or trip.error is not None:
+        return _error_page(_TRIP_OVER)
+    params = _trip_params(trip)
+    user_id = trip.result_user_id
+    # Spent before anything is issued: one approval per trip.
+    spent = await db.execute(
+        delete(OidcFlow).where(OidcFlow.id == trip.id).execution_options(synchronize_session=False)
+    )
+    if spent.rowcount != 1:
+        await db.rollback()
+        return _error_page(_TRIP_OVER)
+    await db.commit()
+    checked = await _checked(request, params)
+    if isinstance(checked, Response):
+        return checked
+    client, resource = checked
+    redirect_uri = params["redirect_uri"]
+    issuer = _issuer(request)
+    if form.get("decision") != "approve":
+        return _redirect(
+            redirect_uri,
+            error="access_denied",
+            error_description="the person declined to connect",
+            state=params.get("state"),
+            iss=issuer,
+        )
+    user = await db.get(User, user_id)
+    if user is None:
+        return _error_page(_TRIP_OVER)
+    code = await oauth.create_grant(db, user, client, redirect_uri, resource, params["code_challenge"])
+    household_id = user.household_id
+    await db.commit()
+    log_event("oauth.authorized", user_id=user_id, household_id=household_id, client_type=client.kind, via="oidc")
     return _redirect(redirect_uri, code=code, state=params.get("state"), iss=issuer)
 
 

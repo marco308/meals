@@ -884,7 +884,7 @@ async def _claim_event_time(db: AsyncSession, event: Incoming, household: Househ
     """Move the household's newest-event time to this event's, or answer False
     if a newer one has been applied since `_out_of_scope` looked (#260).
 
-    One conditional UPDATE, the shape `_claim_invite` uses, because the read in
+    One conditional UPDATE, the shape `claim_invite` uses, because the read in
     `_out_of_scope` and the write that follows it are two statements, and on
     SQLite, where a SELECT takes no lock, another delivery can commit between
     them. The UPDATE takes the write lock, and its WHERE is evaluated against

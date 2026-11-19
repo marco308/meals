@@ -889,6 +889,13 @@ table.plain tr:last-child td { border-bottom: 0; }
 /* A server with no SMTP has no reset link to offer, so the foot can be empty
    on the sign-in tab — don't leave its margin behind. */
 .login-foot:empty { display: none; }
+/* "or Continue with Authentik" (Q32): a rule either side of the word, so it
+   reads as a second door rather than a second step. Empty on a server that
+   offers no identity provider. */
+.sso { margin-top: .9rem; }
+.sso-or { display: flex; align-items: center; gap: .7rem; color: var(--ink-mute); font-size: .82rem; }
+.sso-or::before, .sso-or::after { content: ""; flex: 1; border-top: 1px solid var(--line-2); }
+[data-sso]:empty { display: none; }
 
 .seg { display: flex; gap: .3rem; background: var(--cream-2); border-radius: 999px; padding: .22rem; margin-bottom: 1rem; }
 .seg button { flex: 1; border: 0; background: none; padding: .35rem .5rem; border-radius: 999px; font-weight: 600; font-size: .85rem; color: var(--ink-mute); cursor: pointer; }

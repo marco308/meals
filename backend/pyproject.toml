@@ -18,6 +18,9 @@ dependencies = [
     "aiosmtplib>=3.0",
     "markdown-it-py>=3.0",
     "prometheus-client>=0.26.0",
+    # Checks the ID token an identity provider signs (services/oidc.py, Q32).
+    # `crypto` pulls in cryptography for RSA, EC and EdDSA keys.
+    "pyjwt[crypto]>=2.10",
     # The MCP server, mounted at /mcp so one container is the whole product
     # (app/mcp_mount.py). It stays a separate package with its own image and
     # its own tests: this is a path dependency, not a merge.
