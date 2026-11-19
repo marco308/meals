@@ -19,6 +19,8 @@ from app.deps import (
     forgive_auth_attempt,
     refund_signup,
     require_verified_email,
+    sign_in_again,
+    signed_in_recently,
 )
 from app.models import AuthToken, Household, HouseholdInvite, User
 from app.observability import log_event
@@ -84,7 +86,7 @@ async def _find_user(db: DbSession, email: str) -> User | None:
     return (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
 
 
-async def _email_taken(db: DbSession, email: str) -> bool:
+async def email_taken(db: AsyncSession, email: str) -> bool:
     """Whether this address is spoken for, asked before anything is written."""
     return await _find_user(db, email) is not None
 
@@ -138,15 +140,21 @@ async def _find_invite(db: DbSession, code: str) -> HouseholdInvite:
 
     This only *reads*: it is how a request learns early that a code is no good.
     Two requests holding the same code can both get past it, so it is not what
-    makes a code single-use. That is `_claim_invite`'s job."""
-    result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == hash_short_code(code)))
+    makes a code single-use. That is `claim_invite`'s job."""
+    return await find_invite_by_hash(db, hash_short_code(code))
+
+
+async def find_invite_by_hash(db: AsyncSession, code_hash: str) -> HouseholdInvite:
+    """`_find_invite` for a code that was hashed earlier: a sign-in through the
+    identity provider keeps only the hash while the person is away (Q33)."""
+    result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == code_hash))
     invite = result.scalar_one_or_none()
     if invite is None or invite.accepted_at is not None or as_aware(invite.expires_at) <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail=INVITE_INVALID)
     return invite
 
 
-async def _claim_invite(db: DbSession, invite: HouseholdInvite, user_id: uuid.UUID) -> None:
+async def claim_invite(db: AsyncSession, invite: HouseholdInvite, user_id: uuid.UUID) -> None:
     """Spend an invite on `user_id`, or raise the same 400 as an unknown code.
 
     One conditional UPDATE rather than a read and then a write, because only
@@ -175,7 +183,7 @@ async def _claim_invite(db: DbSession, invite: HouseholdInvite, user_id: uuid.UU
         raise HTTPException(status_code=400, detail=INVITE_INVALID)
 
 
-def _session_token(user: User) -> AuthToken:
+def session_token(user: User) -> AuthToken:
     plain, token_hash = generate_token()
     ttl = timedelta(days=get_settings().session_token_ttl_days)
     token = AuthToken(user_id=user.id, token_hash=token_hash, kind="session", expires_at=datetime.now(UTC) + ttl)
@@ -235,12 +243,12 @@ async def register(
         # a request that was going to be turned away still costs nobody.
         charge_signup(request)
     try:
-        if await _email_taken(db, email):
+        if await email_taken(db, email):
             raise HTTPException(status_code=409, detail=EMAIL_TAKEN)
 
         # Last, and before anything is written: a refusal here must leave no
         # half-made household behind and, for an invited caller, must leave
-        # their code unredeemed. Nothing spends it until `_claim_invite`, below.
+        # their code unredeemed. Nothing spends it until `claim_invite`, below.
         await limits.admit_registration(db, invited=invite is not None)
         if invite is not None:
             # An invite can outlive the headroom that justified it, so the
@@ -274,14 +282,14 @@ async def register(
         if invite is not None:
             # In this transaction, so the account and the spent code commit
             # together or not at all.
-            await _claim_invite(db, invite, user.id)
+            await claim_invite(db, invite, user.id)
         else:
             # Whoever starts a household leads it (Q23). Joining by invite never
             # changes the lead — that is the whole point of the invite being
             # theirs to issue.
             household.lead_user_id = user.id
             await db.flush()
-        token = _session_token(user)
+        token = session_token(user)
         db.add(token)
         await db.commit()
     except IntegrityError:
@@ -302,11 +310,11 @@ async def register(
     if get_settings().email_configured:
         # After the response, like a reset code: a slow relay must not hold up
         # the signup, and a failed send leaves a resend to fall back on.
-        background.add_task(_send_verification_code, db.bind, user.id)
+        background.add_task(send_verification_code, db.bind, user.id)
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
 
-async def _send_verification_code(bind: AsyncEngine | AsyncConnection | None, user_id: uuid.UUID) -> bool:
+async def send_verification_code(bind: AsyncEngine | AsyncConnection | None, user_id: uuid.UUID) -> bool:
     """Mint a verification code for this account and email it. Returns whether
     the relay took it.
 
@@ -423,7 +431,7 @@ async def resend_verification(user: CurrentUser, db: DbSession, _: None = Depend
         )
     user_id, email = user.id, user.email
     await db.commit()  # hand the pooled connection back before talking to the relay
-    if not await _send_verification_code(db.bind, user_id):
+    if not await send_verification_code(db.bind, user_id):
         raise HTTPException(
             status_code=503,
             detail="the code couldn't be sent just now; try again in a few minutes",
@@ -448,18 +456,30 @@ async def login(payload: LoginIn, request: Request, db: DbSession, _: None = Dep
         # A run of these is what brute force looks like before the rate limit
         # trips (auth.rate_limited in deps.py).
         log_event("auth.login_failed")
+        settings = get_settings()
+        if settings.oidc_enabled:
+            # Said to every failure alike, so it reveals nothing about which
+            # addresses have a password: an account made through the provider
+            # has none, and this is the sentence its owner needs.
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    f"incorrect email or password. If you signed up with {settings.oidc_provider_name}, "
+                    f"use Continue with {settings.oidc_provider_name} instead"
+                ),
+            )
         raise HTTPException(status_code=401, detail="incorrect email or password")
     # Right password: this wasn't an attack, so don't spend the caller's budget
     # on it. Someone retrying a flaky sign-in must not lock themselves out.
     forgive_auth_attempt(request)
-    await _purge_expired_sessions(db, user.id)
-    token = _session_token(user)
+    await purge_expired_sessions(db, user.id)
+    token = session_token(user)
     db.add(token)
     await db.commit()
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
 
 
-async def _purge_expired_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+async def purge_expired_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
     """Drop this account's session rows that can no longer authenticate.
 
     Nothing reads an expired row again (`get_current_user` refuses it), so the
@@ -500,7 +520,7 @@ async def logout(request: Request, user: CurrentUser, db: DbSession, payload: Lo
     if not everywhere:
         condition = (*condition, AuthToken.id == request.state.token_id)
     await db.execute(delete(AuthToken).where(*condition))
-    await _purge_expired_sessions(db, user.id)
+    await purge_expired_sessions(db, user.id)
     await db.commit()
     log_event("auth.logged_out", user_id=user.id, everywhere=everywhere)
 
@@ -520,16 +540,27 @@ async def change_password(
     rotating a password shouldn't silently break every AI client. Revoke those
     via DELETE /auth/tokens/{id}. OAuth connections (an assistant connected
     through the sign-in page, Q27) do not survive: each was approved by typing
-    this password, so whoever else knew it could have made one."""
-    if not await verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=401, detail="current password is incorrect")
-    if payload.current_password == payload.new_password:
-        raise HTTPException(status_code=400, detail="new password must be different from the current one")
-    forgive_auth_attempt(request)  # current password checked out; not a brute-force attempt
+    this password, so whoever else knew it could have made one.
+
+    An account made through the identity provider (Q33) has no current
+    password, so it leaves `current_password` out and sets its first one by
+    having signed in there in the last few minutes (`POST /auth/oidc/reauth`).
+    """
+    if not user.has_password:
+        if not signed_in_recently(request):
+            raise HTTPException(status_code=403, detail=sign_in_again("setting a password"))
+    else:
+        if payload.current_password is None:
+            raise HTTPException(status_code=401, detail="send your current password as current_password")
+        if not await verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status_code=401, detail="current password is incorrect")
+        if payload.current_password == payload.new_password:
+            raise HTTPException(status_code=400, detail="new password must be different from the current one")
+        forgive_auth_attempt(request)  # current password checked out; not a brute-force attempt
     user.password_hash = await hash_password(payload.new_password)
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("session", "reset"))))
     await oauth.revoke_grants(db, user_id=user.id)
-    token = _session_token(user)
+    token = session_token(user)
     db.add(token)
     await db.commit()
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
@@ -680,7 +711,7 @@ async def confirm_password_reset(
     # Drop any other reset code and every session token, then issue one.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind.in_(("reset", "session"))))
     await oauth.revoke_grants(db, user_id=user.id)
-    token = _session_token(user)
+    token = session_token(user)
     db.add(token)
     await db.commit()
     return AuthOut(token=token.plain, user=UserOut.model_validate(user))
@@ -748,10 +779,22 @@ async def delete_account(
 
     Every token the account holds, session, API and OAuth, stops working
     immediately.
+
+    An account made through the identity provider (Q33) has no password: it
+    leaves `password` out and confirms by having signed in there in the last
+    few minutes (`POST /auth/oidc/reauth`).
     """
-    if not await verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
-    forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
+    if not user.has_password:
+        if not signed_in_recently(request):
+            raise HTTPException(status_code=403, detail=sign_in_again("deleting your account"))
+    else:
+        if payload.password is None:
+            raise HTTPException(
+                status_code=401, detail="send your password as password to confirm, so nothing was deleted"
+            )
+        if not await verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="that password is incorrect, so nothing was deleted")
+        forgive_auth_attempt(request)  # password checked out; not a brute-force attempt
     # Every household this card pays for, which is almost always just their own.
     for paid_for in (await db.execute(select(Household).where(Household.billing_user_id == user.id))).scalars():
         _refuse_while_charging(
@@ -1089,7 +1132,15 @@ async def redeem_invite(
     # (`move_user_to_household`): the destruction DELETE /auth/me asks a
     # password for, so a bearer token alone must not be enough to cause it.
     alone = await household_user_count(db, origin_id) <= 1
-    if alone or payload.force:
+    if (alone or payload.force) and not user.has_password:
+        # Q33: an account made through the identity provider confirms by
+        # signing in there again, since it has no password to send.
+        if not signed_in_recently(request):
+            raise HTTPException(
+                status_code=403,
+                detail=sign_in_again("leaving a household that would be deleted behind you" if alone else '"force"'),
+            )
+    elif alone or payload.force:
         if payload.password is None:
             why = (
                 "you are the only member of your current household, so joining another one deletes it. "
@@ -1117,7 +1168,7 @@ async def redeem_invite(
     await limits.enforce(db, invite.household_id, "members")
 
     # Claimed before the move, so losing a race for the code collects nothing.
-    await _claim_invite(db, invite, user.id)
+    await claim_invite(db, invite, user.id)
     try:
         # Only a caller who was alone, and so gave their password above, may
         # empty the household; one who counted company that has since left may

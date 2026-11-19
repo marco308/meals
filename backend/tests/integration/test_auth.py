@@ -51,7 +51,7 @@ class TestRegisterAndLogin:
             return False
 
         await register(client)
-        monkeypatch.setattr(auth_router, "_email_taken", _missed)
+        monkeypatch.setattr(auth_router, "email_taken", _missed)
         response = await client.post(
             "/auth/register",
             json={"email": "marcus@example.com", "password": "another-password", "display_name": "M"},

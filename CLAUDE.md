@@ -183,6 +183,23 @@ instrumentation a new feature usually needs.
   which is `PUBLIC_URL` when set and the forwarded headers otherwise (#252):
   build any URL that leaves for somebody else (issuer, checkout return,
   skill) through it, never from `request.url`, and serve it `no-store`.
+- **Signing in through the operator's identity provider is a front door, not a
+  credential** (Q33, #93, `routers/oidc.py` over `services/oidc.py`). Off
+  unless `OIDC_ISSUER` and `OIDC_CLIENT_ID` are set (every `/auth/oidc/*` 404s);
+  on, a trip ends in the same `kind="session"` token `POST /auth/login` mints,
+  so nothing downstream changes and `AUTHENTICATING_KINDS` must not grow for
+  it. Identity is `user_identities (issuer, subject)`, **never an email
+  match**: a first sign-in is a registration (Q19's household rules, the signup
+  rate, the ceilings), an address that already has an account is refused, and
+  linking happens only from a signed-in session. A trip is an `oidc_flows` row
+  bound to the browser by a cookie hash, and the callback hands back a one-time
+  handoff, never a token in a URL. `users.password_hash` is nullable: what a
+  password confirms is confirmed for a passwordless account by
+  `deps.signed_in_recently` (a session under ten minutes old, which only a
+  fresh trip can mint for one), and a reset code still sets a password. The
+  OAuth consent page offers the provider too, and the return still has to be
+  approved on a page carrying the handoff. Each rule has a test in
+  `test_oidc.py`.
 - **Tests run with SQLite foreign keys ON** (`enforce_sqlite_foreign_keys`).
   SQLite ships with them off, which silently turned every `ondelete` into
   decoration while production enforced them. Don't build a test engine without it.

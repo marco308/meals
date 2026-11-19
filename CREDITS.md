@@ -20,7 +20,7 @@ Every deployment serves it at `/credits`, rendered from this file, the same way
 
 ## What the server is built on
 
-The fifteen dependencies this project actually chose, in
+The sixteen dependencies this project actually chose, in
 `backend/pyproject.toml` and `mcp/pyproject.toml`.
 
 | Package | Licence | What it does here |
@@ -38,6 +38,7 @@ The fifteen dependencies this project actually chose, in
 | [prometheus-client](https://github.com/prometheus/client_python) | Apache-2.0 AND BSD-2-Clause | The counters and histograms behind `/metrics`. |
 | [pydantic](https://github.com/pydantic/pydantic) | MIT | Every request and response schema, and the validation that lets a 422 say something useful. |
 | [pydantic-settings](https://github.com/pydantic/pydantic-settings) | MIT | Configuration from the environment, in one typed place. |
+| [pyjwt](https://github.com/jpadilla/pyjwt) | MIT | Checks the signature and claims of the ID token an identity provider sends back, for signing in through one. |
 | [sqlalchemy](https://www.sqlalchemy.org) | MIT | The async ORM, and the only thing in the product that touches the database. |
 | [uvicorn](https://uvicorn.dev) | BSD-3-Clause | The ASGI server that runs all of it. |
 
@@ -73,7 +74,6 @@ Nobody picked these directly. They are holding the thing up all the same.
 | [opentelemetry-api](https://github.com/open-telemetry/opentelemetry-python) | Apache-2.0 |
 | [pycparser](https://github.com/eliben/pycparser) | BSD-3-Clause |
 | [pydantic-core](https://github.com/pydantic/pydantic-core) | MIT |
-| [pyjwt](https://github.com/jpadilla/pyjwt) | MIT |
 | [python-dotenv](https://github.com/theskumar/python-dotenv) | BSD-3-Clause |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Apache-2.0 |
 | [pyyaml](https://pyyaml.org/) | MIT |
