@@ -29,6 +29,7 @@ from app.routers import (
     oauth,
     oidc,
     pages,
+    photos,
     plans,
     recipes,
     shopping,
@@ -254,7 +255,11 @@ def _shortened(text: str, full_length: int) -> str:
 
 # Outside the gate and CORS so nothing reads a body it has not counted, and
 # inside the access log so a 413 is a line like any other refusal.
-app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+app.add_middleware(
+    BodyLimitMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+    photo_max_bytes=settings.recipe_photo_max_bytes,
+)
 
 # Registered last so it is the *outermost* middleware (Starlette builds the
 # stack in reverse): the access log must see every response, including 426s
@@ -267,6 +272,7 @@ app.include_router(auth.router)
 app.include_router(oidc.router)
 app.include_router(ingredients.router)
 app.include_router(recipes.router)
+app.include_router(photos.router)
 app.include_router(meals.router)
 app.include_router(plans.router)
 app.include_router(shopping.router)
@@ -406,9 +412,13 @@ async def client_config() -> dict:
     with the server about it.
 
     `oidc_enabled` says whether people can sign in through the operator's
-    identity provider (Q32), and `oidc_provider_name` what to call it on the
+    identity provider (Q33), and `oidc_provider_name` what to call it on the
     button ("Continue with Authentik"). A build that predates them never reads
-    them, so it simply never shows the button."""
+    them, so it simply never shows the button.
+
+    `recipe_photo_uploads` says whether a recipe photo may be uploaded here
+    (`PUT /recipes/{id}/photo`), so a client shows its photo picker only then,
+    and `recipe_photo_max_bytes` is the most one upload may weigh."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -420,6 +430,8 @@ async def client_config() -> dict:
         "billing_enabled": config.billing_sells,
         "oidc_enabled": config.oidc_enabled,
         "oidc_provider_name": config.oidc_provider_name if config.oidc_enabled else None,
+        "recipe_photo_uploads": config.recipe_photo_uploads_enabled,
+        "recipe_photo_max_bytes": config.recipe_photo_max_bytes,
     }
 
 

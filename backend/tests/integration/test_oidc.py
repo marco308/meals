@@ -1,4 +1,4 @@
-"""Signing in through the operator's identity provider (issue #93, decision Q32).
+"""Signing in through the operator's identity provider (issue #93, decision Q33).
 
 A stand-in provider (`Provider`) answers discovery, its key set and its token
 endpoint through respx, signing real ID tokens with a real key, so every check

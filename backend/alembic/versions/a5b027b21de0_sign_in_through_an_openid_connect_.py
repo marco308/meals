@@ -1,10 +1,10 @@
 """sign in through an OpenID Connect provider
 
 Revision ID: a5b027b21de0
-Revises: 37f6e1113037
+Revises: e4a1c7b92f30
 Create Date: 2026-11-19 21:51:13.253520
 
-Decision Q32 (issue #93). Two new tables and one loosened column, all additive,
+Decision Q33 (issue #93). Two new tables and one loosened column, all additive,
 so the outgoing container keeps working through a start-first rollout: it reads
 neither table, and no account without a password can exist until the new code
 has made one.
@@ -27,7 +27,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a5b027b21de0'
-down_revision: Union[str, Sequence[str], None] = '37f6e1113037'
+down_revision: Union[str, Sequence[str], None] = 'e4a1c7b92f30'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,5 +1,5 @@
 from app.models.billing import BillingEvent
-from app.models.catalog import Ingredient, Recipe, RecipeIngredient
+from app.models.catalog import Ingredient, Recipe, RecipeIngredient, RecipePhoto
 from app.models.freezer import FreezerItem
 from app.models.planning import CookedEvent, Meal, MealFreezerItem, MealIngredient, MealRecipe, Plan, PlanMeal
 from app.models.shopping import ListItem, ListItemSource, ShoppingList, Supermarket
@@ -25,6 +25,7 @@ __all__ = [
     "PlanMeal",
     "Recipe",
     "RecipeIngredient",
+    "RecipePhoto",
     "ShoppingList",
     "Supermarket",
     "User",

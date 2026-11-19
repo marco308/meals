@@ -1,4 +1,4 @@
-"""Signing in through the operator's OpenID Connect provider (issue #93, Q32).
+"""Signing in through the operator's OpenID Connect provider (issue #93, Q33).
 
 This server is a *relying party* here, the mirror image of `services/oauth.py`
 where it is the authorization server. Somebody presses "Continue with

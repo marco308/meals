@@ -1,4 +1,4 @@
-"""Signing in through the operator's identity provider (issue #93, decision Q32).
+"""Signing in through the operator's identity provider (issue #93, decision Q33).
 
 A second front door, not a second kind of credential: every trip ends in the
 same `kind="session"` token `POST /auth/login` issues, so the iPhone app, the

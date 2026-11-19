@@ -16,7 +16,7 @@
 // top for the code, because inviting and importing from a link both wait on it.
 // On a server that sends no email the card never appears: nothing waits there.
 //
-// On a server with an identity provider (Q32) a Signing in card links it. An
+// On a server with an identity provider (Q33) a Signing in card links it. An
 // account made through the provider has no password, so the three things a
 // password confirms (setting one, deleting the account, leaving a household
 // that would go with you) send it to sign in there again instead, and pick up
@@ -44,7 +44,7 @@ export async function renderSettings(root) {
     api("/auth/oidc").catch(() => null),
   ]);
   session.saveUser(user);
-  // Absent from a server that predates Q32, where every account has one.
+  // Absent from a server that predates Q33, where every account has one.
   const hasPassword = user.has_password !== false;
   const youLead = household.lead_user_id === user.id;
   const leadName = household.members.find((m) => m.is_lead)?.display_name || "whoever leads it";
@@ -693,6 +693,7 @@ const RESOURCE_LABELS = {
   freezer_items: "Batches in the freezer",
   api_tokens: "API tokens",
   ingests_per_month: "Recipes read from a URL",
+  recipe_photos: "Uploaded recipe photos",
 };
 
 // A server vocabulary, so an unknown name must render rather than vanish —

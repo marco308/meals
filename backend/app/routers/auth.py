@@ -146,7 +146,7 @@ async def _find_invite(db: DbSession, code: str) -> HouseholdInvite:
 
 async def find_invite_by_hash(db: AsyncSession, code_hash: str) -> HouseholdInvite:
     """`_find_invite` for a code that was hashed earlier: a sign-in through the
-    identity provider keeps only the hash while the person is away (Q32)."""
+    identity provider keeps only the hash while the person is away (Q33)."""
     result = await db.execute(select(HouseholdInvite).where(HouseholdInvite.code_hash == code_hash))
     invite = result.scalar_one_or_none()
     if invite is None or invite.accepted_at is not None or as_aware(invite.expires_at) <= datetime.now(UTC):
@@ -542,7 +542,7 @@ async def change_password(
     through the sign-in page, Q27) do not survive: each was approved by typing
     this password, so whoever else knew it could have made one.
 
-    An account made through the identity provider (Q32) has no current
+    An account made through the identity provider (Q33) has no current
     password, so it leaves `current_password` out and sets its first one by
     having signed in there in the last few minutes (`POST /auth/oidc/reauth`).
     """
@@ -780,7 +780,7 @@ async def delete_account(
     Every token the account holds, session, API and OAuth, stops working
     immediately.
 
-    An account made through the identity provider (Q32) has no password: it
+    An account made through the identity provider (Q33) has no password: it
     leaves `password` out and confirms by having signed in there in the last
     few minutes (`POST /auth/oidc/reauth`).
     """
@@ -1133,7 +1133,7 @@ async def redeem_invite(
     # password for, so a bearer token alone must not be enough to cause it.
     alone = await household_user_count(db, origin_id) <= 1
     if (alone or payload.force) and not user.has_password:
-        # Q32: an account made through the identity provider confirms by
+        # Q33: an account made through the identity provider confirms by
         # signing in there again, since it has no password to send.
         if not signed_in_recently(request):
             raise HTTPException(

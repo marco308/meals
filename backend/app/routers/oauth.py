@@ -259,7 +259,7 @@ def _consent_page(
     hidden = _hidden(params)
     problem = f"<p class='error'>{escape(error)}</p>" if error else ""
     settings = get_settings()
-    # Q32: an account made through the identity provider has no password to
+    # Q33: an account made through the identity provider has no password to
     # type here, so the provider is offered beside the form. Pressing it signs
     # in there and comes back to a page that still has to be approved.
     sso = (
@@ -396,7 +396,7 @@ async def approve(request: Request, db: DbSession) -> Response:
 
 # ------------------------------------------------- through the identity provider
 #
-# Q32. The password form above is CSRF-proof because a page on another site
+# Q33. The password form above is CSRF-proof because a page on another site
 # cannot know the password. Signing in at the provider has no such property: a
 # person already signed in there may be sent straight back. So the return is
 # never an approval by itself. It lands on a page of its own, which names who

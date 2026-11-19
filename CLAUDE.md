@@ -184,7 +184,7 @@ instrumentation a new feature usually needs.
   build any URL that leaves for somebody else (issuer, checkout return,
   skill) through it, never from `request.url`, and serve it `no-store`.
 - **Signing in through the operator's identity provider is a front door, not a
-  credential** (Q32, #93, `routers/oidc.py` over `services/oidc.py`). Off
+  credential** (Q33, #93, `routers/oidc.py` over `services/oidc.py`). Off
   unless `OIDC_ISSUER` and `OIDC_CLIENT_ID` are set (every `/auth/oidc/*` 404s);
   on, a trip ends in the same `kind="session"` token `POST /auth/login` mints,
   so nothing downstream changes and `AUTHENTICATING_KINDS` must not grow for
@@ -301,6 +301,24 @@ instrumentation a new feature usually needs.
   link (QR alphanumeric mode, so it fits the smallest code with the biggest
   modules) that redirects to the web app; free-text batches get none. Keep the
   homelab out of the repo: its URL lives only in the gitignored deploy config.
+- **Recipe photo uploads are off unless the operator turns them on** (Q32,
+  #280, `services/photos.py`, `routers/photos.py`). `RECIPE_PHOTO_UPLOADS_ENABLED`
+  opens `PUT /recipes/{id}/photo`; off, it 404s and `GET /client-config` says
+  `recipe_photo_uploads: false`, and clients show no picker. The JPEG lives in
+  `recipe_photos`, never loaded with a recipe (no relationship: `Recipe.image_uploaded`
+  is a correlated EXISTS), so backups carry it and deletes take it. The server
+  strips every metadata segment but JFIF, ICC and Adobe and drops what follows
+  EOI, without re-encoding, whatever the client did. It is served unauthenticated
+  at `/photos/{token}.jpg` (256 bits; the link is the secret), so that path is
+  logged as its template (`observability._SECRET_PATH_ROUTES`) and the token is
+  not exported. The absolute URL is written into `image_url` once, from
+  `base_url`, so every existing client shows it unchanged. One recipe, one
+  picture: a replacement is a new token, a PATCH to another `image_url` (or null)
+  deletes the upload, a reparse never replaces one, and a replacement never
+  counts against `recipe_photos`. `RECIPE_PHOTO_MAX_BYTES` replaces the general
+  body limit on that one route (`body_limit.py`). Off later means no new uploads
+  only. The export carries each photo as base64, since a link back to the server
+  you are leaving is not your data.
 - **Cook mode's steps are derived, never stored as the method** (Q29,
   `services/cook_steps.py`). `instructions` stays one text field; `steps` is
   computed from it on every read, with each step's ingredients matched by name

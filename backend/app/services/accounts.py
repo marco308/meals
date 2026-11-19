@@ -28,6 +28,7 @@ from app.models import (
     OidcFlow,
     Plan,
     Recipe,
+    RecipePhoto,
     ShoppingList,
     Supermarket,
     User,
@@ -192,6 +193,9 @@ async def delete_household_data(db: AsyncSession, household_id: uuid.UUID) -> No
     await db.execute(delete(ShoppingList).where(ShoppingList.household_id == household_id))
     await db.execute(delete(Plan).where(Plan.household_id == household_id))
     await db.execute(delete(Meal).where(Meal.household_id == household_id))
+    # Photos before their recipes. The cascade would take them, but this
+    # module says its order out loud rather than trusting two engines (Q20).
+    await db.execute(delete(RecipePhoto).where(RecipePhoto.household_id == household_id))
     await db.execute(delete(Recipe).where(Recipe.household_id == household_id))
     # Ingredients last of the food: list items and meal/recipe lines reference
     # them without a cascade, so they must already be gone.
@@ -254,7 +258,7 @@ async def delete_user(db: AsyncSession, user: User) -> bool:
     # leaving a stale credential behind would matter.
     await db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))
     await db.execute(delete(OAuthGrant).where(OAuthGrant.user_id == user.id))
-    # And the ways in through the identity provider (Q32), with any trip
+    # And the ways in through the identity provider (Q33), with any trip
     # there still in flight for them.
     await db.execute(delete(UserIdentity).where(UserIdentity.user_id == user.id))
     await db.execute(delete(OidcFlow).where(or_(OidcFlow.user_id == user.id, OidcFlow.result_user_id == user.id)))

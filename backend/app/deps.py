@@ -118,7 +118,7 @@ def signed_in_recently(request: Request) -> bool:
 
     Deleting an account, and the move that would delete a household, ask for
     the password, which is what stops somebody holding only a copied token
-    from doing either. An account made through the identity provider (Q32) has
+    from doing either. An account made through the identity provider (Q33) has
     no password to ask for, so it confirms by signing in there again
     (`POST /auth/oidc/reauth`, which asks the provider for a fresh login), and
     the session that trip returns is what this recognises. Nothing else mints
@@ -349,9 +349,11 @@ VERIFY_FIRST = (
 def require_verified_email(user: User, action: str) -> None:
     """403 unless this account may do something that reaches outward (Q26).
 
-    Inviting and URL ingest are the two: one sends a stranger into somebody's
-    household, the other makes this server fetch a page of the caller's
-    choosing. Everything that stays inside the household is open to an
+    Inviting and URL ingest are the two that were here first: one sends a
+    stranger into somebody's household, the other makes this server fetch a
+    page of the caller's choosing. Uploading a recipe photo (Q32) is the
+    third, because it makes this server publish a file at a link anyone
+    holding it can open. Everything that stays inside the household is open to an
     unverified account, because refusing it would only make signing up worse
     without making anybody safer.
     """

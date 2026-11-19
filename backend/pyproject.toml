@@ -18,7 +18,7 @@ dependencies = [
     "aiosmtplib>=3.0",
     "markdown-it-py>=3.0",
     "prometheus-client>=0.26.0",
-    # Checks the ID token an identity provider signs (services/oidc.py, Q32).
+    # Checks the ID token an identity provider signs (services/oidc.py, Q33).
     # `crypto` pulls in cryptography for RSA, EC and EdDSA keys.
     "pyjwt[crypto]>=2.10",
     # The MCP server, mounted at /mcp so one container is the whole product

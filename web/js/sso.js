@@ -1,4 +1,4 @@
-// Signing in through the operator's identity provider (Q32, issue #93).
+// Signing in through the operator's identity provider (Q33, issue #93).
 //
 // A trip is a navigation, not a fetch: the API answers where to send the
 // browser, we go there, the provider sends us back to /auth/oidc/callback, and

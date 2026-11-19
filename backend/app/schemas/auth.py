@@ -63,7 +63,7 @@ class LogoutIn(BaseModel):
 
 
 class PasswordChangeIn(BaseModel):
-    # Optional since Q32, for the one account that has none: one made through
+    # Optional since Q33, for the one account that has none: one made through
     # the identity provider sets its first password with a fresh sign-in there
     # instead. Every account with a password still has to send it.
     current_password: str | None = None
@@ -90,7 +90,7 @@ class UserOut(BaseModel):
     # emailed to it, which is when inviting and URL ingest are refused. Always
     # false on a server that cannot send email, which verifies nobody.
     email_verification_pending: bool = False
-    # Q32: false for an account made by signing in through the identity
+    # Q33: false for an account made by signing in through the identity
     # provider, which confirms what a password would (deleting the account,
     # say) by signing in there again. A client reads it to know which to ask.
     has_password: bool = True
@@ -269,7 +269,7 @@ class InviteRedeemIn(BaseModel):
 
 
 class OidcStartIn(BaseModel):
-    """Where a sign-in through the identity provider starts (Q32). Both fields
+    """Where a sign-in through the identity provider starts (Q33). Both fields
     only matter if this turns out to be somebody's first visit, and mean what
     they mean on `POST /auth/register`."""
 

@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated, Any, Self
 from urllib.parse import urlsplit
 
-from pydantic import BeforeValidator, model_validator
+from pydantic import BeforeValidator, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -201,7 +201,7 @@ class Settings(BaseSettings):
     oauth_code_ttl_seconds: Annotated[int, BlankIsDefault] = 120
 
     # Signing in through the operator's own identity provider (issue #93,
-    # decision Q32, `services/oidc.py`): Authentik, Authelia, Keycloak, Pocket
+    # decision Q33, `services/oidc.py`): Authentik, Authelia, Keycloak, Pocket
     # ID or anything else that speaks OpenID Connect. **Off unless both
     # OIDC_ISSUER and OIDC_CLIENT_ID are set**, and then it is a second front
     # door beside email and password, never a replacement: it ends in the same
@@ -454,6 +454,21 @@ class Settings(BaseSettings):
     # because the service may have to find and wake the printer first.
     label_service_url: str | None = None
     label_service_timeout_seconds: float = 30.0
+
+    # Recipe photo uploads (issue #280, Q32, `services/photos.py`). **Off
+    # unless RECIPE_PHOTO_UPLOADS_ENABLED is set**: `PUT /recipes/{id}/photo`
+    # then 404s and `GET /client-config` tells clients not to show a picker.
+    # On, a household may store one JPEG per recipe in this server's database,
+    # where the backups already reach, served at an unguessable URL that needs
+    # no sign-in. Set PUBLIC_URL with it: the URL is written into the recipe's
+    # `image_url` once, so it should name the origin every member reaches.
+    # Switching it off later stops new uploads only; stored photos are still
+    # served and can still be removed.
+    recipe_photo_uploads_enabled: Annotated[bool, BlankIsDefault] = False
+    # The most one upload may weigh, published on `/client-config`. It replaces
+    # MAX_REQUEST_BODY_BYTES on the upload route alone, so raising it does not
+    # raise what every other request may send.
+    recipe_photo_max_bytes: Annotated[PositiveInt, BlankIsDefault] = 1_048_576
 
     # A household's own AI assistant (services/assistant.py, Q29): a webhook
     # it sets in Settings, told when a recipe's cook-mode steps want writing.

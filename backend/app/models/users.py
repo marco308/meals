@@ -162,7 +162,7 @@ class User(Base):
     household_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("households.id"))
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     # Null for an account made by signing in through the operator's identity
-    # provider (Q32), which has never had a password. Every reader treats that
+    # provider (Q33), which has never had a password. Every reader treats that
     # as a password nothing matches: `verify_password(pw, None)` is False, and
     # the places that ask for one to confirm something take a fresh sign-in at
     # the provider instead (`deps.signed_in_recently`).
@@ -268,7 +268,7 @@ class OAuthGrant(Base):
 
 class UserIdentity(Base):
     """An account at the operator's OpenID Connect provider that signs in as
-    this user (Q32).
+    this user (Q33).
 
     Keyed by `(issuer, subject)` and nothing else: OpenID Connect promises that
     `sub` is the one stable identifier, while an email claim can change and on
@@ -296,7 +296,7 @@ class UserIdentity(Base):
 
 
 class OidcFlow(Base):
-    """One trip to the identity provider and back (Q32), alive for minutes.
+    """One trip to the identity provider and back (Q33), alive for minutes.
 
     Started by a button, it holds what the return needs: the `state` that names
     it (hashed, like every secret here), the nonce the ID token must carry, the

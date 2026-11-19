@@ -94,6 +94,7 @@ const ALLOWANCES = [
   ["freezer_items", (n) => `${n} ${n === 1 ? "batch" : "batches"} in the freezer`],
   ["api_tokens", (n) => `${n} API ${n === 1 ? "token" : "tokens"}`],
   ["ingests_per_month", (n) => `${n} recipes read from a URL each month`],
+  ["recipe_photos", (n) => `${n} uploaded recipe ${n === 1 ? "photo" : "photos"}`],
 ];
 
 let config = null; // the answer, or {} if it could not be had; null until it settles
@@ -132,7 +133,7 @@ function paintAllowances(root) {
   `);
 }
 
-// ── the operator's identity provider (Q32) ────────────────────────────────
+// ── the operator's identity provider (Q33) ────────────────────────────────
 //
 // Offered only where /client-config says so, which an older server never does.
 // Registering through it reads the same household-name and invite-code fields

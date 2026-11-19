@@ -29,6 +29,7 @@ Three decisions shape the module:
   the omission is loud rather than silent.
 """
 
+import base64
 import json
 import math
 import uuid
@@ -49,6 +50,7 @@ from app.models import (
     Meal,
     Plan,
     Recipe,
+    RecipePhoto,
     ShoppingList,
     Supermarket,
     User,
@@ -63,6 +65,10 @@ EXPORT_VERSION = 1
 #: Rows read per round trip. Big enough that a large household is not a
 #: thousand queries, small enough that no batch is a memory problem.
 BATCH = 200
+
+#: Photos per round trip. Each is up to a megabyte or so, so a batch of BATCH
+#: of them would be the memory problem streaming exists to avoid.
+PHOTO_BATCH = 4
 
 
 def _encode(value: Any) -> str:
@@ -98,7 +104,7 @@ def _null_non_finite(value: Any) -> Any:
     return value
 
 
-async def _stream_rows(db: AsyncSession, statement: Select) -> AsyncIterator[Any]:
+async def _stream_rows(db: AsyncSession, statement: Select, batch: int | None = None) -> AsyncIterator[Any]:
     """Every row the statement selects, in batches, forgetting each as it goes.
 
     The expunge is per row rather than per batch: `Session.expunge_all()` kills
@@ -106,8 +112,8 @@ async def _stream_rows(db: AsyncSession, statement: Select) -> AsyncIterator[Any
     which fails on the second batch.
     """
     result = await db.stream_scalars(statement)
-    async for batch in result.partitions(BATCH):
-        for row in batch:
+    async for rows in result.partitions(batch or BATCH):
+        for row in rows:
             yield row
             db.expunge(row)
 
@@ -146,6 +152,9 @@ def _recipe(recipe: Recipe) -> dict:
         "prep_minutes": recipe.prep_minutes,
         "cook_minutes": recipe.cook_minutes,
         "image_url": recipe.image_url,
+        # True when image_url is a link back to this server: the photo itself
+        # is in `recipe_photos`, because that link stops working when you go.
+        "image_uploaded": bool(recipe.image_uploaded),
         "instructions": recipe.instructions,
         "cook_steps": recipe.cook_steps,
         "cook_steps_fingerprint": recipe.cook_steps_fingerprint,
@@ -169,6 +178,22 @@ def _recipe(recipe: Recipe) -> dict:
             }
             for line in recipe.ingredient_links
         ],
+    }
+
+
+def _recipe_photo(photo: RecipePhoto) -> dict:
+    """The photo itself, since a URL pointing back at the server you are
+    leaving is not your data (Q32). Base64, because the document is JSON.
+    The token is not written: it names the photo on this server only."""
+    return {
+        "id": photo.id,
+        "recipe_id": photo.recipe_id,
+        "content_type": "image/jpeg",
+        "width": photo.width,
+        "height": photo.height,
+        "size_bytes": photo.size_bytes,
+        "created_at": photo.created_at,
+        "data_base64": base64.b64encode(photo.data).decode("ascii"),
     }
 
 
@@ -330,6 +355,11 @@ def _sections() -> tuple[Section, ...]:
             _ingredient,
         ),
         ("recipes", lambda hid: select(Recipe).where(Recipe.household_id == hid).order_by(*_order(Recipe)), _recipe),
+        (
+            "recipe_photos",
+            lambda hid: select(RecipePhoto).where(RecipePhoto.household_id == hid).order_by(*_order(RecipePhoto)),
+            _recipe_photo,
+        ),
         ("meals", lambda hid: select(Meal).where(Meal.household_id == hid).order_by(*_order(Meal)), _meal),
         ("plans", lambda hid: select(Plan).where(Plan.household_id == hid).order_by(*_order(Plan)), _plan),
         (
@@ -396,7 +426,8 @@ async def stream_household(db: AsyncSession, household: Household, *, api_versio
     for name, statement, row in _sections():
         yield f", {json.dumps(name)}: ["
         separator = ""
-        async for entity in _stream_rows(db, statement(household_id)):
+        batch = PHOTO_BATCH if name == "recipe_photos" else None
+        async for entity in _stream_rows(db, statement(household_id), batch):
             yield separator + _encode(row(entity))
             separator = ","
         yield "]"
