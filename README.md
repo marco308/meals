@@ -151,6 +151,29 @@ SMTP_PASSWORD=<16-character app password>
 SMTP_FROM=you@gmail.com
 ```
 
+### Recipe photos (optional)
+
+Off by default. Turn it on and the app can upload a photo for a recipe (one
+each, JPEG), instead of only linking to a picture hosted elsewhere:
+
+```bash
+RECIPE_PHOTO_UPLOADS_ENABLED=true
+RECIPE_PHOTO_MAX_BYTES=1048576   # default; the upload route's own body limit
+PUBLIC_URL=https://meals.example.org
+```
+
+Photos live in the database, so the backups already carry them and deleting a
+recipe or an account takes its photo along. The server removes location and
+every other kind of metadata from each upload, whatever the client did. Each
+photo is served at a link with 256 random bits in it and no sign-in, because an
+image view cannot send a token: private to the household means private unless
+somebody has the link. Set `PUBLIC_URL` with it, since that link is written
+into the recipe once and has to work for everyone in the household.
+`GET /client-config` publishes `recipe_photo_uploads`, so clients only show a
+picker when it is on. Turning it off later stops new uploads; photos already
+stored are still served and can still be removed. The household export
+carries the photos themselves.
+
 ### Behind a reverse proxy
 
 The auth endpoints are rate-limited per client address (`AUTH_RATE_LIMIT_PER_MINUTE`,

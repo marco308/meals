@@ -28,6 +28,7 @@ from app.routers import (
     meals,
     oauth,
     pages,
+    photos,
     plans,
     recipes,
     shopping,
@@ -253,7 +254,11 @@ def _shortened(text: str, full_length: int) -> str:
 
 # Outside the gate and CORS so nothing reads a body it has not counted, and
 # inside the access log so a 413 is a line like any other refusal.
-app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+app.add_middleware(
+    BodyLimitMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+    photo_max_bytes=settings.recipe_photo_max_bytes,
+)
 
 # Registered last so it is the *outermost* middleware (Starlette builds the
 # stack in reverse): the access log must see every response, including 426s
@@ -265,6 +270,7 @@ app.middleware("http")(observability.request_logging_middleware)
 app.include_router(auth.router)
 app.include_router(ingredients.router)
 app.include_router(recipes.router)
+app.include_router(photos.router)
 app.include_router(meals.router)
 app.include_router(plans.router)
 app.include_router(shopping.router)
@@ -401,7 +407,11 @@ async def client_config() -> dict:
     what one household holds and have no way to take a penny, and almost every
     one does. It is the single answer to that question — a client that inferred
     it from the shape of the limits, or from a 404, would eventually disagree
-    with the server about it."""
+    with the server about it.
+
+    `recipe_photo_uploads` says whether a recipe photo may be uploaded here
+    (`PUT /recipes/{id}/photo`), so a client shows its photo picker only then,
+    and `recipe_photo_max_bytes` is the most one upload may weigh."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -411,6 +421,8 @@ async def client_config() -> dict:
         "password_reset_enabled": config.email_configured,
         "free_tier_limits": limits.free_tier_allowances(),
         "billing_enabled": config.billing_sells,
+        "recipe_photo_uploads": config.recipe_photo_uploads_enabled,
+        "recipe_photo_max_bytes": config.recipe_photo_max_bytes,
     }
 
 

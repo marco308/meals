@@ -168,6 +168,17 @@ _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # Endpoints that exist to be polled: quiet unless they fail.
 _QUIET_PATHS = frozenset({"/healthz", "/metrics"})
 
+# Routes whose path is itself a secret, logged as their template instead.
+_SECRET_PATH_ROUTES = frozenset({"/photos/{token}.jpg"})
+
+
+def _loggable_path(request: Request) -> str:
+    """The request's path, unless the path is the credential: an uploaded
+    photo's URL is the only thing keeping it to the household (Q32), so its
+    route template is written in its place."""
+    route_template = getattr(request.scope.get("route"), "path", None)
+    return route_template if route_template in _SECRET_PATH_ROUTES else request.url.path
+
 
 async def request_logging_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """One log line per request, and a request id on everything.
@@ -188,8 +199,8 @@ async def request_logging_middleware(request: Request, call_next: Callable[[Requ
             _error_logger.exception(
                 "unhandled error on %s %s",
                 request.method,
-                request.url.path,
-                extra={"request_id": request_id, "method": request.method, "path": request.url.path},
+                _loggable_path(request),
+                extra={"request_id": request_id, "method": request.method, "path": _loggable_path(request)},
             )
             response = JSONResponse(
                 status_code=500,
@@ -217,6 +228,7 @@ async def request_logging_middleware(request: Request, call_next: Callable[[Requ
         # label collapses those to "unmatched", because every scanner probing
         # /wp-login.php must not mint a new timeseries.
         route_template = getattr(request.scope.get("route"), "path", None)
+        path = _loggable_path(request)
         client = getattr(request.state, "client", None)
         metrics.observe_request(
             request.method,

@@ -23,7 +23,7 @@ from app.schemas.catalog import (
     StepsIn,
 )
 from app.serializers import recipe_fingerprint, recipe_out, recipe_summary
-from app.services import assistant, recipe_parser
+from app.services import assistant, photos, recipe_parser
 from app.services.catalog import (
     create_recipe_from_payload,
     get_recipe,
@@ -257,13 +257,19 @@ async def update_recipe(
     nothing automated overwrites them. If the recipe is part of a meal on an
     active plan, the shopping list is re-synced to the new ingredients.
     Changing the method or the ingredients makes any cook-mode steps an
-    assistant wrote outdated (see PUT /recipes/{id}/steps)."""
+    assistant wrote outdated (see PUT /recipes/{id}/steps). Setting a
+    different `image_url`, or null, on a recipe whose photo was uploaded here
+    (`image_uploaded: true`) deletes that upload."""
     recipe = await get_recipe(db, user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="recipe not found; browse the library via GET /recipes")
     before = recipe_fingerprint(recipe)
 
     updates = payload.model_dump(exclude_unset=True, exclude={"ingredients"})
+    if "image_url" in updates and recipe.image_uploaded and updates["image_url"] != recipe.image_url:
+        # One recipe has one picture (Q32): another URL, or none, replaces an
+        # uploaded photo, and a photo nothing points at is only taking space.
+        await photos.forget_upload(db, recipe.id)
     for field, value in updates.items():
         # A null clears what may be empty (the photo, the method) and leaves
         # alone what may not (the title, the tags), as every other PATCH here
@@ -488,5 +494,8 @@ async def delete_recipe(recipe_id: uuid.UUID, user: CurrentUser, db: DbSession) 
             status_code=409,
             detail="recipe is used by one or more meals; remove it from those meals first (PATCH /meals/{id})",
         )
+    # The photo would go by the foreign key's cascade; said out loud anyway,
+    # as everything else that leaves with a recipe is (Q20).
+    await photos.forget_upload(db, recipe.id)
     await db.delete(recipe)
     await db.commit()

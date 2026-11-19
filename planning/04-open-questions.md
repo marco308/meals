@@ -619,3 +619,39 @@ that put `household_id` in its metadata bought this server's tier. Decisions:
 - **A paused collection is a hold.** Stripe keeps a subscription `active` while
   `pause_collection` is set and rolls the period on with nothing paid, so it is
   treated like `paused` and `past_due`: outcome `unpaid`, expiry held to the event.
+
+**Q32: a household may upload a recipe's photo, where the operator allows it**
+(2026-11-19, #280). A recipe's picture used to be a link only, so a photo the
+cook took had to be hosted somewhere first. #3 (copying every imported page's
+image) stays declined; this is one photo somebody took and chose to upload.
+Decisions:
+
+- **Off unless the operator says so.** `RECIPE_PHOTO_UPLOADS_ENABLED`, published
+  as `recipe_photo_uploads` on `/client-config` with `recipe_photo_max_bytes`.
+  The hosted server leaves it off for now. Off later stops new uploads only.
+- **In the database, in its own table.** The backups need no second path and
+  every delete (recipe, household, account) takes the photo along. Nothing that
+  reads a recipe loads the bytes: `image_uploaded` is an EXISTS.
+- **The link is the secret.** An image view cannot send a header, so the photo
+  is served without one at an unguessable URL written into `image_url`, and
+  every client already out there shows it. "Private to the household" means
+  "private unless somebody has the link", which the issue agreed to. The path
+  is never logged and the token is not exported.
+- **The server strips the metadata, whatever the client did.** Every segment but
+  JFIF, ICC and Adobe goes, and anything after EOI, with no re-encode. The
+  orientation tag goes too, so clients bake orientation into the pixels.
+- **One recipe, one picture.** JPEG only, longest side at most 2048 px.
+  Replacing makes a new URL and never counts against the `recipe_photos`
+  allowance (unlimited unless configured). Linking another `image_url`, or
+  null, deletes the upload; a reparse never replaces one. Uploads are online
+  only, never queued like the shopping list.
+- **An unverified account cannot upload** (amending Q26's list of things that
+  reach outward): an upload makes this server publish a file at a link.
+- **The export carries the photos as base64**, since a link back to the server
+  you are leaving is not your data.
+- **The iPhone picker waits for the privacy work.** An app that can upload
+  photos has to say so in its App Store privacy details and on `/privacy`, even
+  against a server with uploads off, so the build that adds the picker ships in
+  a release lined up with those changes.
+- The playbook is v25: assistants ask before replacing or removing a photo
+  that says `image_uploaded: true`, since that deletes somebody's own photo.

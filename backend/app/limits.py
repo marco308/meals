@@ -96,6 +96,7 @@ from app.models import (
     Plan,
     PlanMeal,
     Recipe,
+    RecipePhoto,
     Supermarket,
     User,
 )
@@ -137,6 +138,7 @@ class Limits:
     freezer_items: int | None = None
     api_tokens: int | None = None
     ingests_per_month: int | None = None
+    recipe_photos: int | None = None
 
 
 UNLIMITED_LIMITS = Limits()
@@ -253,6 +255,12 @@ async def _count_freezer_items(db: AsyncSession, household_id: uuid.UUID, _withi
     """Batches, not portions: a row is what costs the box something, and a
     batch of eight portions is one row exactly as a batch of one is."""
     return await _count(db, FreezerItem, FreezerItem.household_id == household_id)
+
+
+async def _count_recipe_photos(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
+    """Uploads only. A picture linked from elsewhere costs this box nothing,
+    and replacing an upload is never counted (`services/photos.store`)."""
+    return await _count(db, RecipePhoto, RecipePhoto.household_id == household_id)
 
 
 async def _count_api_tokens(db: AsyncSession, household_id: uuid.UUID, _within: uuid.UUID | None) -> int:
@@ -411,6 +419,18 @@ RESOURCES: dict[str, _Spec] = {
             "This counts every member's tokens, and GET /auth/tokens lists your own — revoke one you "
             "are no longer using (DELETE /auth/tokens/{token_id}), since an unused token is a "
             "credential nobody is watching."
+        ),
+    ),
+    "recipe_photos": _Spec(
+        singular="uploaded recipe photo",
+        plural="uploaded recipe photos",
+        scope="per household",
+        holder="this household has",
+        count=_count_recipe_photos,
+        hint=(
+            "Replacing a recipe's photo never counts, so a new picture can still go on a recipe that has one. "
+            "Remove one nobody looks at (DELETE /recipes/{recipe_id}/photo), or give this recipe a picture "
+            "hosted elsewhere with PATCH /recipes/{recipe_id} and an image_url."
         ),
     ),
     "ingests_per_month": _Spec(
