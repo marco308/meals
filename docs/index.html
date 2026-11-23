@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <!-- bump ?v= whenever site.css changes: the HTML is always revalidated,
      so a new query string forces every browser past its cached stylesheet -->
-<link rel="stylesheet" href="assets/site.css?v=4">
+<link rel="stylesheet" href="assets/site.css?v=5">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
 </head>
 <body>
@@ -24,6 +24,8 @@
     <a href="#app">The app</a>
     <a href="#pricing">Pricing</a>
     <a href="#run">Run it</a>
+    <a href="https://demo-meals.marcuslab.uk/redoc">API docs</a>
+    <a class="ghost demo" href="https://demo-meals.marcuslab.uk/app/#/demo">Try the demo</a>
     <a class="ghost gh" href="https://github.com/marco308/meals" aria-label="YAMP on GitHub" title="GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a>
   </nav>
 </header>
@@ -42,7 +44,8 @@
       you already talk to. There is no LLM inside.
     </p>
     <div class="cta">
-      <a class="btn" href="#run">Self-host it</a>
+      <a class="btn" href="https://demo-meals.marcuslab.uk/app/#/demo">Try the demo</a>
+      <a class="btn ghost" href="#run">Self-host it</a>
       <a class="btn ghost icon" href="https://github.com/marco308/meals" aria-label="YAMP on GitHub" title="GitHub"><svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a>
     </div>
   </div>
@@ -206,6 +209,7 @@
         <p class="s-label">Connect your assistant, once</p>
         <p class="s-cmd">claude mcp add --transport http yamp https://your-server/mcp</p>
         <p class="s-note"><span class="tag green">connected · 37 tools</span> and it fetches the playbook from /skill by itself.</p>
+        <p class="s-note">Every endpoint is in the <a href="https://demo-meals.marcuslab.uk/redoc">API docs</a>, served by the demo server.</p>
       </div>
     </div>
   </div>
@@ -353,9 +357,9 @@
       first, and the reference instance is still that family's actual
       dinner. It is the hosted service too, open to anyone, but a new
       account there starts with an empty household, and every other
-      household on it is somebody's real one. The demo is
-      <span class="mono">make seed</span> on your own machine: recipes, a
-      plan and a ready-made shopping list in under a minute.
+      household on it is somebody's real one. To look around first,
+      <a href="https://demo-meals.marcuslab.uk/app/#/demo">try the demo</a>: a household of your own, already
+      filled with recipes, a plan and a shopping list, deleted after a day.
     </p>
   </div>
 </section>
