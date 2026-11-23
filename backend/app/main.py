@@ -36,10 +36,11 @@ from app.routers import (
     skill,
     supermarkets,
 )
+from app.routers import demo as demo_router
 from app.routers import labels as labels_router
 from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version, warn_if_origin_unpinned
-from app.services import security
+from app.services import demo, security
 
 settings = get_settings()
 observability.setup_logging()
@@ -62,15 +63,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     refresher: asyncio.Task | None = None
     if get_settings().metrics_token:
         refresher = asyncio.create_task(metrics.usage_gauge_refresher())
+    # A demo server empties itself: every household goes after a day (services/demo.py).
+    demo_reaper = asyncio.create_task(demo.reaper()) if get_settings().demo_mode else None
     # The /mcp route needs its session manager running for the life of the app
     # (a no-op when the mount is off). Tests skip lifespan, so a test that
     # exercises /mcp enters mcp_mount.running() itself.
     async with mcp_mount.running():
         yield
-    if refresher is not None:
-        refresher.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await refresher
+    for task in (refresher, demo_reaper):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(
@@ -284,6 +288,7 @@ app.include_router(pages.router)
 app.include_router(limits_router.router)
 app.include_router(household.router)
 app.include_router(assistant_router.router)
+app.include_router(demo_router.router)
 app.include_router(billing.router)
 app.include_router(oauth.router)
 
@@ -418,7 +423,10 @@ async def client_config() -> dict:
 
     `recipe_photo_uploads` says whether a recipe photo may be uploaded here
     (`PUT /recipes/{id}/photo`), so a client shows its photo picker only then,
-    and `recipe_photo_max_bytes` is the most one upload may weigh."""
+    and `recipe_photo_max_bytes` is the most one upload may weigh.
+
+    `demo_mode` says this is a public demo server, where the web app offers
+    "Try the demo" and every household is deleted after a day."""
     config = get_settings()
     return {
         "api_version": app.version,
@@ -432,6 +440,7 @@ async def client_config() -> dict:
         "oidc_provider_name": config.oidc_provider_name if config.oidc_enabled else None,
         "recipe_photo_uploads": config.recipe_photo_uploads_enabled,
         "recipe_photo_max_bytes": config.recipe_photo_max_bytes,
+        "demo_mode": config.demo_mode,
     }
 
 

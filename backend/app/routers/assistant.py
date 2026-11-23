@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.config import get_settings
 from app.deps import CurrentUser, DbSession, require_verified_email
 from app.models import Household
 from app.observability import log_event
@@ -45,6 +46,11 @@ async def set_assistant(payload: AssistantIn, user: CurrentUser, db: DbSession) 
     write a recipe's cook-mode steps whenever the method or the ingredients
     change; without it, only when somebody presses the button in cook mode.
     Replaces whatever was saved."""
+    if get_settings().demo_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="the demo server doesn't call out to assistants; self-host YAMP to connect yours",
+        )
     require_verified_email(user, "setting up your assistant")
     try:
         url = assistant.check_url(payload.url)

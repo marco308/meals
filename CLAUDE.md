@@ -500,6 +500,17 @@ instrumentation a new feature usually needs.
   applied (`_claim_event_time`, the `_claim_invite` shape), because SQLite takes
   no lock on a read. It is staged with the change it guards, so a refused grant
   rolls it back.
+- **A demo server deletes every household on it** (`services/demo.py`,
+  `routers/demo.py`, `python -m app.demo`). `DEMO_MODE` is off everywhere but
+  the public demo (`demo-meals.marcuslab.uk`): there, "Try the demo" in the web
+  app registers an ordinary account (every signup guard applies), `POST
+  /demo/fill` fills its empty household from `DEMO_DATA_FILE` *through the
+  public API* over an in-process transport, and an hourly reap (a task in
+  `main.lifespan`, demo servers only; `python -m app.demo` by hand) deletes every
+  household older than `DEMO_HOUSEHOLD_TTL_HOURS`, whoever made it. `reap`
+  raises unless `DEMO_MODE` is on, and that guard must stay: on any other
+  server it is a mass deletion. The data file holds a real library, so it lives
+  with the gitignored deploy config, never in this repo.
 - **Instance ceilings are the other axis** (`MAX_HOUSEHOLDS`, `MAX_USERS`, at the
   bottom of `app/limits.py`). They bound how many households the *box* holds
   rather than what one costs, so no tier reaches them and none of the above

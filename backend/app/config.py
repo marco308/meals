@@ -470,6 +470,19 @@ class Settings(BaseSettings):
     # raise what every other request may send.
     recipe_photo_max_bytes: Annotated[PositiveInt, BlankIsDefault] = 1_048_576
 
+    # A public demo server (services/demo.py). Off everywhere but the one
+    # deployment that exists to be tried. On, `POST /demo/fill` fills the
+    # caller's empty household from DEMO_DATA_FILE, `GET /client-config`
+    # publishes `demo_mode` so the web app offers "Try the demo", the assistant
+    # webhook is refused (it would spend a stranger's AI usage on an address a
+    # stranger typed), and `python -m app.demo reap` deletes every household
+    # older than DEMO_HOUSEHOLD_TTL_HOURS. That last part is the whole demo's
+    # contract: nothing on it is anybody's, so nothing on it is kept. Never set
+    # this on a server with real households.
+    demo_mode: Annotated[bool, BlankIsDefault] = False
+    demo_data_file: Annotated[str | None, BeforeValidator(_blank_is_unset)] = None
+    demo_household_ttl_hours: Annotated[PositiveInt, BlankIsDefault] = 24
+
     # A household's own AI assistant (services/assistant.py, Q29): a webhook
     # it sets in Settings, told when a recipe's cook-mode steps want writing.
     # Unlike the label service the address is the *household's*, so it gets
