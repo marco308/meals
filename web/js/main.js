@@ -7,7 +7,7 @@ import { finishSso } from "./sso.js";
 import { renderCookMode } from "./views/cook.js";
 import { renderFreezer } from "./views/freezer.js";
 import { renderIngredients } from "./views/ingredients.js";
-import { renderLogin } from "./views/login.js";
+import { renderLogin, startDemo } from "./views/login.js";
 import { renderMealDetail, renderMealEditor, renderMeals } from "./views/meals.js";
 import { renderPlan } from "./views/plan.js";
 import { renderRecipeDetail, renderRecipeEditor, renderRecipes } from "./views/recipes.js";
@@ -101,6 +101,20 @@ async function route() {
   const sso = hash.match(/^#\/sso\/([A-Za-z0-9_-]{1,128})$/);
   if (sso) {
     await finishSso(sso[1]);
+    return;
+  }
+
+  // The marketing site's "Try the demo" lands here: straight into a new demo
+  // household, or into the one this browser already has.
+  if (hash === "#/demo") {
+    if (session.token) {
+      window.location.hash = "#/plan";
+      return;
+    }
+    contentRoot = null;
+    renderLogin(shell);
+    document.title = "YAMP demo";
+    await startDemo();
     return;
   }
 

@@ -4,7 +4,7 @@
 // REGISTRATION_ENABLED=false answers 403 with an explanation we just show.
 
 import { api, session } from "../api.js";
-import { html, render, toast } from "../dom.js";
+import { html, openDialog, render, toast } from "../dom.js";
 import { goToProvider } from "../sso.js";
 
 let mode = "signin"; // signin | register | reset
@@ -17,6 +17,7 @@ export function renderLogin(root) {
       <div class="login-card">
         <span class="wordmark">yamp<span class="dot">.</span></span>
         <p class="strap">the big-screen half of your meal planner</p>
+        <div data-demo></div>
         <div class="login-tabs" role="tablist">
           <button data-mode="signin" class="${mode === "signin" ? "on" : ""}">Sign in</button>
           <button data-mode="register" class="${mode === "register" ? "on" : ""}">Register</button>
@@ -46,6 +47,7 @@ export function renderLogin(root) {
   paintFoot(root);
   paintSso(root);
   paintAllowances(root);
+  paintDemo(root);
   loadConfig(root);
 
   const form = root.querySelector("[data-form]");
@@ -114,6 +116,7 @@ function loadConfig(root) {
       paintFoot(root);
       paintSso(root);
       paintAllowances(root);
+      paintDemo(root);
     });
 }
 
@@ -310,4 +313,76 @@ async function submit(data, root) {
   session.save(auth);
   toast("Password changed — you're signed in.", "ok");
   window.location.hash = "#/plan";
+}
+
+// ── the public demo server ──────────────────────────────────────────────
+//
+// Only where /client-config says `demo_mode`. "Try the demo" makes an ordinary
+// account through POST /auth/register (so the signup rate and every other
+// guard apply), then asks POST /demo/fill to put the demo into its empty
+// household. The address and password are made up here and shown once, so the
+// visitor can also sign in from the iPhone app or hand an AI a token. Every
+// household on a demo server is deleted after a day, this one included.
+
+function paintDemo(root) {
+  const slot = root.querySelector("[data-demo]");
+  if (!slot) return;
+  if (!config?.demo_mode) {
+    render(slot, html``);
+    return;
+  }
+  render(slot, html`
+    <div class="demo-note">
+      <b>This is the YAMP demo.</b>
+      <p>Get a household already filled with recipes, a plan and a shopping list.
+         No sign-up, and it's all deleted within a day.</p>
+      <button class="btn" type="button" data-demo-go>Try the demo</button>
+    </div>
+  `);
+  slot.querySelector("[data-demo-go]").onclick = (event) => startDemo(event.target);
+}
+
+function randomWord(length) {
+  const alphabet = "abcdefghijkmnpqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
+
+export async function startDemo(button = null) {
+  if (button) button.disabled = true;
+  const email = `demo-${randomWord(10)}@example.com`;
+  const password = randomWord(20);
+  try {
+    const auth = await api("/auth/register", {
+      method: "POST",
+      body: { email, password, display_name: "Demo", household_name: "Demo household" },
+    });
+    session.save(auth);
+    toast("Setting up your demo household…", "ok");
+    const filled = await api("/demo/fill", { method: "POST" });
+    showDemoAccount(email, password, filled.expires_in_hours);
+  } catch (error) {
+    if (button) button.disabled = false;
+    toast(error.detail || error.message, "error");
+  }
+}
+
+function showDemoAccount(email, password, hours) {
+  const dialog = openDialog(html`
+    <h2>Your demo household is ready</h2>
+    <p>It's yours alone, and it's deleted within ${hours} hours. To try the iPhone
+       app or connect an AI too, use this server and these details:</p>
+    <dl class="demo-creds">
+      <dt>Server</dt><dd><code>${window.location.origin}</code></dd>
+      <dt>Email</dt><dd><code>${email}</code></dd>
+      <dt>Password</dt><dd><code>${password}</code></dd>
+    </dl>
+    <p class="demo-hint">An API token for an AI is in Settings.</p>
+    <div class="dialog-actions"><button class="btn" data-x="ok">Show me the plan</button></div>
+  `);
+  const go = () => {
+    dialog.close();
+    window.location.hash = "#/plan";
+  };
+  dialog.querySelector('[data-x="ok"]').onclick = go;
 }

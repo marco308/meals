@@ -1071,6 +1071,22 @@ dialog .sub { color: var(--ink-mute); font-size: .9rem; margin: .2rem 0 .9rem; }
 .allow-note ul { margin: 0; padding-left: 1.1rem; }
 .allow-note li { margin: .12rem 0; }
 
+.demo-note {
+  margin-bottom: 1.1rem;
+  padding: .95rem 1rem 1.05rem;
+  background: var(--cream-2);
+  border-radius: 14px;
+  font-size: .88rem;
+  color: var(--ink-soft);
+}
+.demo-note b { font-family: var(--display); display: block; color: var(--ink); }
+.demo-note p { margin: .3rem 0 .8rem; }
+.demo-note .btn { width: 100%; }
+.demo-creds { display: grid; grid-template-columns: auto 1fr; gap: .4rem .9rem; margin: 1rem 0; }
+.demo-creds dt { color: var(--ink-mute); font-size: .85rem; }
+.demo-creds dd { margin: 0; word-break: break-all; }
+.demo-hint { font-size: .85rem; color: var(--ink-mute); }
+
 /* ── responsive ─────────────────────────────────────────────────────── */
 
 @media (max-width: 900px) {

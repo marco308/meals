@@ -56,6 +56,8 @@ BLANK_IS_DEFAULT = [
     ("OIDC_TIMEOUT_SECONDS", "oidc_timeout_seconds"),
     ("RECIPE_PHOTO_UPLOADS_ENABLED", "recipe_photo_uploads_enabled"),
     ("RECIPE_PHOTO_MAX_BYTES", "recipe_photo_max_bytes"),
+    ("DEMO_MODE", "demo_mode"),
+    ("DEMO_HOUSEHOLD_TTL_HOURS", "demo_household_ttl_hours"),
 ]
 
 # A real value for each, different from the default, so "blank falls back" and
@@ -81,6 +83,8 @@ SET_VALUES = {
     "OIDC_TIMEOUT_SECONDS": ("3.5", 3.5),
     "RECIPE_PHOTO_UPLOADS_ENABLED": ("true", True),
     "RECIPE_PHOTO_MAX_BYTES": ("2097152", 2_097_152),
+    "DEMO_MODE": ("true", True),
+    "DEMO_HOUSEHOLD_TTL_HOURS": ("6", 6),
 }
 
 
