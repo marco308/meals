@@ -137,6 +137,8 @@ mark {
   color: var(--ink);
 }
 .masthead nav a.ghost:hover { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.masthead nav a.gh { display: inline-grid; place-items: center; padding: 0; width: 2.3rem; height: 2.3rem; }
+.masthead nav a.gh svg { display: block; }
 
 /* striped market awning with a scalloped hem */
 .awning {
@@ -165,7 +167,7 @@ mark {
   margin: 0 auto;
   padding: clamp(3.2rem, 7vw, 5.5rem) clamp(1.2rem, 4vw, 3rem) clamp(3rem, 6vw, 5rem);
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr);
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
   gap: clamp(2rem, 5vw, 4.5rem);
   align-items: center;
 }
@@ -188,6 +190,8 @@ mark {
 }
 
 .cta { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 2rem; }
+.btn.icon { display: inline-grid; place-items: center; padding: 0; width: 3.2rem; height: 3.2rem; }
+.btn.icon svg { display: block; }
 
 .btn {
   font-family: var(--display);
@@ -208,91 +212,41 @@ mark {
 .btn.hot { background: var(--tomato); border-color: var(--tomato); color: #fff; }
 .btn.hot:hover { background: var(--ink); border-color: var(--ink); color: var(--cream); }
 
-.footnote {
-  font-size: .85rem;
-  color: var(--ink-mute);
-  margin-top: 1.3rem;
-}
+/* ── the hero picture: the web app with the iPhone app in front ───────── */
 
-/* ── the weekly menu card ─────────────────────────────────────────── */
-
-.menu-card {
-  margin: 0;
+.devices {
   position: relative;
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  padding: 1.5rem 1.6rem 1.2rem;
-  transform: rotate(-1.4deg);
-  transition: transform .35s var(--ease);
-}
-.menu-card:hover { transform: rotate(0); }
-
-.menu-awning {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 12px;
-  border-radius: 16px 16px 0 0;
-  background: repeating-linear-gradient(90deg,
-    var(--tomato) 0 22px, var(--tint-red) 22px 44px);
-}
-
-.menu-title {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 1.5rem;
-  letter-spacing: -.02em;
-  margin: .9rem 0 0;
-}
-.menu-sub {
-  font-size: .85rem;
-  color: var(--ink-mute);
-  margin: .15rem 0 .9rem;
-  padding-bottom: .8rem;
-  border-bottom: 1.5px dashed var(--line);
-}
-
-.menu-list {
-  list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 6% 12% 0;
 }
-.menu-list li {
+.browser {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.browser-bar {
   display: flex;
   align-items: center;
-  gap: .8rem;
-  padding: .62rem 0;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  background: #efe7da;
+  border-bottom: 1px solid var(--line);
 }
-.menu-list li + li { border-top: 1px solid rgba(51, 38, 26, .08); }
-.m-emoji {
-  flex: none;
-  width: 2.1rem;
-  height: 2.1rem;
-  display: grid;
-  place-items: center;
-  font-size: 1.15rem;
-  background: var(--cream);
-  border-radius: 10px;
+.browser-bar i { width: 9px; height: 9px; border-radius: 50%; background: #d6cab8; }
+.browser-bar span { margin-left: 12px; font-size: .72rem; color: var(--ink-mute); }
+.browser img { display: block; width: 100%; height: auto; }
+.devices .phone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30%;
+  padding: 6px;
+  border-radius: 28px;
 }
-.m-name {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 1rem;
-}
-.menu-list .tag { margin-left: auto; }
-
-.menu-foot {
-  margin: .9rem 0 0;
-  padding-top: .8rem;
-  border-top: 1.5px dashed var(--line);
-  text-align: center;
-  font-size: .82rem;
-  font-style: italic;
-  color: var(--ink-mute);
-}
+.devices .phone img { border-radius: 23px; }
 
 /* ── bands & section furniture ────────────────────────────────────── */
 
@@ -306,20 +260,6 @@ mark {
   border-bottom: 1px solid var(--line);
 }
 
-.kicker { margin: 0 0 1.1rem; }
-.k-tag {
-  display: inline-block;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: .8rem;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  border-radius: 999px;
-  padding: .3rem .9rem;
-}
-.k-tag.red    { background: var(--tint-red); color: var(--tomato-dk); }
-.k-tag.green  { background: var(--tint-green); color: var(--leek); }
-.k-tag.butter { background: var(--tint-butter); color: #9a6b14; }
 
 .band h2 {
   font-size: clamp(1.9rem, 4.4vw, 3rem);
@@ -427,10 +367,12 @@ mark {
 }
 
 .facts { display: grid; gap: 1.15rem; }
-.fact h4 {
+.fact h3 {
   font-family: var(--display);
   font-weight: 800;
   font-size: 1rem;
+  letter-spacing: normal;
+  line-height: normal;
   margin: 0;
 }
 .fact p { color: var(--ink-soft); font-size: .92rem; margin: .3rem 0 0; }
@@ -522,6 +464,23 @@ mark {
   border-radius: 50%;
 }
 
+.shots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 250px));
+  justify-content: center;
+  gap: clamp(1rem, 3vw, 2.4rem);
+  margin-top: 2.4rem;
+}
+.shots figure { margin: 0; }
+.shots .bezel { padding: 8px; border-radius: 36px; }
+.shots .bezel img { border-radius: 29px; }
+.shots figcaption { margin-top: .8rem; text-align: center; font-size: .85rem; color: var(--ink-mute); }
+@media (max-width: 640px) {
+  .shots { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+  .shots .bezel { padding: 4px; border-radius: 18px; }
+  .shots .bezel img { border-radius: 15px; }
+}
+
 .shot-wrap {
   margin: 0;
   justify-self: center;
@@ -577,13 +536,9 @@ mark {
   max-width: 380px;
   justify-self: center;
 }
-.st-title { font-family: var(--display); font-weight: 800; font-size: 1.05rem; margin: 0; }
-.st-sub {
-  font-size: .78rem;
-  color: var(--ink-mute);
-  margin: .1rem 0 .6rem;
-  padding-bottom: .6rem;
-  border-bottom: 1.5px dashed var(--line);
+.st-title {
+  font-family: var(--display); font-weight: 800; font-size: 1.05rem;
+  margin: 0 0 .6rem; padding-bottom: .6rem; border-bottom: 1.5px dashed var(--line);
 }
 .st-row { display: flex; align-items: center; gap: .6rem; padding: .55rem 0; }
 .st-row + .st-row { border-top: 1px solid rgba(51, 38, 26, .08); }
@@ -774,7 +729,7 @@ footer .thin { font-size: .78rem; }
 
 @media (max-width: 920px) {
   .hero { grid-template-columns: 1fr; }
-  .menu-card { transform: none; max-width: 480px; }
+  .devices { max-width: 640px; }
   .split, .split.reverse { grid-template-columns: 1fr; }
   .shot-wrap { transform: none; }
   .turn { max-width: 100%; }
@@ -793,5 +748,5 @@ footer .thin { font-size: .78rem; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .btn, .card, .menu-card, .shot-wrap { transition: none; }
+  .btn, .card, .shot-wrap { transition: none; }
 }
