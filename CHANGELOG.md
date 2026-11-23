@@ -20,10 +20,32 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
-No migrations, and nothing in the API changed. Guidance changed, so this is
-**playbook v26**.
+Nothing yet.
+
+## 2026-11-23: a public demo, and editing a recipe over MCP
+
+Released as **1.15.0**. **No migrations.** **Playbook v26.** One new endpoint,
+`POST /demo/fill`, which only exists on a demo server.
+
+**Operator settings, all optional and off by default:** `DEMO_MODE`,
+`DEMO_DATA_FILE` and `DEMO_HOUSEHOLD_TTL_HOURS`, for running a public demo.
+Never set `DEMO_MODE` on a server with real households: on a demo server
+every household is deleted after a day. Nothing changes on a server that sets
+none of them.
 
 ### Added
+
+- **A public demo server** (`demo-meals.marcuslab.uk`). With `DEMO_MODE` on,
+  the web app's sign-in card offers "Try the demo" (and `#/demo` goes straight
+  in): it registers an ordinary account through `POST /auth/register`, so every
+  signup guard applies, then `POST /demo/fill` puts the demo recipes, meals,
+  plan and a shopping list from `DEMO_DATA_FILE` into that new, empty household
+  through the public API. The visitor is shown the made-up email and password,
+  so they can also sign in from the iPhone app or connect an AI. An hourly task
+  in the app deletes every household older than `DEMO_HOUSEHOLD_TTL_HOURS`
+  (24); `python -m app.demo` does the same by hand and refuses to run anywhere
+  `DEMO_MODE` is off. `GET /client-config` publishes `demo_mode`, and the
+  assistant webhook is refused on a demo server.
 
 - **Editing a recipe over MCP.** A new tool, `update_recipe(recipe, ...)`,
   wraps `PATCH /recipes/{id}` so an assistant can correct a badly parsed
