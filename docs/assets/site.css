@@ -137,6 +137,8 @@ mark {
   color: var(--ink);
 }
 .masthead nav a.ghost:hover { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.masthead nav a.demo { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.masthead nav a.demo:hover { background: var(--tomato); border-color: var(--tomato); color: #fff; }
 .masthead nav a.gh { display: inline-grid; place-items: center; padding: 0; width: 2.3rem; height: 2.3rem; }
 .masthead nav a.gh svg { display: block; }
 
