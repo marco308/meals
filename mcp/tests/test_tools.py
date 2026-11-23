@@ -501,6 +501,78 @@ class TestRecipeUsage:
         assert "Garlic bread" in result
 
 
+class TestRecipeEditing:
+    """update_recipe wraps PATCH /recipes/{id}: correct a recipe in place
+    rather than delete and resubmit it, which loses its cooked history."""
+
+    def _mock_library(self):
+        respx.get(f"{API}/recipes").mock(
+            return_value=httpx.Response(200, json=[_library_recipe("r1", "Chicken korma", times_cooked=4)])
+        )
+
+    def _patched(self, **fields) -> dict:
+        return _library_recipe(
+            "r1",
+            fields.pop("title", "Chicken korma"),
+            times_cooked=4,
+            edited=True,
+            ingredients=[{"name": "chicken thigh", "display": "500 g"}, {"name": "salt", "display": ""}],
+            **fields,
+        )
+
+    @respx.mock
+    async def test_only_the_fields_given_are_sent(self):
+        """A key left out of a PATCH is left alone; a None sent as null would clear it."""
+        self._mock_library()
+        route = respx.patch(f"{API}/recipes/r1").mock(return_value=httpx.Response(200, json=self._patched(servings=4)))
+        result = await server.update_recipe("korma", servings=4, cook_minutes=40)
+        assert json.loads(route.calls.last.request.content) == {"servings": 4, "cook_minutes": 40}
+        assert "Updated (servings, cook_minutes)" in result
+        assert "Chicken korma" in result and "cooked 4×" in result
+
+    @respx.mock
+    async def test_ingredients_go_whole_in_submit_recipes_shape(self):
+        self._mock_library()
+        route = respx.patch(f"{API}/recipes/r1").mock(return_value=httpx.Response(200, json=self._patched()))
+        lines = [{"name": "chicken thigh", "quantity": 500, "unit": "g"}, {"name": "salt"}]
+        result = await server.update_recipe("r1", ingredients=lines, tags=["curry"])
+        assert json.loads(route.calls.last.request.content) == {"ingredients": lines, "tags": ["curry"]}
+        assert "  - chicken thigh — 500 g" in result
+        assert "  - salt" in result
+        assert "force=True" in result
+
+    @respx.mock
+    async def test_blank_method_and_photo_are_sent_as_null_to_clear_them(self):
+        self._mock_library()
+        route = respx.patch(f"{API}/recipes/r1").mock(return_value=httpx.Response(200, json=self._patched()))
+        await server.update_recipe("Chicken korma", instructions="  ", image_url="")
+        assert json.loads(route.calls.last.request.content) == {"instructions": None, "image_url": None}
+
+    @respx.mock
+    async def test_no_changes_is_explained_not_sent(self):
+        self._mock_library()
+        patch = respx.patch(f"{API}/recipes/r1")
+        result = await server.update_recipe("korma")
+        assert "Nothing to change on 'Chicken korma'" in result
+        assert not patch.called
+
+    @respx.mock
+    async def test_unknown_recipe_lists_the_library(self):
+        self._mock_library()
+        result = await server.update_recipe("tiramisu", title="Tiramisu")
+        assert "No recipe matching 'tiramisu'" in result
+        assert "Chicken korma" in result
+
+    @respx.mock
+    async def test_a_refused_unit_passes_the_conversion_hint_back(self):
+        self._mock_library()
+        respx.patch(f"{API}/recipes/r1").mock(
+            return_value=httpx.Response(422, json={"detail": "unit 'cup' is not accepted: 1 cup = 240 ml"})
+        )
+        result = await server.update_recipe("korma", ingredients=[{"name": "rice", "quantity": 1, "unit": "cup"}])
+        assert "API error 422" in result and "240 ml" in result
+
+
 class TestMealEditing:
     MEALS = [
         {

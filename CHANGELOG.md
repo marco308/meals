@@ -20,6 +20,23 @@ The API contract is additive-only (see CLAUDE.md), so **Removed** and
 
 ## Unreleased
 
+No migrations, and nothing in the API changed. Guidance changed, so this is
+**playbook v26**.
+
+### Added
+
+- **Editing a recipe over MCP.** A new tool, `update_recipe(recipe, ...)`,
+  wraps `PATCH /recipes/{id}` so an assistant can correct a badly parsed
+  recipe in place: title, servings, prep and cook minutes, instructions, tags,
+  image_url and the whole ingredient list (in `submit_recipe`'s shape). Only
+  the fields passed are sent; `ingredients` and `tags` replace the whole list,
+  and `""` clears the method or the photo. Until now the only route was to
+  detach, delete, resubmit and reattach, which lost the recipe's cooked
+  history. Like any edit it marks the recipe as edited, so `reparse_recipe`
+  then needs `force`, and a meal on the active plan re-syncs the shopping
+  list. That takes the server to **37** tools (README and the marketing page
+  had stayed at 34 since three earlier tools landed).
+
 ## 2026-11-19: recipe photos and single sign-on
 
 Released as **1.14.0**. **Two migrations** (`e4a1c7b92f30`, then
