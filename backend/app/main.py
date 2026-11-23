@@ -40,7 +40,7 @@ from app.routers import demo as demo_router
 from app.routers import labels as labels_router
 from app.routers import limits as limits_router
 from app.routers.skill import base_url, playbook_version, warn_if_origin_unpinned
-from app.services import security
+from app.services import demo, security
 
 settings = get_settings()
 observability.setup_logging()
@@ -63,15 +63,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     refresher: asyncio.Task | None = None
     if get_settings().metrics_token:
         refresher = asyncio.create_task(metrics.usage_gauge_refresher())
+    # A demo server empties itself: every household goes after a day (services/demo.py).
+    demo_reaper = asyncio.create_task(demo.reaper()) if get_settings().demo_mode else None
     # The /mcp route needs its session manager running for the life of the app
     # (a no-op when the mount is off). Tests skip lifespan, so a test that
     # exercises /mcp enters mcp_mount.running() itself.
     async with mcp_mount.running():
         yield
-    if refresher is not None:
-        refresher.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await refresher
+    for task in (refresher, demo_reaper):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(

@@ -31,7 +31,9 @@ in this repository, because its recipes come from a real library:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -146,3 +148,22 @@ async def reap(db: AsyncSession, *, now: datetime | None = None, dry_run: bool =
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+async def reaper(interval_seconds: float = 3600) -> None:
+    """Reap on a timer, for the life of the app (started in main.lifespan on a
+    demo server only). In the app rather than in cron because a demo server has
+    nothing else to schedule and its container is all there is: `python -m
+    app.demo` does the same by hand. A failed pass is logged and the next one
+    tries again."""
+    from app.database import SessionLocal
+    from app.observability import log_event
+
+    while True:
+        try:
+            async with SessionLocal() as db:
+                expired = await reap(db)
+            log_event("demo.reap", outcome="ok", deleted=len(expired))
+        except Exception as exc:  # noqa: BLE001 - keep reaping whatever one pass hit
+            logging.getLogger("meals.demo").warning("demo reap failed: %s", exc.__class__.__name__)
+        await asyncio.sleep(interval_seconds)

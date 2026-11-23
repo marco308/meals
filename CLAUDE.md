@@ -505,7 +505,8 @@ instrumentation a new feature usually needs.
   the public demo (`demo-meals.marcuslab.uk`): there, "Try the demo" in the web
   app registers an ordinary account (every signup guard applies), `POST
   /demo/fill` fills its empty household from `DEMO_DATA_FILE` *through the
-  public API* over an in-process transport, and the cron'd reap deletes every
+  public API* over an in-process transport, and an hourly reap (a task in
+  `main.lifespan`, demo servers only; `python -m app.demo` by hand) deletes every
   household older than `DEMO_HOUSEHOLD_TTL_HOURS`, whoever made it. `reap`
   raises unless `DEMO_MODE` is on, and that guard must stay: on any other
   server it is a mass deletion. The data file holds a real library, so it lives

@@ -144,3 +144,29 @@ async def test_reap_refuses_on_a_real_server(client, engine):
 
 def _uuid(value: str) -> uuid.UUID:
     return uuid.UUID(value)
+
+
+async def test_the_reaper_runs_a_pass_then_waits(demo_on, client, engine, monkeypatch):
+    import asyncio
+
+    from app import database
+
+    old = await register(client, email="stale@example.com")
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        await db.execute(
+            update(Household)
+            .where(Household.id == _uuid(old["user"]["household_id"]))
+            .values(created_at=datetime.now(UTC) - timedelta(days=2))
+        )
+        await db.commit()
+    monkeypatch.setattr(database, "SessionLocal", maker)
+
+    task = asyncio.create_task(demo.reaper(interval_seconds=3600))
+    await asyncio.sleep(0.3)  # one pass, then it sleeps
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    async with maker() as db:
+        assert (await db.execute(select(Household.id))).scalars().all() == []
