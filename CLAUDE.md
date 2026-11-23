@@ -641,7 +641,7 @@ sign-in. Build the app through `http_app()` so both deployments get it. That hea
 reaches the tools through the `_capture_caller_headers` middleware, which
 publishes them in a contextvar for the life of the request: SDK 2.0 only hands
 the request context to a handler that declares a `Context` parameter, and the
-alternative is threading one through all 36 tools and their helpers. Keep the
+alternative is threading one through all 37 tools and their helpers. Keep the
 middleware registered — without it every remote call silently drops to the
 stdio env-token path.
 

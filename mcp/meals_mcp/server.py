@@ -44,7 +44,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # they drift, and the backend suite fails if the guidance changes without a bump).
 # Instructions ship fresh on every connection, so this is the one channel that can
 # tell an assistant its installed skill snapshot has gone stale.
-PLAYBOOK_VERSION = 25
+PLAYBOOK_VERSION = 26
 
 # The caller's HTTP headers for the request being served, or None over stdio
 # (and in direct tool-function calls), where env-token auth applies.
@@ -375,6 +375,73 @@ async def set_recipe_image(recipe: str, image_url: str) -> str:
 
 
 @mcp.tool()
+async def update_recipe(
+    recipe: str,
+    title: str | None = None,
+    servings: int | None = None,
+    prep_minutes: int | None = None,
+    cook_minutes: int | None = None,
+    instructions: str | None = None,
+    tags: list[str] | None = None,
+    image_url: str | None = None,
+    ingredients: list[dict] | None = None,
+) -> str:
+    """Correct a recipe already in the library: a badly parsed ingredient
+    line, a wrong title, servings or times, the method, the tags. `recipe` is
+    a title or id. Only the fields you pass change; everything left out stays
+    as it is. Prefer this to deleting and resubmitting, which loses the
+    recipe's cooked history and its place in every meal.
+
+    ingredients REPLACES THE WHOLE LIST, in the same shape submit_recipe takes
+    ({"name": str, "quantity": number, "unit": str}; omit quantity+unit for
+    'to taste'): read the recipe first and send every line, corrected, not
+    just the one you fixed. tags replaces the whole list too. instructions=""
+    clears the method; image_url follows set_recipe_image's rules ("" removes
+    it, and replacing a photo whose image_uploaded is true deletes that upload
+    for good, so ask first).
+
+    The edit marks the recipe as edited by the household, so reparse_recipe
+    will refuse to overwrite it without force=True. If a meal using it is on
+    the active plan, the shopping list re-syncs to the new ingredients. A new
+    method or ingredient list makes assistant-written cook-mode steps
+    outdated: offer annotate_recipe_steps afterwards."""
+    payload: dict[str, Any] = {
+        key: value
+        for key, value in {
+            "title": title,
+            "servings": servings,
+            "prep_minutes": prep_minutes,
+            "cook_minutes": cook_minutes,
+            "tags": tags,
+            "ingredients": ingredients,
+        }.items()
+        if value is not None
+    }
+    # PATCH clears a nullable field sent as null, so "" is how the method or
+    # the photo is taken away; None means "leave it alone" and is not sent.
+    if instructions is not None:
+        payload["instructions"] = instructions.strip() or None
+    if image_url is not None:
+        payload["image_url"] = image_url.strip() or None
+    try:
+        found = (await _resolve_recipes([recipe]))[0]
+        if not payload:
+            return (
+                f"Nothing to change on '{found['title']}'. Pass title, servings, prep_minutes, cook_minutes, "
+                "instructions, tags, image_url or ingredients."
+            )
+        updated = await _call("PATCH", f"/recipes/{found['id']}", json=payload)
+    except ApiError as exc:
+        return str(exc)
+    lines = "\n".join(f"  - {line['name']}{_fmt_qty(line)}" for line in updated.get("ingredients", []))
+    return (
+        f"Updated ({', '.join(payload)}): {_fmt_recipe_summary(updated)}\n"
+        f"Ingredients:\n{lines or '  (none)'}\n"
+        "Marked as edited by the household, so a reparse now needs force=True."
+    )
+
+
+@mcp.tool()
 async def list_recipes(
     search: str | None = None,
     tag: str | None = None,
@@ -403,7 +470,8 @@ async def list_recipes(
 async def delete_recipe(title: str) -> str:
     """Delete a recipe from the library by title (a bad parse, a duplicate,
     something nobody liked). Refused while a meal still uses the recipe —
-    detach it with update_meal(remove_recipes=[...]) first."""
+    detach it with update_meal(remove_recipes=[...]) first. To fix a bad parse,
+    use update_recipe instead: deleting loses the recipe's cooked history."""
     try:
         recipe = (await _resolve_recipes([title]))[0]
         await _call("DELETE", f"/recipes/{recipe['id']}")

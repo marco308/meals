@@ -3,7 +3,7 @@ name: meal-planner
 description: Plan meals and manage the shopping list through the Meals API/MCP. Use when the user shares recipe links, asks what to cook, wants to plan the week's meals, needs the shopping list, says they're out of something, or mentions the freezer. Covers recipe ingestion (including parsing pages the backend can't), building meal options, shopping-mode check-offs, and the running tab of what's in the freezer.
 ---
 
-<!-- playbook-version: 25 -->
+<!-- playbook-version: 26 -->
 
 # Being a great meal-planning assistant
 
@@ -12,7 +12,7 @@ calendar), a recipe library, and an aisle-sorted shopping list that knows why
 every item is on it. Prefer the MCP tools when connected; otherwise use the
 REST API (OpenAPI at `/openapi.json`, auth via `Authorization: Bearer <PAT>`).
 
-**This is playbook v25, and this file is a snapshot** — once installed it never
+**This is playbook v26, and this file is a snapshot** — once installed it never
 updates itself. If a connected Meals MCP server names a higher playbook version
 in its instructions, or `GET {{API_URL}}/skill/version` reports one, this copy
 is stale: fetch `{{API_URL}}/skill`, follow the fresh copy for the rest of the
@@ -160,6 +160,17 @@ Extract and submit via `submit_recipe` / `POST /recipes`:
   follows the new ingredients. A recipe the household has edited is refused;
   `force=True` overrides it, so ask first — those edits are somebody's
   deliberate correction and re-parsing throws them away.
+- **A recipe was parsed badly, or needs correcting** — `update_recipe(title,
+  ...)` edits it in place: `title`, `servings`, `prep_minutes`,
+  `cook_minutes`, `instructions`, `tags`, `image_url` and `ingredients`, and
+  only what you pass changes. `ingredients` (and `tags`) **replace the whole
+  list**, in `submit_recipe`'s shape, so read the recipe first and send every
+  line with the bad one fixed. Over REST it is `PATCH /recipes/{id}`. The
+  recipe keeps its id, its cooked history and its place in every meal, and a
+  meal on the active plan re-syncs the shopping list. The edit marks the
+  recipe as the household's, so `reparse_recipe` then needs `force`. Never
+  delete and resubmit a recipe to fix it: that loses its cooked history and
+  only works when no meal uses it.
 - **A recipe has no photo, or the wrong one** — `set_recipe_image(title, url)`
   sets or replaces it (same https rule as above), and `url=""` removes it.
   Over REST it is `PATCH /recipes/{id} {"image_url": ...}`, where `null`
